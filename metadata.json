@@ -1,0 +1,8 @@
+{
+  "name": "Remix APEX: Formula Championship",
+  "description": "High-fidelity 3D Formula 1 racing simulation featuring next-gen F1 2026 regulations, authentic vehicle dynamics, championship season calendar, customizable 3-10 lap races, and dual keyboard/gamepad controller support.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
