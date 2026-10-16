@@ -118,6 +118,41 @@ function createTeammate3DBeacon(driver: Driver): THREE.Group {
   return group;
 }
 
+export interface GridOptions {
+  botCount?: number;
+  hasTeammates?: boolean;
+  playerGridSlot?: number;
+  peerPlayers?: {
+    id: string;
+    name: string;
+    carNumber: number;
+    teamId: string;
+    teamColor: string;
+    accentColor: string;
+    gridSlot: number;
+  }[];
+}
+
+export interface PeerCar {
+  id: string;
+  name: string;
+  carNumber: number;
+  teamId: string;
+  teamColor: string;
+  accentColor: string;
+  builtCar: BuiltCar;
+  pos: THREE.Vector3;
+  targetPos: THREE.Vector3;
+  heading: number;
+  targetHeading: number;
+  speedKmh: number;
+  progress: number;
+  lap: number;
+  lateralOffset: number;
+  position: number;
+  finished: boolean;
+}
+
 export class PhysicsEngine {
   public playerPos: THREE.Vector3 = new THREE.Vector3();
   public playerHeading: number = 0; // Radians, 0 = (0, 0, -1)
@@ -190,6 +225,8 @@ export class PhysicsEngine {
   public brakesScore: number = 85;
   public customTopSpeedKmh?: number;
   public teammateDriverId?: string;
+  public peerCars: Map<string, PeerCar> = new Map();
+  public multiplayerMode: boolean = false;
 
   constructor(
     public playerCar: BuiltCar,
@@ -257,25 +294,33 @@ export class PhysicsEngine {
     };
   }
 
-  public initGrid(playerDriverId: string, aiCarBuilderFn: (team: Team, driver: Driver) => BuiltCar) {
+  public initGrid(
+    playerDriverId: string,
+    aiCarBuilderFn: (team: Team, driver: Driver) => BuiltCar,
+    options?: GridOptions
+  ) {
     this.aiCars = [];
+    this.peerCars = new Map();
     this.finishedDriversOrder = [];
     const allDrivers = [...DRIVERS];
     const playerDriver = allDrivers.find((d) => d.id === playerDriverId) || allDrivers[0];
-    const aiDrivers = allDrivers.filter((d) => d.id !== playerDriver.id);
 
-    // DYNAMIC QUALIFYING SIMULATION & PARITY ("dont always make max verstappen win make other people win too"):
-    // In real Formula 1, pole position & grid slots fluctuate across every Grand Prix!
-    // Norris, Leclerc, Hamilton, Piastri, Russell, Sainz, Alonso, and Verstappen battle with varying tire prep,
-    // track suitability, and qualifying hot laps.
-    aiDrivers.sort((a, b) => {
+    const shouldHaveTeammate = options?.hasTeammates !== false && Boolean(this.teammateDriverId);
+    const teammateDriver = shouldHaveTeammate ? allDrivers.find((d) => d.id === this.teammateDriverId) : null;
+
+    // Filter available pool of other AI drivers
+    const otherAiDrivers = allDrivers.filter(
+      (d) => d.id !== playerDriver.id && d.id !== this.teammateDriverId
+    );
+
+    // Dynamic qualifying simulation & balance
+    otherAiDrivers.sort((a, b) => {
       const teamA = TEAMS.find((t) => t.id === a.teamId);
       const teamB = TEAMS.find((t) => t.id === b.teamId);
       const tierScoreA = (4 - (teamA?.performanceTier || 3)) * 4.5;
       const tierScoreB = (4 - (teamB?.performanceTier || 3)) * 4.5;
       const randomQFactorA = (Math.random() * 18.0) - 9.0;
       const randomQFactorB = (Math.random() * 18.0) - 9.0;
-      // Qualifying specialists hot-lap bonuses
       const qSpecialistBonusA = (a.id === 'norris' || a.id === 'leclerc') ? 3.0 : 0;
       const qSpecialistBonusB = (b.id === 'norris' || b.id === 'leclerc') ? 3.0 : 0;
       const qualifyA = a.rating + tierScoreA + randomQFactorA + qSpecialistBonusA;
@@ -283,17 +328,39 @@ export class PhysicsEngine {
       return qualifyB - qualifyA;
     });
 
-    // Haas rookie starts in grid slot 17, higher rating/contract teams start higher
-    const playerStartingGrid = playerDriver.teamId === 'haas' ? 17 : Math.max(1, 21 - Math.floor(playerDriver.rating / 5));
+    // Desired bot count: total human players + bots cannot exceed 20
+    const humanPeerCount = options?.peerPlayers?.length || 0;
+    const maxBotsAllowed = Math.max(0, 20 - 1 - humanPeerCount);
+    const targetBotCount = options?.botCount !== undefined
+      ? Math.min(maxBotsAllowed, Math.max(0, options.botCount))
+      : maxBotsAllowed;
+
+    // AI Drivers list for this race
+    const activeAiDrivers: Driver[] = [];
+    if (teammateDriver && targetBotCount > 0) {
+      activeAiDrivers.push(teammateDriver);
+    }
+    for (const d of otherAiDrivers) {
+      if (activeAiDrivers.length >= targetBotCount) break;
+      activeAiDrivers.push(d);
+    }
+
+    // Grid placement
+    const playerStartingGrid = options?.playerGridSlot || (playerDriver.teamId === 'haas' ? 17 : Math.max(1, 21 - Math.floor(playerDriver.rating / 5)));
+
+    // Track slots occupied by remote peer players
+    const peerSlotMap = new Map<number, (typeof options.peerPlayers)[0]>();
+    if (options?.peerPlayers) {
+      for (const p of options.peerPlayers) {
+        peerSlotMap.set(p.gridSlot, p);
+      }
+    }
 
     let aiIndex = 0;
     for (let gridPos = 1; gridPos <= 20; gridPos++) {
-      // Pit straight spacing: 9.0m per slot behind start line
       const slotDistBehind = 16 + gridPos * 9.0;
       const gridT = ((1.0 - slotDistBehind / this.track.trackLength) % 1.0 + 1.0) % 1.0;
       const { position, tangent, normal } = this.track.getTrackPointAtProgress(gridT);
-
-      // Alternating left/right starting slots
       const sideOffset = gridPos % 2 === 1 ? -2.4 : 2.4;
       const carPos = position.clone().addScaledVector(normal, sideOffset);
       carPos.y = position.y + 0.08;
@@ -311,8 +378,15 @@ export class PhysicsEngine {
         continue;
       }
 
-      if (aiIndex >= aiDrivers.length) break;
-      const driver = aiDrivers[aiIndex];
+      // Check if a remote peer human player occupies this slot
+      const peerInSlot = peerSlotMap.get(gridPos);
+      if (peerInSlot) {
+        this.addPeerCar(peerInSlot, aiCarBuilderFn);
+        continue;
+      }
+
+      if (aiIndex >= activeAiDrivers.length) continue;
+      const driver = activeAiDrivers[aiIndex];
       let team = TEAMS.find((t) => t.id === driver.teamId) || TEAMS[0];
       const isTeammate = Boolean(this.teammateDriverId && driver.id === this.teammateDriverId);
       if (isTeammate && this.playerTeam) {
@@ -320,8 +394,6 @@ export class PhysicsEngine {
       }
       const builtCar = aiCarBuilderFn(team, driver);
 
-      // ATTACH 3D TEAMMATE IDENTIFICATION BEACON:
-      // "and put like a thing so i know who is my teammate so i dont crash in to them"
       if (isTeammate) {
         const teammateBeacon = createTeammate3DBeacon(driver);
         builtCar.root.add(teammateBeacon);
@@ -340,7 +412,7 @@ export class PhysicsEngine {
         targetOffset: sideOffset,
         smoothLateralVel: 0,
         steerAngle: 0,
-        raceFormPace: (Math.random() - 0.5) * 16.0, // Race-to-race form variance (+/- 8 km/h)
+        raceFormPace: (Math.random() - 0.5) * 16.0,
         lap: 1,
         hasCrossedInitialStartLine: false,
         finished: false,
@@ -359,6 +431,134 @@ export class PhysicsEngine {
       });
 
       aiIndex++;
+    }
+  }
+
+  public addPeerCar(
+    peer: { id: string; name: string; carNumber: number; teamId: string; teamColor: string; accentColor: string; gridSlot: number },
+    builderFn: (team: Team, driver: Driver) => BuiltCar
+  ): PeerCar {
+    const slotDistBehind = 16 + peer.gridSlot * 9.0;
+    const gridT = ((1.0 - slotDistBehind / this.track.trackLength) % 1.0 + 1.0) % 1.0;
+    const { position, tangent, normal } = this.track.getTrackPointAtProgress(gridT);
+    const sideOffset = peer.gridSlot % 2 === 1 ? -2.4 : 2.4;
+    const carPos = position.clone().addScaledVector(normal, sideOffset);
+    carPos.y = position.y + 0.08;
+    const heading = Math.atan2(-tangent.x, -tangent.z);
+
+    const peerTeam: Team = TEAMS.find((t) => t.id === peer.teamId) || {
+      id: peer.teamId || 'custom',
+      name: peer.name + ' Racing',
+      shortName: peer.name.slice(0, 3).toUpperCase(),
+      engine: 'Mercedes-AMG M17',
+      primaryColor: peer.teamColor || '#00e5ff',
+      secondaryColor: '#111111',
+      accentColor: peer.accentColor || '#ffffff',
+      performanceTier: 2,
+      drivers: [peer.id, 'dummy'],
+      reputationRequired: 0,
+      baseSalary: 1000000,
+    };
+
+    const peerDriver: Driver = {
+      id: peer.id,
+      name: peer.name,
+      shortName: (peer.name.trim().split(/\s+/).pop()?.slice(0, 3) || 'RIV').toUpperCase(),
+      number: peer.carNumber || 7,
+      country: 'Global',
+      countryCode: 'UN',
+      teamId: peer.teamId || 'custom',
+      rating: 88,
+      aggression: 0.85,
+      color: peer.teamColor || '#00e5ff',
+    };
+
+    const builtCar = builderFn(peerTeam, peerDriver);
+    builtCar.root.position.copy(carPos);
+    builtCar.root.rotation.y = heading;
+
+    // Attach 3D multiplayer nametag over peer vehicle
+    if (typeof document !== 'undefined') {
+      const nameCanvas = document.createElement('canvas');
+      nameCanvas.width = 256;
+      nameCanvas.height = 72;
+      const ctx = nameCanvas.getContext('2d');
+      if (ctx) {
+        ctx.fillStyle = 'rgba(10, 12, 18, 0.85)';
+        ctx.beginPath();
+        ctx.roundRect(4, 4, 248, 64, 16);
+        ctx.fill();
+        ctx.strokeStyle = peer.teamColor || '#00e5ff';
+        ctx.lineWidth = 4;
+        ctx.stroke();
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 24px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`#${peer.carNumber} ${peer.name}`, 128, 36);
+      }
+      const nameTex = new THREE.CanvasTexture(nameCanvas);
+      const namePlate = new THREE.Mesh(
+        new THREE.PlaneGeometry(1.5, 0.42),
+        new THREE.MeshBasicMaterial({ map: nameTex, transparent: true, side: THREE.DoubleSide })
+      );
+      namePlate.position.set(0, 1.45, 0);
+      builtCar.root.add(namePlate);
+    }
+
+    const peerCar: PeerCar = {
+      id: peer.id,
+      name: peer.name,
+      carNumber: peer.carNumber,
+      teamId: peer.teamId,
+      teamColor: peer.teamColor,
+      accentColor: peer.accentColor,
+      builtCar,
+      pos: carPos,
+      targetPos: carPos.clone(),
+      heading,
+      targetHeading: heading,
+      speedKmh: 0,
+      progress: gridT,
+      lap: 1,
+      lateralOffset: sideOffset,
+      position: peer.gridSlot,
+      finished: false,
+    };
+
+    this.peerCars.set(peer.id, peerCar);
+    return peerCar;
+  }
+
+  public updatePeerCar(data: {
+    playerId: string;
+    progress: number;
+    lap: number;
+    speedKmh: number;
+    lateralOffset: number;
+    heading: number;
+    carPos: { x: number; y: number; z: number };
+    position: number;
+  }) {
+    const peer = this.peerCars.get(data.playerId);
+    if (!peer) return;
+
+    peer.progress = data.progress;
+    peer.lap = data.lap;
+    peer.speedKmh = data.speedKmh;
+    peer.lateralOffset = data.lateralOffset;
+    peer.position = data.position;
+    peer.targetPos.set(data.carPos.x, data.carPos.y, data.carPos.z);
+    peer.targetHeading = data.heading;
+  }
+
+  public removePeerCar(playerId: string) {
+    const peer = this.peerCars.get(playerId);
+    if (peer) {
+      this.peerCars.delete(playerId);
+      if (peer.builtCar.root.parent) {
+        peer.builtCar.root.parent.remove(peer.builtCar.root);
+      }
     }
   }
 
@@ -475,6 +675,19 @@ export class PhysicsEngine {
 
     if (this.teammateRadioTimer > 0) {
       this.teammateRadioTimer = Math.max(0, this.teammateRadioTimer - dt);
+    }
+
+    // Interpolate & animate remote multiplayer peer cars
+    for (const peer of this.peerCars.values()) {
+      peer.pos.lerp(peer.targetPos, Math.min(1.0, dt * 14.0));
+      peer.builtCar.root.position.copy(peer.pos);
+      let diffHeading = peer.targetHeading - peer.heading;
+      while (diffHeading > Math.PI) diffHeading -= Math.PI * 2;
+      while (diffHeading < -Math.PI) diffHeading += Math.PI * 2;
+      peer.heading += diffHeading * Math.min(1.0, dt * 12.0);
+      peer.builtCar.root.rotation.y = peer.heading;
+      peer.builtCar.setWheelSpin(peer.speedKmh, dt);
+      peer.builtCar.updateSparks(peer.speedKmh, false, dt);
     }
 
     // 1. Race Countdown Sequence
@@ -835,7 +1048,7 @@ export class PhysicsEngine {
 
       const subSurface = this.track.checkSurfaceType(this.playerPos, this.playerProgress);
       this.playerProgress = subSurface.progress;
-      const barrierLimit = subSurface.barrierLimit || 17.0;
+      const barrierLimit = subSurface.barrierLimit || 18.4;
       const absLateralDist = Math.abs(subSurface.lateralOffset);
 
       if ((subSurface.isCollidingWall || absLateralDist >= barrierLimit - 0.2) && (this.raceState === 'racing' || this.countdownTimer > 0.4)) {
@@ -892,7 +1105,7 @@ export class PhysicsEngine {
 
     // Failsafe boundary check so car never steps outside track barriers under any frame rate
     const finalSurface = this.track.checkSurfaceType(this.playerPos, this.playerProgress);
-    const finalBarrier = finalSurface.barrierLimit || 17.0;
+    const finalBarrier = finalSurface.barrierLimit || 18.4;
     if (Math.abs(finalSurface.lateralOffset) >= finalBarrier - 0.4) {
       const clampOffset = (finalBarrier - 0.45) * Math.sign(finalSurface.lateralOffset || 1);
       this.playerPos.copy(finalSurface.trackPoint).addScaledVector(finalSurface.normal, clampOffset);
@@ -966,6 +1179,23 @@ export class PhysicsEngine {
         gapToAheadSeconds: this.currentIntervalsMap.get(ai.driver.id) || 0,
         gapToPlayerSeconds: this.currentGapsToPlayerMap.get(ai.driver.id) || 0,
         leadOverP2Seconds: aiPos === 1 ? this.currentP1LeadSeconds : undefined,
+      });
+    }
+
+    for (const peer of this.peerCars.values()) {
+      radar.push({
+        progress: peer.progress,
+        lateralOffset: peer.lateralOffset,
+        color: peer.teamColor || '#00e5ff',
+        isPlayer: false,
+        isTeammate: false,
+        shortName: (peer.name || 'RIV').slice(0, 3).toUpperCase(),
+        position: peer.position,
+        driverName: peer.name,
+        driverId: peer.id,
+        gapToLeaderSeconds: 0,
+        gapToAheadSeconds: 0,
+        gapToPlayerSeconds: 0,
       });
     }
 
@@ -1256,16 +1486,43 @@ export class PhysicsEngine {
             ai.targetOffset = ai.lateralOffset >= 0 ? 6.5 : -6.5; // yield line
           }
         } else if (this.teammateStrategy === 'block') {
-          // Teammate parks on the apex, slows down slightly on corner entries (12%) to back up the pack behind him!
+          // Teammate actively executes team blocking orders:
+          // "also make it so that if my team mate actually listens to what i tell him he actually does the thing for example i tell to block for me he actually blocks"
           let pProgDiff = this.playerProgress - ai.progress;
           if (pProgDiff < -0.5) pProgDiff += 1.0;
           if (pProgDiff > 0.5) pProgDiff -= 1.0;
-          const distFromPlayer = pProgDiff * this.track.trackLength;
-          // If teammate is behind player or ahead of rivals, back up the rivals
-          if (distFromPlayer > -3.0) {
-            // Player is ahead or close: teammate defends wide to hold up rival cars
-            desiredSpeed = Math.min(desiredSpeed, desiredSpeed * 0.90);
-            ai.targetOffset = 0; // Take defensive centerline
+          const distBehindPlayer = pProgDiff * this.track.trackLength;
+
+          if (distBehindPlayer < -1.8) {
+            // Teammate is ahead of player: yield line into turn to let player pass, then slot behind to block
+            desiredSpeed = Math.min(desiredSpeed, Math.max(65, Math.abs(this.playerSpeedKmh) - 15));
+            ai.targetOffset = ai.lateralOffset >= 0 ? 5.5 : -5.5;
+          } else {
+            // Teammate is behind player: actively detect trailing rival and mirror their racing line to block them!
+            let closestRival: AICar | null = null;
+            let minRivalDist = Infinity;
+            for (const rival of this.aiCars) {
+              if (rival.driver.id === ai.driver.id || rival.finished) continue;
+              let rDiff = ai.progress - rival.progress;
+              if (rDiff < -0.5) rDiff += 1.0;
+              if (rDiff > 0.5) rDiff -= 1.0;
+              const rDist = rDiff * this.track.trackLength;
+              if (rDist > 0.5 && rDist < 55.0 && rDist < minRivalDist) {
+                minRivalDist = rDist;
+                closestRival = rival;
+              }
+            }
+
+            if (closestRival) {
+              // Actively mirror rival's lateral offset so they cannot slipstream or dive down the inside!
+              ai.targetOffset = THREE.MathUtils.clamp(closestRival.lateralOffset, -7.0, 7.0);
+              // Reduce speed by 18% to form a rolling DRS roadblock that backs up the chasing pack!
+              desiredSpeed = Math.min(desiredSpeed, desiredSpeed * 0.82);
+            } else {
+              // Guard the centerline
+              ai.targetOffset = 0;
+              desiredSpeed = Math.min(desiredSpeed, desiredSpeed * 0.88);
+            }
           }
         } else if (this.teammateStrategy === 'push') {
           // Attack mode: extra 12 km/h and aggressive overtaking
@@ -1283,7 +1540,7 @@ export class PhysicsEngine {
       let activeEvasiveSteer = 0;
       let directlyBlockedCarSpeed: number | null = null;
       let minDistanceToCarAhead = Infinity;
-      const trackBarrierLimit = (this.track.barrierLimit || 17.0) - 2.0;
+      const trackBarrierLimit = (this.track.barrierLimit || 18.4) - 2.0;
 
       // 1. Proactively avoid Player Car (Lookahead up to 68 meters, early deceleration & fluid evasion)
       let playerDeltaProg = this.playerProgress - ai.progress;
@@ -1339,8 +1596,18 @@ export class PhysicsEngine {
           activeEvasiveSteer += evadeDir * (12.0 * proximity);
           minDistanceToCarAhead = Math.min(minDistanceToCarAhead, aiForwardM);
 
-          // Anticipatory speed adjustment so CPUs don't concertina or ram stalled cars
-          if (ai.speedKmh > otherAi.speedKmh) {
+          // If the car ahead is the player's teammate executing a team BLOCK order, hold up the rival!
+          const isOtherBlockingTeammate = Boolean(
+            this.teammateDriverId &&
+            otherAi.driver.id === this.teammateDriverId &&
+            this.teammateStrategy === 'block'
+          );
+
+          if (isOtherBlockingTeammate) {
+            // Rival cannot easily blast past the defensive line: forced to check up and brake!
+            const blockedSpeed = Math.min(otherAi.speedKmh * 0.94, Math.max(45, ai.speedKmh * 0.88));
+            directlyBlockedCarSpeed = Math.min(directlyBlockedCarSpeed ?? Infinity, blockedSpeed);
+          } else if (ai.speedKmh > otherAi.speedKmh) {
             const safeSpeed = Math.max(otherIsHazard ? 25 : 55, otherAi.speedKmh + Math.max(0, aiForwardM - 6.0) * 3.8);
             directlyBlockedCarSpeed = Math.min(directlyBlockedCarSpeed ?? Infinity, safeSpeed);
           }
@@ -1446,7 +1713,7 @@ export class PhysicsEngine {
       }
 
       // Clamp within barrier limits
-      const maxAiOffset = (this.track.barrierLimit || 17.0) - 0.7;
+      const maxAiOffset = (this.track.barrierLimit || 18.4) - 0.7;
       if (Math.abs(ai.lateralOffset) > maxAiOffset) {
         ai.lateralOffset = Math.sign(ai.lateralOffset) * maxAiOffset;
         ai.speedKmh = Math.max(20, ai.speedKmh * 0.7);

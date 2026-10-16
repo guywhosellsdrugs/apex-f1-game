@@ -82,6 +82,8 @@ interface SeasonHubProps {
   onStartNextSeason?: () => void;
   onQuitCareer?: () => void;
   onSellCustomTeam?: (saleValue?: number) => void;
+  onOpenMultiplayer?: () => void;
+  onOpenControls?: () => void;
 }
 
 export const SeasonHub: React.FC<SeasonHubProps> = ({
@@ -101,6 +103,8 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
   onStartNextSeason,
   onQuitCareer,
   onSellCustomTeam,
+  onOpenMultiplayer,
+  onOpenControls,
 }) => {
   const [activeTab, setActiveTab] = useState<'weekend' | 'contracts' | 'myteam' | 'standings' | 'calendar' | 'records'>('weekend');
   const [selectedLaps, setSelectedLaps] = useState<number>(season.lapCount || 5);
@@ -780,6 +784,28 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
             </div>
           )}
 
+          {onOpenControls && (
+            <button
+              onClick={onOpenControls}
+              className="flex items-center gap-1.5 px-3 py-1 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 border border-neutral-700 rounded-md text-xs font-semibold transition-colors cursor-pointer"
+              title="Custom Button Mapping (Keyboard & Gamepad)"
+            >
+              <Keyboard className="w-3.5 h-3.5 text-amber-400" />
+              <span className="hidden sm:inline">Controls</span>
+            </button>
+          )}
+
+          {onOpenMultiplayer && (
+            <button
+              onClick={onOpenMultiplayer}
+              className="flex items-center gap-1.5 px-3 py-1 bg-gradient-to-r from-red-600 via-rose-600 to-amber-600 hover:from-red-500 hover:to-amber-500 text-white rounded-md text-xs font-black shadow-md shadow-red-950/40 transition-all cursor-pointer animate-pulse hover:animate-none"
+              title="Join or Host Multiplayer 4-Digit Rooms without quitting Career"
+            >
+              <Users className="w-3.5 h-3.5" />
+              <span>Multiplayer</span>
+            </button>
+          )}
+
           <button
             onClick={onTestRumble}
             className="px-2 py-1 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded text-xs border border-neutral-700 font-mono transition-colors"
@@ -876,6 +902,30 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
             <Award className="w-3.5 h-3.5" />
             <span>Trophies & Career Records</span>
           </button>
+
+          {/* Dedicated Side Option: Join/Host Multiplayer Rooms without quitting Career */}
+          {onOpenMultiplayer && (
+            <button
+              onClick={onOpenMultiplayer}
+              className="px-3.5 py-1.5 text-xs font-black rounded-lg transition-all flex items-center gap-1.5 bg-gradient-to-r from-red-600 via-rose-600 to-amber-600 hover:from-red-500 hover:to-amber-500 text-white shadow-md shadow-red-950/40 cursor-pointer border border-red-400/40 animate-pulse hover:animate-none"
+              title="Join or host multiplayer 4-digit code rooms without quitting career"
+            >
+              <Users className="w-3.5 h-3.5" />
+              <span>Multiplayer Rooms (4-Digit Code)</span>
+            </button>
+          )}
+
+          {/* Button Mapping Option */}
+          {onOpenControls && (
+            <button
+              onClick={onOpenControls}
+              className="px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-white border border-neutral-700 cursor-pointer shadow-sm"
+              title="Configure custom button mapping"
+            >
+              <Keyboard className="w-3.5 h-3.5 text-cyan-400" />
+              <span>Button Mapping</span>
+            </button>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
@@ -1089,13 +1139,34 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
                 </div>
               </div>
 
-              <div className="p-4 bg-neutral-950 rounded-xl border border-white/5 text-xs text-neutral-400 flex flex-col gap-1.5">
-                <span className="font-bold text-white uppercase text-[10px] tracking-wider">Driver Controls</span>
+              <div className="p-4 bg-neutral-950 rounded-xl border border-white/5 text-xs text-neutral-400 flex flex-col gap-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-white uppercase text-[10px] tracking-wider">Driver Controls</span>
+                  {onOpenControls && (
+                    <button
+                      onClick={onOpenControls}
+                      className="text-[10px] text-cyan-400 hover:text-cyan-300 font-bold underline cursor-pointer"
+                    >
+                      Custom Mapping
+                    </button>
+                  )}
+                </div>
                 <span>• Throttle: <strong className="text-white">W / Up / RT Trigger</strong></span>
                 <span>• Brake: <strong className="text-white">S / Down / LT Trigger</strong></span>
                 <span>• Steer: <strong className="text-white">A, D / Left, Right / Stick</strong></span>
                 <span>• DRS / Boost: <strong className="text-white">E / Space / A Button</strong></span>
                 <span>• Change Camera: <strong className="text-white">C / Y Button</strong></span>
+
+                {/* Option on the side to join multiplayer without quitting career */}
+                {onOpenMultiplayer && (
+                  <button
+                    onClick={onOpenMultiplayer}
+                    className="mt-2 py-2 px-3 rounded-lg bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white font-black text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-md shadow-red-950/40 transition-all cursor-pointer"
+                  >
+                    <Users className="w-3.5 h-3.5" />
+                    <span>Join / Host Multiplayer</span>
+                  </button>
+                )}
               </div>
             </div>
           </div>

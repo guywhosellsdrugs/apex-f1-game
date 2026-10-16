@@ -12,8 +12,58 @@ export interface UnifiedInput {
   gamepadName: string | null;
 }
 
+export interface CustomControlBindings {
+  throttle: string[];
+  brake: string[];
+  steerLeft: string[];
+  steerRight: string[];
+  boost: string[];
+  drs: string[];
+  switchCamera: string[];
+  reset: string[];
+  pause: string[];
+}
+
+export interface CustomGamepadBindings {
+  throttleButton: number; // default 7 (RT/R2)
+  brakeButton: number; // default 6 (LT/L2)
+  boostButton: number; // default 0 (A / Cross)
+  drsButton: number; // default 5 (RB / R1)
+  switchCameraButton: number; // default 3 (Y / Triangle)
+  resetButton: number; // default 1 (B / Circle)
+  pauseButton: number; // default 9 (Start / Options)
+}
+
+export const DEFAULT_KEY_BINDINGS: CustomControlBindings = {
+  throttle: ['KeyW', 'ArrowUp'],
+  brake: ['KeyS', 'ArrowDown', 'Space'],
+  steerLeft: ['KeyA', 'ArrowLeft'],
+  steerRight: ['KeyD', 'ArrowRight'],
+  boost: ['KeyE', 'ShiftLeft', 'ShiftRight', 'KeyX'],
+  drs: ['KeyF', 'KeyZ'],
+  switchCamera: ['KeyC', 'KeyV'],
+  reset: ['KeyR'],
+  pause: ['Escape', 'KeyP'],
+};
+
+export const DEFAULT_GAMEPAD_BINDINGS: CustomGamepadBindings = {
+  throttleButton: 7, // RT
+  brakeButton: 6, // LT
+  boostButton: 0, // A
+  drsButton: 5, // RB
+  switchCameraButton: 3, // Y
+  resetButton: 1, // B
+  pauseButton: 9, // Start
+};
+
+const STORAGE_KEY_CONTROLS = 'apex26_custom_button_mapping_v2';
+const STORAGE_KEY_GAMEPAD = 'apex26_custom_gamepad_mapping_v2';
+
 class InputManager {
   private keys: Record<string, boolean> = {};
+  private keyBindings: CustomControlBindings = { ...DEFAULT_KEY_BINDINGS };
+  private gamepadBindings: CustomGamepadBindings = { ...DEFAULT_GAMEPAD_BINDINGS };
+
   private cameraJustPressed: boolean = false;
   private resetJustPressed: boolean = false;
   private pauseJustPressed: boolean = false;
@@ -22,7 +72,11 @@ class InputManager {
   private activeGamepadIndex: number | null = null;
   private gamepadConnectedToast: string | null = null;
 
+  private listeningAction: keyof CustomControlBindings | null = null;
+  private onKeyCapturedCallback: ((action: keyof CustomControlBindings, key: string) => void) | null = null;
+
   constructor() {
+    this.loadBindings();
     if (typeof window !== 'undefined') {
       window.addEventListener('keydown', this.handleKeyDown);
       window.addEventListener('keyup', this.handleKeyUp);
@@ -31,7 +85,81 @@ class InputManager {
     }
   }
 
+  public loadBindings() {
+    if (typeof localStorage === 'undefined') return;
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_CONTROLS);
+      if (saved) {
+        this.keyBindings = { ...DEFAULT_KEY_BINDINGS, ...JSON.parse(saved) };
+      }
+      const savedGp = localStorage.getItem(STORAGE_KEY_GAMEPAD);
+      if (savedGp) {
+        this.gamepadBindings = { ...DEFAULT_GAMEPAD_BINDINGS, ...JSON.parse(savedGp) };
+      }
+    } catch {
+      this.keyBindings = { ...DEFAULT_KEY_BINDINGS };
+      this.gamepadBindings = { ...DEFAULT_GAMEPAD_BINDINGS };
+    }
+  }
+
+  public saveBindings() {
+    if (typeof localStorage === 'undefined') return;
+    try {
+      localStorage.setItem(STORAGE_KEY_CONTROLS, JSON.stringify(this.keyBindings));
+      localStorage.setItem(STORAGE_KEY_GAMEPAD, JSON.stringify(this.gamepadBindings));
+    } catch {
+      // Storage error
+    }
+  }
+
+  public getKeyBindings(): CustomControlBindings {
+    return { ...this.keyBindings };
+  }
+
+  public getGamepadBindings(): CustomGamepadBindings {
+    return { ...this.gamepadBindings };
+  }
+
+  public setKeyBinding(action: keyof CustomControlBindings, newKeys: string[]) {
+    this.keyBindings[action] = newKeys;
+    this.saveBindings();
+  }
+
+  public setGamepadBinding(action: keyof CustomGamepadBindings, btnIndex: number) {
+    this.gamepadBindings[action] = btnIndex;
+    this.saveBindings();
+  }
+
+  public resetToDefaults() {
+    this.keyBindings = { ...DEFAULT_KEY_BINDINGS };
+    this.gamepadBindings = { ...DEFAULT_GAMEPAD_BINDINGS };
+    this.saveBindings();
+  }
+
+  public startCapturingKey(action: keyof CustomControlBindings, callback: (action: keyof CustomControlBindings, key: string) => void) {
+    this.listeningAction = action;
+    this.onKeyCapturedCallback = callback;
+  }
+
+  public stopCapturingKey() {
+    this.listeningAction = null;
+    this.onKeyCapturedCallback = null;
+  }
+
   private handleKeyDown = (e: KeyboardEvent) => {
+    // If we are currently capturing a custom button rebind:
+    if (this.listeningAction && this.onKeyCapturedCallback) {
+      e.preventDefault();
+      const code = e.code;
+      const action = this.listeningAction;
+      this.keyBindings[action] = [code];
+      this.saveBindings();
+      this.onKeyCapturedCallback(action, code);
+      this.listeningAction = null;
+      this.onKeyCapturedCallback = null;
+      return;
+    }
+
     // If the user is currently typing in an input, textarea, or contentEditable element, allow normal typing including spaces!
     const target = e.target as HTMLElement | null;
     if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
@@ -56,7 +184,6 @@ class InputManager {
   private handleGamepadConnected = (e: GamepadEvent) => {
     this.activeGamepadIndex = e.gamepad.index;
     this.gamepadConnectedToast = e.gamepad.id || 'Controller connected';
-    // Trigger test rumble
     this.rumble(0.2, 0.4, 150);
   };
 
@@ -93,6 +220,11 @@ class InputManager {
     }
   }
 
+  private isActionPressed(action: keyof CustomControlBindings): boolean {
+    const boundKeys = this.keyBindings[action] || [];
+    return boundKeys.some((k) => this.keys[k]);
+  }
+
   public poll(): UnifiedInput {
     let throttle = 0;
     let brake = 0;
@@ -104,19 +236,18 @@ class InputManager {
     let isGamepadActive = false;
     let gamepadName: string | null = null;
 
-    // 1. Process Keyboard Input
-    if (this.keys['KeyW'] || this.keys['ArrowUp']) throttle = 1;
-    if (this.keys['KeyS'] || this.keys['ArrowDown']) brake = 1;
-    if (this.keys['Space']) brake = 1;
+    // 1. Process Keyboard Input with Custom Control Mapping
+    if (this.isActionPressed('throttle')) throttle = 1;
+    if (this.isActionPressed('brake')) brake = 1;
 
-    if (this.keys['KeyA'] || this.keys['ArrowLeft']) steer -= 1;
-    if (this.keys['KeyD'] || this.keys['ArrowRight']) steer += 1;
+    if (this.isActionPressed('steerLeft')) steer -= 1;
+    if (this.isActionPressed('steerRight')) steer += 1;
 
-    if (this.keys['KeyE'] || this.keys['ShiftLeft'] || this.keys['ShiftRight'] || this.keys['KeyX']) {
+    if (this.isActionPressed('boost') || this.isActionPressed('drs')) {
       boost = true;
     }
 
-    if (this.keys['KeyC'] || this.keys['KeyV']) {
+    if (this.isActionPressed('switchCamera')) {
       if (!this.cameraJustPressed) {
         switchCamera = true;
         this.cameraJustPressed = true;
@@ -125,7 +256,7 @@ class InputManager {
       this.cameraJustPressed = false;
     }
 
-    if (this.keys['KeyR']) {
+    if (this.isActionPressed('reset')) {
       if (!this.resetJustPressed) {
         reset = true;
         this.resetJustPressed = true;
@@ -134,7 +265,7 @@ class InputManager {
       this.resetJustPressed = false;
     }
 
-    if (this.keys['Escape'] || this.keys['KeyP']) {
+    if (this.isActionPressed('pause')) {
       if (!this.pauseJustPressed) {
         pause = true;
         this.pauseJustPressed = true;
@@ -143,7 +274,7 @@ class InputManager {
       this.pauseJustPressed = false;
     }
 
-    // 2. Process Gamepad Input (Overrides or blends smoothly)
+    // 2. Process Gamepad Input with Custom Control Mapping
     if (typeof navigator !== 'undefined' && navigator.getGamepads) {
       const gamepads = navigator.getGamepads();
       for (const gp of gamepads) {
@@ -153,9 +284,10 @@ class InputManager {
         const b = gp.buttons;
         const a = gp.axes;
 
-        // Triggers: button 7 (RT/R2), button 6 (LT/L2)
-        const gpThrottle = b[7] ? b[7].value : 0;
-        const gpBrake = b[6] ? b[6].value : 0;
+        const thBtn = this.gamepadBindings.throttleButton;
+        const brBtn = this.gamepadBindings.brakeButton;
+        const gpThrottle = b[thBtn] ? b[thBtn].value : 0;
+        const gpBrake = b[brBtn] ? b[brBtn].value : 0;
 
         // Stick Steering: Left stick axis 0 (-1 to 1)
         const rawSteer = a[0] || 0;
@@ -164,12 +296,19 @@ class InputManager {
         if (Math.abs(rawSteer) > deadzone) {
           const sign = Math.sign(rawSteer);
           const scaled = (Math.abs(rawSteer) - deadzone) / (1 - deadzone);
-          // Non-linear curve for sensitive centering and precise control
           gpSteer = sign * Math.pow(scaled, 1.4);
         }
 
         // Check if gamepad has any active input
-        if (gpThrottle > 0.05 || gpBrake > 0.05 || Math.abs(gpSteer) > 0.05 || b[0]?.pressed || b[1]?.pressed || b[3]?.pressed || b[9]?.pressed) {
+        if (
+          gpThrottle > 0.05 ||
+          gpBrake > 0.05 ||
+          Math.abs(gpSteer) > 0.05 ||
+          b[this.gamepadBindings.boostButton]?.pressed ||
+          b[this.gamepadBindings.resetButton]?.pressed ||
+          b[this.gamepadBindings.switchCameraButton]?.pressed ||
+          b[this.gamepadBindings.pauseButton]?.pressed
+        ) {
           isGamepadActive = true;
         }
 
@@ -177,33 +316,36 @@ class InputManager {
         if (gpBrake > brake) brake = gpBrake;
         if (Math.abs(gpSteer) > Math.abs(steer)) steer = gpSteer;
 
-        // A / Cross (button 0) or RB (button 5) for boost/DRS
-        if ((b[0] && b[0].pressed) || (b[5] && b[5].pressed)) {
+        // Custom Boost / DRS button
+        if (
+          (b[this.gamepadBindings.boostButton] && b[this.gamepadBindings.boostButton].pressed) ||
+          (b[this.gamepadBindings.drsButton] && b[this.gamepadBindings.drsButton].pressed)
+        ) {
           boost = true;
         }
 
-        // Y / Triangle (button 3) for camera toggle
-        const cameraBtnPressed = b[3] && b[3].pressed;
-        if (cameraBtnPressed && !this.prevGamepadButtons[3]) {
+        // Custom Camera button
+        const cameraBtnPressed = b[this.gamepadBindings.switchCameraButton] && b[this.gamepadBindings.switchCameraButton].pressed;
+        if (cameraBtnPressed && !this.prevGamepadButtons[this.gamepadBindings.switchCameraButton]) {
           switchCamera = true;
         }
-        this.prevGamepadButtons[3] = !!cameraBtnPressed;
+        this.prevGamepadButtons[this.gamepadBindings.switchCameraButton] = !!cameraBtnPressed;
 
-        // B / Circle (button 1) or Back/Select (button 8) for reset
-        const resetBtnPressed = (b[1] && b[1].pressed) || (b[8] && b[8].pressed);
-        if (resetBtnPressed && !this.prevGamepadButtons[1]) {
+        // Custom Reset button
+        const resetBtnPressed = b[this.gamepadBindings.resetButton] && b[this.gamepadBindings.resetButton].pressed;
+        if (resetBtnPressed && !this.prevGamepadButtons[this.gamepadBindings.resetButton]) {
           reset = true;
         }
-        this.prevGamepadButtons[1] = !!resetBtnPressed;
+        this.prevGamepadButtons[this.gamepadBindings.resetButton] = !!resetBtnPressed;
 
-        // Start / Options (button 9) for pause
-        const pauseBtnPressed = b[9] && b[9].pressed;
-        if (pauseBtnPressed && !this.prevGamepadButtons[9]) {
+        // Custom Pause button
+        const pauseBtnPressed = b[this.gamepadBindings.pauseButton] && b[this.gamepadBindings.pauseButton].pressed;
+        if (pauseBtnPressed && !this.prevGamepadButtons[this.gamepadBindings.pauseButton]) {
           pause = true;
         }
-        this.prevGamepadButtons[9] = !!pauseBtnPressed;
+        this.prevGamepadButtons[this.gamepadBindings.pauseButton] = !!pauseBtnPressed;
 
-        break; // Use primary active gamepad
+        break;
       }
     }
 
@@ -227,16 +369,18 @@ class InputManager {
     const gamepads = navigator.getGamepads();
     for (const gp of gamepads) {
       if (gp && gp.connected) {
+        const thBtn = this.gamepadBindings.throttleButton;
+        const brBtn = this.gamepadBindings.brakeButton;
         return {
           connected: true,
           id: gp.id,
-          throttle: gp.buttons[7]?.value || 0,
-          brake: gp.buttons[6]?.value || 0,
+          throttle: gp.buttons[thBtn]?.value || 0,
+          brake: gp.buttons[brBtn]?.value || 0,
           steer: gp.axes[0] || 0,
-          boost: !!(gp.buttons[0]?.pressed || gp.buttons[5]?.pressed),
-          switchCamera: !!gp.buttons[3]?.pressed,
-          reset: !!gp.buttons[1]?.pressed,
-          pause: !!gp.buttons[9]?.pressed,
+          boost: !!(gp.buttons[this.gamepadBindings.boostButton]?.pressed || gp.buttons[this.gamepadBindings.drsButton]?.pressed),
+          switchCamera: !!gp.buttons[this.gamepadBindings.switchCameraButton]?.pressed,
+          reset: !!gp.buttons[this.gamepadBindings.resetButton]?.pressed,
+          pause: !!gp.buttons[this.gamepadBindings.pauseButton]?.pressed,
         };
       }
     }

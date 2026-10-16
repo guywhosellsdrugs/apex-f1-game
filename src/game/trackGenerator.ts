@@ -120,12 +120,23 @@ export function generateTrack(circuit: CircuitInfo): GeneratedTrack {
     curbColorsL.push(cr, cg, cb, cr, cg, cb);
     curbColorsR.push(cr, cg, cb, cr, cg, cb);
 
-    // Painted Runoff borders (Left & Right symmetrical)
-    const runoffOutL = curbOutL.clone().addScaledVector(right, -runoffWidth);
+    // Check local track curvature rate to ensure inner corner walls never pinch or stick out
+    const stepAhead = 0.008;
+    const nextT = (t + stepAhead) % 1.0;
+    const nextTangent = curve.getTangentAt(nextT).normalize();
+    const turnAngle = tangent.clone().cross(nextTangent).y; // positive = left turn, negative = right turn
+    const absTurn = Math.abs(turnAngle);
+
+    // Dynamic Runoff Expansion: On sharp turns, expand runoff by up to 3.0m so apex sightlines are wide open and walls never stick out
+    const dynamicRunoffL = runoffWidth + (turnAngle > 0.02 ? Math.min(3.2, absTurn * 4.5) : 0);
+    const dynamicRunoffR = runoffWidth + (turnAngle < -0.02 ? Math.min(3.2, absTurn * 4.5) : 0);
+
+    // Painted Runoff borders (Left & Right with corner sightline widening)
+    const runoffOutL = curbOutL.clone().addScaledVector(right, -dynamicRunoffL);
     runoffVertsL.push(curbOutL.x, curbOutL.y - 0.03, curbOutL.z);
     runoffVertsL.push(runoffOutL.x, runoffOutL.y - 0.03, runoffOutL.z);
 
-    const runoffOutR = curbOutR.clone().addScaledVector(right, runoffWidth);
+    const runoffOutR = curbOutR.clone().addScaledVector(right, dynamicRunoffR);
     runoffVertsR.push(curbOutR.x, curbOutR.y - 0.03, curbOutR.z);
     runoffVertsR.push(runoffOutR.x, runoffOutR.y - 0.03, runoffOutR.z);
 
@@ -136,9 +147,9 @@ export function generateTrack(circuit: CircuitInfo): GeneratedTrack {
     runoffColorsL.push(rR, rG, rB, rR, rG, rB);
     runoffColorsR.push(rR, rG, rB, rR, rG, rB);
 
-    // Armco & Tecpro Barrier walls on LEFT and RIGHT (High-visibility, tall impact barriers)
-    const barrierBaseL = runoffOutL.clone().addScaledVector(right, -0.6);
-    const barrierBaseR = runoffOutR.clone().addScaledVector(right, 0.6);
+    // Armco & Tecpro Barrier walls on LEFT and RIGHT (Placed safely behind expanded runoffs, guaranteeing no wall sticks out)
+    const barrierBaseL = runoffOutL.clone().addScaledVector(right, -1.0);
+    const barrierBaseR = runoffOutR.clone().addScaledVector(right, 1.0);
 
     const barrierTopL = barrierBaseL.clone();
     barrierTopL.y += 2.2; // 2.2m high FIA specification safety barrier
@@ -520,8 +531,9 @@ export function generateTrack(circuit: CircuitInfo): GeneratedTrack {
 
     const boardGeom = new THREE.PlaneGeometry(1.8, 1.2);
     const board = new THREE.Mesh(boardGeom, boardMat);
-    const boardPos = pt.clone().addScaledVector(r, -(trackWidth * 0.5 + curbWidth + runoffWidth + 0.6));
-    if (isClearOfTrack(boardPos, 14.0)) {
+    // Safely positioned behind the outer barrier (19.5m away), strictly outside the racing boundaries
+    const boardPos = pt.clone().addScaledVector(r, -(trackWidth * 0.5 + curbWidth + runoffWidth + 2.5));
+    if (isClearOfTrack(boardPos, 18.5)) {
       board.position.set(boardPos.x, boardPos.y + 2.4, boardPos.z);
       board.lookAt(boardPos.clone().add(tan));
       board.rotateY(Math.PI);
@@ -779,12 +791,12 @@ export function generateTrack(circuit: CircuitInfo): GeneratedTrack {
 
     const halfRoad = trackWidth * 0.5; // 11.0m
     const curbLimit = halfRoad + curbWidth; // 12.8m
-    const barrierLimit = curbLimit + runoffWidth + 0.6; // 17.0m (symmetrical for left and right!)
+    const barrierLimit = curbLimit + runoffWidth + 2.0; // 18.4m safe clearance across all corners!
 
     const onCurb = absLateralDist > halfRoad - 0.35 && absLateralDist <= curbLimit;
     const offTrack = absLateralDist > curbLimit;
 
-    // A wall collision ONLY occurs if the vehicle has drifted beyond the physical barrier boundary (17.0m)
+    // A wall collision ONLY occurs if the vehicle has drifted beyond the physical barrier boundary (18.4m+)
     // Eliminates phantom wall crashes on blind corners and apexes:
     const isCollidingWall = absLateralDist >= barrierLimit;
     const penetration = isCollidingWall ? absLateralDist - barrierLimit : 0;
@@ -810,7 +822,7 @@ export function generateTrack(circuit: CircuitInfo): GeneratedTrack {
     group,
     curve,
     trackLength,
-    barrierLimit: 17.0,
+    barrierLimit: 18.4,
     startGantry,
     startLights,
     setStartLights,

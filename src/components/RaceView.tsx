@@ -8,6 +8,7 @@ import { PhysicsEngine } from '../game/physicsEngine';
 import { inputManager } from '../services/inputManager';
 import { soundEngine } from '../services/soundEngine';
 import { BroadcastHUD } from './BroadcastHUD';
+import { multiplayerService, RoomPublicState } from '../services/multiplayerService';
 
 interface RaceViewProps {
   circuit: CircuitInfo;
@@ -30,6 +31,9 @@ interface RaceViewProps {
   onExitToPaddock: () => void;
   isPracticeMode?: boolean;
   practiceDifficulty?: 'rookie' | 'pro' | 'legend';
+  isMultiplayer?: boolean;
+  multiplayerRoom?: RoomPublicState | null;
+  onOpenControls?: () => void;
 }
 
 export const RaceView: React.FC<RaceViewProps> = ({
@@ -40,6 +44,9 @@ export const RaceView: React.FC<RaceViewProps> = ({
   onExitToPaddock,
   isPracticeMode = false,
   practiceDifficulty,
+  isMultiplayer = false,
+  multiplayerRoom = null,
+  onOpenControls,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const physicsRef = useRef<PhysicsEngine | null>(null);
@@ -201,6 +208,69 @@ export const RaceView: React.FC<RaceViewProps> = ({
     });
     physicsRef.current = physics;
 
+    // Multiplayer Human Rivals Visualization
+    const humanRivalCars = new Map<string, {
+      car: ReturnType<typeof buildF1Car>;
+      targetPos: THREE.Vector3;
+      currentPos: THREE.Vector3;
+      heading: number;
+    }>();
+
+    if (isMultiplayer && multiplayerRoom) {
+      const localId = multiplayerService.getLocalPlayerId();
+      multiplayerRoom.players.forEach((p) => {
+        if (p.id !== localId) {
+          const rivalTeam: Team = {
+            id: p.teamId || 'rival',
+            name: p.name,
+            shortName: p.name.slice(0, 3).toUpperCase(),
+            engine: 'F1 Turbo Hybrid',
+            primaryColor: p.teamColor || '#ff4444',
+            secondaryColor: '#111111',
+            accentColor: p.accentColor || '#ffffff',
+            performanceTier: 1,
+            drivers: [p.id, p.id] as [string, string],
+            reputationRequired: 0,
+            baseSalary: 1000000,
+          };
+          const rivalDriver: Driver = {
+            id: p.id,
+            name: p.name,
+            shortName: p.name.slice(0, 3).toUpperCase(),
+            number: p.carNumber || 99,
+            teamId: rivalTeam.id,
+            country: 'World',
+            rating: 88,
+            color: p.teamColor || '#ff4444',
+          };
+          const rivalCar = buildF1Car(rivalTeam, rivalDriver);
+          scene.add(rivalCar.root);
+
+          const startPt = track.getTrackPointAtProgress(0.002 * (p.gridSlot || 2));
+          rivalCar.root.position.copy(startPt.position);
+          humanRivalCars.set(p.id, {
+            car: rivalCar,
+            targetPos: startPt.position.clone(),
+            currentPos: startPt.position.clone(),
+            heading: 0,
+          });
+        }
+      });
+    }
+
+    const unsubTelemetry = isMultiplayer
+      ? multiplayerService.onTelemetry((sync) => {
+          const rival = humanRivalCars.get(sync.playerId);
+          if (rival) {
+            const trackPt = track.getTrackPointAtProgress(sync.progress);
+            rival.targetPos.copy(trackPt.position).addScaledVector(trackPt.normal, sync.lateralOffset);
+            rival.targetPos.y = trackPt.position.y + 0.08;
+            const fwd = trackPt.tangent;
+            rival.heading = Math.atan2(-fwd.x, -fwd.z);
+          }
+        })
+      : () => {};
+
     const currentCamPos = new THREE.Vector3();
     const currentLookAt = new THREE.Vector3();
 
@@ -208,6 +278,7 @@ export const RaceView: React.FC<RaceViewProps> = ({
     let lastTime = performance.now();
     let animFrameId: number;
     let lastUiUpdateTime = 0;
+    let lastTelemetrySendTime = 0;
     let raceCompleteNotified = false;
 
     const renderLoop = (time: number) => {
@@ -215,6 +286,27 @@ export const RaceView: React.FC<RaceViewProps> = ({
 
       const delta = (time - lastTime) / 1000;
       lastTime = time;
+
+      // Update multiplayer rival positions
+      if (isMultiplayer) {
+        humanRivalCars.forEach((rival) => {
+          rival.currentPos.lerp(rival.targetPos, 0.25);
+          rival.car.root.position.copy(rival.currentPos);
+          rival.car.root.rotation.y = rival.heading;
+        });
+
+        // Send local player telemetry every 50ms
+        if (time - lastTelemetrySendTime > 50) {
+          lastTelemetrySendTime = time;
+          multiplayerService.sendTelemetry({
+            progress: physics.playerProgress,
+            lap: physics.telemetry?.lapCurrent || 1,
+            speedKmh: physics.playerSpeedKmh,
+            lateralOffset: physics.telemetry?.lateralOffset || 0,
+            position: physics.telemetry?.position || 1,
+          });
+        }
+      }
 
       // Poll Unified Input
       const input = inputManager.poll();
@@ -253,22 +345,27 @@ export const RaceView: React.FC<RaceViewProps> = ({
       const forward = new THREE.Vector3(-Math.sin(heading), 0, -Math.cos(heading));
       const up = new THREE.Vector3(0, 1, 0);
 
+      // Dynamic lookahead along track curve to give wide, open sightlines around every corner (No Blind Corners!)
+      const lookaheadT = (physics.playerProgress + 0.024) % 1.0;
+      const trackAhead = physics.track.getTrackPointAtProgress(lookaheadT).position;
+
       let targetCamPos = new THREE.Vector3();
       let targetLook = new THREE.Vector3();
 
       const activeView = cameraViewRef.current;
       if (activeView === 'chase') {
-        targetCamPos = carPos.clone().addScaledVector(forward, -6.6).addScaledVector(up, 2.3);
-        targetLook = carPos.clone().addScaledVector(forward, 8.0).addScaledVector(up, 0.85);
+        targetCamPos = carPos.clone().addScaledVector(forward, -7.2).addScaledVector(up, 2.6);
+        // Blend forward projection with track curvature lookahead to see clearly through the apex
+        targetLook = carPos.clone().addScaledVector(forward, 16.0).lerp(trackAhead, 0.4).addScaledVector(up, 0.95);
       } else if (activeView === 'close') {
-        targetCamPos = carPos.clone().addScaledVector(forward, -4.0).addScaledVector(up, 1.55);
-        targetLook = carPos.clone().addScaledVector(forward, 14.0).addScaledVector(up, 0.7);
+        targetCamPos = carPos.clone().addScaledVector(forward, -4.5).addScaledVector(up, 1.8);
+        targetLook = carPos.clone().addScaledVector(forward, 20.0).lerp(trackAhead, 0.35).addScaledVector(up, 0.8);
       } else if (activeView === 'cockpit') {
-        targetCamPos = carPos.clone().addScaledVector(up, 0.76).addScaledVector(forward, -0.05);
-        targetLook = carPos.clone().addScaledVector(forward, 25.0).addScaledVector(up, 0.68);
+        targetCamPos = carPos.clone().addScaledVector(up, 0.78).addScaledVector(forward, -0.05);
+        targetLook = carPos.clone().addScaledVector(forward, 28.0).lerp(trackAhead, 0.25).addScaledVector(up, 0.72);
       } else if (activeView === 'nose') {
         targetCamPos = carPos.clone().addScaledVector(forward, 2.3).addScaledVector(up, 0.35);
-        targetLook = carPos.clone().addScaledVector(forward, 30.0).addScaledVector(up, 0.3);
+        targetLook = carPos.clone().addScaledVector(forward, 32.0).lerp(trackAhead, 0.25).addScaledVector(up, 0.35);
       }
 
       const lerpSpeed = activeView === 'cockpit' || activeView === 'nose' ? 0.35 : 0.14;
@@ -346,6 +443,7 @@ export const RaceView: React.FC<RaceViewProps> = ({
     window.addEventListener('keydown', handleKeyDown);
 
     return () => {
+      unsubTelemetry();
       cancelAnimationFrame(animFrameId);
       window.removeEventListener('resize', handleResize);
       window.removeEventListener('keydown', handleKeyDown);
@@ -355,7 +453,7 @@ export const RaceView: React.FC<RaceViewProps> = ({
         containerRef.current.removeChild(renderer.domElement);
       }
     };
-  }, [circuit.id, laps, season.selectedTeamId, season.selectedDriverId, season.difficulty]);
+  }, [circuit.id, laps, season.selectedTeamId, season.selectedDriverId, season.difficulty, isMultiplayer, multiplayerRoom?.code]);
 
   const cycleCamera = () => {
     setCameraView((prev) => {
@@ -415,6 +513,7 @@ export const RaceView: React.FC<RaceViewProps> = ({
           yellowFlagActive={yellowFlagActive}
           isPracticeMode={isPracticeMode}
           onIssueTeamOrder={handleIssueTeamOrder}
+          onOpenControls={onOpenControls}
         />
       )}
 

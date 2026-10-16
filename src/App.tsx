@@ -17,6 +17,9 @@ import {
 } from './constants/f1Data';
 import { SeasonHub } from './components/SeasonHub';
 import { RaceView } from './components/RaceView';
+import { MultiplayerModal } from './components/MultiplayerModal';
+import { ButtonMappingModal } from './components/ButtonMappingModal';
+import { RoomPublicState } from './services/multiplayerService';
 import { inputManager } from './services/inputManager';
 import { Trophy, ArrowRight, DollarSign, Award, CheckCircle2, Shield, Flame, Gauge, Zap } from 'lucide-react';
 
@@ -121,6 +124,23 @@ export default function App() {
   const [championNotice, setChampionNotice] = useState<string | null>(null);
   const [isGamepadConnected, setIsGamepadConnected] = useState(false);
   const [gamepadName, setGamepadName] = useState<string | null>(null);
+
+  // Multiplayer & Custom Controls state
+  const [showMultiplayerModal, setShowMultiplayerModal] = useState(false);
+  const [showButtonMappingModal, setShowButtonMappingModal] = useState(false);
+  const [isMultiplayerRace, setIsMultiplayerRace] = useState(false);
+  const [multiplayerRoom, setMultiplayerRoom] = useState<RoomPublicState | null>(null);
+
+  const handleLaunchMultiplayerRace = (room: RoomPublicState) => {
+    const selectedCircuit = CIRCUITS.find((c) => c.id === room.circuitId) || CIRCUITS[0];
+    setPracticeCircuit(selectedCircuit);
+    setRaceLaps(room.laps);
+    setIsPracticeMode(false);
+    setIsMultiplayerRace(true);
+    setMultiplayerRoom(room);
+    setShowMultiplayerModal(false);
+    setInRace(true);
+  };
 
   useEffect(() => {
     try {

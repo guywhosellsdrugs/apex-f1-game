@@ -21,6 +21,7 @@ interface BroadcastHUDProps {
   yellowFlagActive?: boolean;
   isPracticeMode?: boolean;
   onIssueTeamOrder?: (order: 'block' | 'yield' | 'push' | 'neutral') => void;
+  onOpenControls?: () => void;
 }
 
 export const BroadcastHUD: React.FC<BroadcastHUDProps> = ({
@@ -40,6 +41,7 @@ export const BroadcastHUD: React.FC<BroadcastHUDProps> = ({
   yellowFlagActive = false,
   isPracticeMode = false,
   onIssueTeamOrder,
+  onOpenControls,
 }) => {
   // Format lap time in mm:ss.ms
   const formatTime = (seconds: number | null) => {
@@ -267,6 +269,16 @@ export const BroadcastHUD: React.FC<BroadcastHUDProps> = ({
           >
             <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
           </button>
+          {onOpenControls && (
+            <button
+              onClick={onOpenControls}
+              className="flex items-center gap-1 px-2.5 py-1.5 bg-neutral-900/80 hover:bg-neutral-800 text-neutral-200 text-xs rounded border border-white/10 backdrop-blur transition-colors"
+              title="Button Mapping & Controls"
+            >
+              <Keyboard className="w-3.5 h-3.5 text-cyan-400" />
+              <span className="hidden md:inline text-[11px]">Controls</span>
+            </button>
+          )}
           <button
             onClick={onToggleMute}
             className="p-1.5 bg-neutral-900/80 hover:bg-neutral-800 text-neutral-200 rounded border border-white/10 backdrop-blur transition-colors"
