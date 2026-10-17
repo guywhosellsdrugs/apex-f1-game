@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { TelemetryData, CircuitInfo, CameraView, Driver } from '../types/racing';
 import { DRIVERS, TEAMS } from '../constants/f1Data';
-import { Gamepad, Keyboard, Camera, RotateCcw, Volume2, VolumeX, Flag, AlertTriangle, Shield, Wind, Users, Radio, Zap } from 'lucide-react';
+import { Gamepad, Keyboard, Camera, RotateCcw, Volume2, VolumeX, Flag, AlertTriangle, Shield, Wind, Users, Radio, Zap, Gauge } from 'lucide-react';
 import { TrackMiniMap } from './TrackMiniMap';
+import { UnitSystem, getStoredUnitSystem, setStoredUnitSystem, convertSpeed, getSpeedUnitLabel, formatTemp, onUnitSystemChange } from '../utils/units';
 
 interface BroadcastHUDProps {
   telemetry: TelemetryData;
@@ -43,6 +44,23 @@ export const BroadcastHUD: React.FC<BroadcastHUDProps> = ({
   onIssueTeamOrder,
   onOpenControls,
 }) => {
+  const [unitSystem, setUnitSystem] = useState<UnitSystem>(getStoredUnitSystem());
+
+  useEffect(() => {
+    return onUnitSystemChange((newUnit) => {
+      setUnitSystem(newUnit);
+    });
+  }, []);
+
+  const toggleUnits = () => {
+    const nextUnit = unitSystem === 'metric' ? 'imperial' : 'metric';
+    setUnitSystem(nextUnit);
+    setStoredUnitSystem(nextUnit);
+  };
+
+  const displaySpeed = Math.round(convertSpeed(telemetry.speedKmh, unitSystem));
+  const speedUnitLabel = getSpeedUnitLabel(unitSystem);
+
   // Format lap time in mm:ss.ms
   const formatTime = (seconds: number | null) => {
     if (seconds === null || seconds === undefined) return '--:--.---';
@@ -279,6 +297,14 @@ export const BroadcastHUD: React.FC<BroadcastHUDProps> = ({
               <span className="hidden md:inline text-[11px]">Controls</span>
             </button>
           )}
+          <button
+            onClick={toggleUnits}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 bg-neutral-900/80 hover:bg-neutral-800 text-neutral-200 text-xs rounded border border-white/10 backdrop-blur transition-colors font-mono font-bold"
+            title="Switch measurements to American (MPH / Miles / °F) or Metric (KM/H / KM / °C)"
+          >
+            <Gauge className="w-3.5 h-3.5 text-cyan-400" />
+            <span className="text-[11px] font-black">{unitSystem === 'imperial' ? '🇺🇸 MPH' : '🌐 KM/H'}</span>
+          </button>
           <button
             onClick={onToggleMute}
             className="p-1.5 bg-neutral-900/80 hover:bg-neutral-800 text-neutral-200 rounded border border-white/10 backdrop-blur transition-colors"
@@ -593,7 +619,7 @@ export const BroadcastHUD: React.FC<BroadcastHUDProps> = ({
             />
           </div>
           <div className="flex justify-between text-[10px] font-mono text-neutral-400">
-            <span>{telemetry.tireTemp}°C</span>
+            <span>{formatTemp(telemetry.tireTemp, unitSystem)}</span>
             <span>{100 - telemetry.tireWear}%</span>
           </div>
         </div>
@@ -631,9 +657,9 @@ export const BroadcastHUD: React.FC<BroadcastHUDProps> = ({
             <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
               <span className="text-[8px] sm:text-[9px] uppercase font-bold text-neutral-400">SPEED</span>
               <span className="text-base sm:text-xl font-black text-white font-mono tabular-nums leading-none">
-                {telemetry.speedKmh}
+                {displaySpeed}
               </span>
-              <span className="text-[7px] sm:text-[8px] font-bold text-neutral-400">KM/H</span>
+              <span className="text-[7px] sm:text-[8px] font-bold text-neutral-400">{speedUnitLabel}</span>
             </div>
           </div>
 
@@ -665,9 +691,9 @@ export const BroadcastHUD: React.FC<BroadcastHUDProps> = ({
                 <span className="text-[9px] uppercase tracking-wider text-neutral-400">SPEED</span>
                 <div className="flex items-baseline">
                   <span className="text-4xl md:text-5xl font-black text-white font-mono tabular-nums">
-                    {telemetry.speedKmh}
+                    {displaySpeed}
                   </span>
-                  <span className="text-[10px] font-bold text-neutral-400 ml-1">KM/H</span>
+                  <span className="text-[10px] font-bold text-neutral-400 ml-1">{speedUnitLabel}</span>
                 </div>
               </div>
 

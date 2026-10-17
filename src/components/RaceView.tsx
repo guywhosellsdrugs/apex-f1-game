@@ -240,7 +240,9 @@ export const RaceView: React.FC<RaceViewProps> = ({
             number: p.carNumber || 99,
             teamId: rivalTeam.id,
             country: 'World',
+            countryCode: 'UN',
             rating: 88,
+            aggression: 0.85,
             color: p.teamColor || '#ff4444',
           };
           const rivalCar = buildF1Car(rivalTeam, rivalDriver);
@@ -300,9 +302,9 @@ export const RaceView: React.FC<RaceViewProps> = ({
           lastTelemetrySendTime = time;
           multiplayerService.sendTelemetry({
             progress: physics.playerProgress,
-            lap: physics.telemetry?.lapCurrent || 1,
+            lap: physics.playerLap || physics.telemetry?.currentLap || 1,
             speedKmh: physics.playerSpeedKmh,
-            lateralOffset: physics.telemetry?.lateralOffset || 0,
+            lateralOffset: physics.track.checkSurfaceType(physics.playerPos, physics.playerProgress).lateralOffset || 0,
             position: physics.telemetry?.position || 1,
           });
         }

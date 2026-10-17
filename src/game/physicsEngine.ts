@@ -219,6 +219,7 @@ export class PhysicsEngine {
 
   public telemetry: TelemetryData;
   public enginePowerRating: number = 85;
+  public engineReliability: number = 80;
   public accelerationScore: number = 85;
   public handlingScore: number = 82;
   public downforceScore: number = 80;
@@ -250,12 +251,14 @@ export class PhysicsEngine {
     // Calculate player car power, acceleration, handling, downforce, brakes based on distinct team profiles & upgrades (Uncapped ratings)
     if (this.customTeamConfig && this.playerTeam?.id === this.customTeamConfig.id) {
       this.enginePowerRating = this.customTeamConfig.enginePower || 88;
+      this.engineReliability = this.customTeamConfig.engineReliability ?? 80;
       this.accelerationScore = 80 + (this.customTeamConfig.enginePower ? (this.customTeamConfig.enginePower - 80) * 1.15 : 0);
       this.handlingScore = 80 + (this.customTeamConfig.handlingBonus || 0);
       this.downforceScore = 80 + ((this.customTeamConfig.aeroDownforceBonus || 0) * 55);
       this.brakesScore = 80 + (this.customTeamConfig.brakesBonus || 0);
     } else if (this.playerTeam?.carProfile) {
       this.enginePowerRating = this.playerTeam.carProfile.topSpeedRating;
+      this.engineReliability = (this.playerTeam as any).engineReliability || 82;
       this.accelerationScore = this.playerTeam.carProfile.acceleration;
       this.handlingScore = this.playerTeam.carProfile.handlingRating;
       this.downforceScore = this.playerTeam.carProfile.aeroDownforce;
@@ -349,7 +352,7 @@ export class PhysicsEngine {
     const playerStartingGrid = options?.playerGridSlot || (playerDriver.teamId === 'haas' ? 17 : Math.max(1, 21 - Math.floor(playerDriver.rating / 5)));
 
     // Track slots occupied by remote peer players
-    const peerSlotMap = new Map<number, (typeof options.peerPlayers)[0]>();
+    const peerSlotMap = new Map<number, NonNullable<GridOptions['peerPlayers']>[0]>();
     if (options?.peerPlayers) {
       for (const p of options.peerPlayers) {
         peerSlotMap.set(p.gridSlot, p);
@@ -1064,13 +1067,18 @@ export class PhysicsEngine {
         const normalImpactSpeed = Math.abs(normalVel) * 3.6;
         const totalImpactSpeed = Math.abs(this.playerSpeedKmh);
 
-        // 100% RELIABLE WALL CRASH ENGINE STALL: ("and also some walls are like if i crash into my engine doesnt stall")
-        // Any collision into a wall/barrier at speed (>= 14 km/h) or with noticeable wall angle/penetration stalls engine
+        // Reliability impact resilience scaling:
+        // "the more reliable an engine the harder the hits the car can take with out stalling but DONT make it fully immune to hits its just that it can survive like a light tap."
+        const relFactor = Math.max(0, Math.min(1.0, ((this.engineReliability || 80) - 75) / 25));
+        const wallSpeedStallThreshold = 14 + relFactor * 22; // 14 km/h (baseline) up to 36 km/h (~22 mph for a light tap/brush)
+        const wallNormalStallThreshold = 3.5 + relFactor * 6.5; // 3.5 up to 10.0 km/h normal component
+        const penetrationStallThreshold = 0.04 + relFactor * 0.04;
+
         const isWallCrash =
-          totalImpactSpeed >= 14 ||
-          normalImpactSpeed >= 3.5 ||
-          subSurface.penetration > 0.04 ||
-          absLateralDist >= barrierLimit - 0.15;
+          totalImpactSpeed >= wallSpeedStallThreshold ||
+          normalImpactSpeed >= wallNormalStallThreshold ||
+          subSurface.penetration > penetrationStallThreshold ||
+          absLateralDist >= barrierLimit - 0.08;
 
         if (isWallCrash && this.playerCrashWaitTimer <= 0 && this.playerProtectionShieldTimer <= 0) {
           const waitDuration = this.getCrashWaitDuration();
@@ -1247,6 +1255,7 @@ export class PhysicsEngine {
       crashWaitTimer: this.playerCrashWaitTimer > 0 ? this.playerCrashWaitTimer : undefined,
       crashWaitMax: this.playerCrashWaitMax,
       crashWaitMode: this.difficulty,
+      engineReliability: this.engineReliability,
       protectionShieldTimer: this.playerProtectionShieldTimer > 0 ? this.playerProtectionShieldTimer : undefined,
       slipstreamActive: this.slipstreamActive,
       slipstreamFactor: this.slipstreamFactor,
@@ -1326,11 +1335,16 @@ export class PhysicsEngine {
         const aiVel = aiFwd.clone().multiplyScalar(ai.speedKmh / 3.6);
         const closingSpeedKmh = Math.abs(playerVel.sub(aiVel).dot(norm)) * 3.6;
 
-        // "if i collied with a cpu hardly in rookie mode me and the cpu have to wait 2 seconds pro mode is 3.5 and legend is 5"
+        // Reliability resilience for car-to-car impacts:
+        // "the more reliable an engine the harder the hits the car can take with out stalling but DONT make it fully immune to hits its just that it can survive like a light tap."
+        const relFactor = Math.max(0, Math.min(1.0, ((this.engineReliability || 80) - 75) / 25));
+        const carRelSpeedStallThreshold = 22 + relFactor * 16; // 22 -> 38 km/h
+        const carClosingStallThreshold = 14 + relFactor * 14; // 14 -> 28 km/h
+
         const isHardImpact =
-          relSpeedKmh >= 22 ||
-          closingSpeedKmh >= 14 ||
-          (Math.abs(this.playerSpeedKmh) > 38 && minDist < collisionThreshold * 0.95);
+          relSpeedKmh >= carRelSpeedStallThreshold ||
+          closingSpeedKmh >= carClosingStallThreshold ||
+          (Math.abs(this.playerSpeedKmh) > 42 && minDist < collisionThreshold * 0.90);
 
         if (isHardImpact && this.playerCrashWaitTimer <= 0) {
           const waitDuration = this.getCrashWaitDuration();
@@ -1499,7 +1513,7 @@ export class PhysicsEngine {
             ai.targetOffset = ai.lateralOffset >= 0 ? 5.5 : -5.5;
           } else {
             // Teammate is behind player: actively detect trailing rival and mirror their racing line to block them!
-            let closestRival: AICar | null = null;
+            let closestRival: AICarState | null = null;
             let minRivalDist = Infinity;
             for (const rival of this.aiCars) {
               if (rival.driver.id === ai.driver.id || rival.finished) continue;

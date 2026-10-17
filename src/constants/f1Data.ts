@@ -765,7 +765,7 @@ function createTrackSpline(points: [number, number, number][]): TrackPoint[] {
 }
 
 export const CIRCUITS: CircuitInfo[] = [
-  // 1. Bahrain Grand Prix (Sakhir)
+  // 1. Bahrain Grand Prix (Sakhir) - Desert oasis with technical hairpin Turn 1 and double-apex Turn 9-10
   {
     id: 'bahrain',
     name: 'Bahrain Grand Prix',
@@ -776,7 +776,7 @@ export const CIRCUITS: CircuitInfo[] = [
     turns: 15,
     lapRecord: '1:31.447',
     recordHolder: 'Pedro de la Rosa',
-    description: 'High-speed desert twilight race with intense braking zones into Turn 1 and technical traction zones under dazzling floodlights.',
+    description: 'High-speed desert twilight race with intense braking into Turn 1 hairpin, downhill off-camber Turn 9-10, and sweeping back straight.',
     skyColor: 0x0f1526,
     fogColor: 0x141d33,
     ambientLight: 0.72,
@@ -784,25 +784,29 @@ export const CIRCUITS: CircuitInfo[] = [
     trackPoints: createTrackSpline([
       [0, 0.25, 0],
       [0, 0.25, -140],
-      [0, 0.25, -280],
-      [40, 0.25, -360],
-      [110, 0.25, -390],
-      [190, 0.25, -330],
-      [230, 0.25, -210],
-      [270, 0.25, -70],
-      [290, 0.25, 80],
-      [290, 0.25, 230],
-      [210, 0.25, 330],
-      [100, 0.25, 380],
-      [-10, 0.25, 360],
-      [-120, 0.25, 290],
-      [-120, 0.25, 220],
-      [-65, 0.25, 160],
-      [-20, 0.25, 90],
+      [0, 0.25, -260],
+      [45, 0.25, -330],
+      [100, 0.25, -340],
+      [140, 0.25, -290],
+      [120, 0.25, -210],
+      [135, 0.25, -110],
+      [165, 0.25, -20],
+      [220, 0.25, 45],
+      [270, 0.25, 10],
+      [320, 0.25, 65],
+      [360, 0.25, 140],
+      [330, 0.25, 205],
+      [260, 0.25, 215],
+      [160, 0.25, 195],
+      [60, 0.25, 175],
+      [-25, 0.25, 145],
+      [-90, 0.25, 90],
+      [-80, 0.25, 30],
+      [-30, 0.25, 5],
     ]),
   },
 
-  // 2. Saudi Arabian Grand Prix (Jeddah) - Wide, flowing sweep with >120m clearance everywhere
+  // 2. Saudi Arabian Grand Prix (Jeddah) - Narrow, ultra-fast elongated needle along the Red Sea coast
   {
     id: 'jeddah',
     name: 'Saudi Arabian Grand Prix',
@@ -813,7 +817,7 @@ export const CIRCUITS: CircuitInfo[] = [
     turns: 27,
     lapRecord: '1:30.734',
     recordHolder: 'Lewis Hamilton',
-    description: 'The fastest street track in Formula 1 history. Rapid flowing sweeps along the Red Sea coast requiring nerves of steel.',
+    description: 'The fastest street track in Formula 1 history. An ultra-elongated coastal corridor with rapid 250+ km/h blind sweeps along the Red Sea.',
     skyColor: 0x091124,
     fogColor: 0x0d1830,
     ambientLight: 0.75,
@@ -822,27 +826,26 @@ export const CIRCUITS: CircuitInfo[] = [
       [0, 0.25, 0],
       [0, 0.25, -180],
       [0, 0.25, -360],
-      [50, 0.25, -470],
-      [140, 0.25, -530],
-      [230, 0.25, -460],
-      [280, 0.25, -330],
-      [310, 0.25, -150],
-      [340, 0.25, 50],
-      [350, 0.25, 250],
-      [310, 0.25, 430],
-      [230, 0.25, 570],
-      [130, 0.25, 670],
-      [-20, 0.25, 700],
-      [-170, 0.25, 640],
-      [-270, 0.25, 490],
-      [-310, 0.25, 320],
-      [-240, 0.25, 220],
-      [-130, 0.25, 170],
-      [-40, 0.25, 100],
+      [30, 0.25, -440],
+      [-15, 0.25, -520],
+      [25, 0.25, -630],
+      [-20, 0.25, -750],
+      [20, 0.25, -870],
+      [70, 0.45, -960],
+      [140, 0.45, -940],
+      [170, 0.25, -860],
+      [150, 0.25, -730],
+      [180, 0.25, -550],
+      [140, 0.25, -360],
+      [165, 0.25, -170],
+      [130, 0.25, 10],
+      [80, 0.25, 90],
+      [10, 0.25, 75],
+      [-15, 0.25, 35],
     ]),
   },
 
-  // 3. Australian Grand Prix (Melbourne)
+  // 3. Australian Grand Prix (Melbourne) - Organic parkland loop encircling Albert Park Lake
   {
     id: 'melbourne',
     name: 'Australian Grand Prix',
@@ -853,7 +856,7 @@ export const CIRCUITS: CircuitInfo[] = [
     turns: 14,
     lapRecord: '1:19.813',
     recordHolder: 'Charles Leclerc',
-    description: 'Picturesque parkland street circuit around Albert Park lake, with high-speed flowing sweeps and open corner sightlines.',
+    description: 'Picturesque parkland street circuit curving around Albert Park lake, featuring fast chicanes and wide open corner sightlines.',
     skyColor: 0x3882d6,
     fogColor: 0x62a1ea,
     ambientLight: 0.9,
@@ -861,26 +864,25 @@ export const CIRCUITS: CircuitInfo[] = [
     trackPoints: createTrackSpline([
       [0, 0.25, 0],
       [0, 0.25, -130],
-      [0, 0.25, -260],
-      [40, 0.25, -340],
-      [90, 0.25, -370],
-      [130, 0.25, -320],
-      [180, 0.25, -200],
-      [240, 0.25, -80],
-      [290, 0.25, 60],
-      [310, 0.25, 190],
-      [270, 0.25, 310],
-      [200, 0.25, 400],
-      [110, 0.25, 430],
-      [0, 0.25, 390],
-      [-90, 0.25, 310],
-      [-110, 0.25, 230],
-      [-60, 0.25, 160],
-      [-20, 0.25, 90],
+      [0, 0.25, -250],
+      [55, 0.25, -320],
+      [110, 0.25, -290],
+      [160, 0.25, -190],
+      [220, 0.25, -220],
+      [290, 0.25, -170],
+      [350, 0.25, -70],
+      [385, 0.25, 50],
+      [360, 0.25, 170],
+      [295, 0.25, 260],
+      [205, 0.25, 310],
+      [95, 0.25, 325],
+      [15, 0.25, 275],
+      [-35, 0.25, 175],
+      [-20, 0.25, 80],
     ]),
   },
 
-  // 4. Japanese Grand Prix (Suzuka) - Open Casio Triangle and sweeping pit straight
+  // 4. Japanese Grand Prix (Suzuka) - Iconic Figure-8 with crossover bridge elevation and sweeping 130R
   {
     id: 'suzuka',
     name: 'Japanese Grand Prix',
@@ -891,35 +893,43 @@ export const CIRCUITS: CircuitInfo[] = [
     turns: 18,
     lapRecord: '1:30.983',
     recordHolder: 'Lewis Hamilton',
-    description: 'The drivers ultimate proving ground. Legendary flowing uphill esses, Degner curves, the Spoon curve, and flat-out 130R.',
+    description: 'The driver’s ultimate test. Iconic Figure-8 layout featuring uphill esses, Degner curves, the Spoon Curve, and flat-out 130R.',
     skyColor: 0x486581,
     fogColor: 0x627d98,
     ambientLight: 0.88,
     timeOfDay: 'day',
     trackPoints: createTrackSpline([
       [0, 0.25, 0],
-      [0, 0.25, -160],
-      [0, 0.25, -340],
-      [60, 0.5, -450],
-      [160, 0.8, -420],
-      [230, 1.2, -310],
-      [220, 1.5, -170],
-      [270, 1.8, -50],
-      [330, 2.0, 70],
-      [360, 1.5, 210],
-      [320, 1.0, 340],
-      [220, 0.6, 440],
-      [100, 0.3, 490],
-      [-20, 0.25, 480],
-      [-130, 0.25, 410],
-      [-200, 0.25, 300],
-      [-150, 0.25, 220],
-      [-80, 0.25, 160],
-      [-25, 0.25, 90],
+      [0, 0.25, -150],
+      [0, 0.25, -260],
+      [65, 0.35, -330],
+      [140, 0.5, -315],
+      [165, 0.75, -230],
+      [215, 1.1, -210],
+      [185, 1.45, -140],
+      [235, 1.8, -85],
+      [285, 2.1, -30],
+      [290, 2.2, 45],
+      [245, 1.9, 105],
+      [200, 1.4, 120],
+      [145, 0.28, 110], // Passes under the bridge
+      [85, 0.25, 175],
+      [45, 0.25, 215],
+      [80, 0.25, 255],
+      [155, 0.45, 325],
+      [235, 0.7, 385],
+      [285, 0.6, 360],
+      [250, 0.45, 295],
+      [165, 1.85, 195],
+      [105, 3.2, 110], // Flies OVER the bridge crossing!
+      [40, 1.4, 25],
+      [-25, 0.75, -45],
+      [-55, 0.3, -115],
+      [-20, 0.25, -60],
     ]),
   },
 
-  // 5. Miami Grand Prix - Wide loop with generous clearance everywhere (>78m)
+  // 5. Miami Grand Prix - Polygon stadium perimeter with the ultra-long south straight & marina chicanes
   {
     id: 'miami',
     name: 'Miami Grand Prix',
@@ -930,33 +940,36 @@ export const CIRCUITS: CircuitInfo[] = [
     turns: 19,
     lapRecord: '1:29.708',
     recordHolder: 'Max Verstappen',
-    description: 'Fast modern street-hybrid circuit encircling Hard Rock Stadium, with flowing chicane sections and wide overtaking straights.',
+    description: 'Fast modern street-hybrid circuit encircling Hard Rock Stadium, with tight chicanes and massive high-speed overtaking straights.',
     skyColor: 0x2b82c9,
     fogColor: 0x4ca1e4,
     ambientLight: 0.95,
     timeOfDay: 'day',
     trackPoints: createTrackSpline([
       [0, 0.25, 0],
-      [0, 0.25, -170],
-      [0, 0.25, -340],
-      [-90, 0.25, -440],
-      [-200, 0.25, -420],
-      [-290, 0.25, -300],
-      [-320, 0.25, -140],
-      [-300, 0.25, 40],
-      [-310, 0.25, 210],
-      [-270, 0.25, 360],
-      [-170, 0.25, 470],
-      [-50, 0.25, 510],
-      [70, 0.25, 470],
-      [190, 0.25, 360],
-      [210, 0.25, 240],
-      [140, 0.25, 170],
-      [60, 0.25, 100],
+      [0, 0.25, -160],
+      [0, 0.25, -290],
+      [-65, 0.25, -360],
+      [-145, 0.25, -345],
+      [-205, 0.25, -270],
+      [-245, 0.25, -170],
+      [-275, 0.25, -65],
+      [-230, 0.25, 35],
+      [-285, 0.25, 135],
+      [-315, 0.25, 245],
+      [-260, 0.65, 335],
+      [-195, 0.35, 385],
+      [-65, 0.25, 410],
+      [95, 0.25, 415],
+      [245, 0.25, 395],
+      [305, 0.25, 320],
+      [290, 0.25, 225],
+      [185, 0.25, 135],
+      [75, 0.25, 65],
     ]),
   },
 
-  // 6. Monaco Grand Prix - Clean coastal loop with wide, clear harbor approach
+  // 6. Monaco Grand Prix - Authentic Monte Carlo waterfront harbour, Casino Square climb, and Fairmont Hairpin
   {
     id: 'monaco',
     name: 'Monaco Grand Prix',
@@ -974,24 +987,34 @@ export const CIRCUITS: CircuitInfo[] = [
     timeOfDay: 'day',
     trackPoints: createTrackSpline([
       [0, 0.25, 0],
-      [0, 0.25, -120],
-      [0, 0.25, -240],
-      [50, 0.25, -310],
-      [120, 0.25, -300],
-      [180, 0.25, -210],
-      [210, 0.25, -90],
-      [230, 0.25, 40],
-      [210, 0.25, 180],
-      [160, 0.25, 290],
-      [80, 0.25, 350],
-      [-20, 0.25, 330],
-      [-100, 0.25, 260],
-      [-65, 0.25, 180],
-      [-20, 0.25, 90],
+      [0, 0.25, -110],
+      [0, 0.25, -200],
+      [45, 0.4, -260], // Sainte Devote
+      [85, 0.75, -245],
+      [115, 1.85, -165], // Beau Rivage uphill
+      [145, 2.7, -85],
+      [165, 3.25, -5], // Massenet
+      [140, 2.9, 55], // Casino Square crest
+      [175, 2.2, 115], // Mirabeau Haute
+      [215, 1.55, 125], // Fairmont Hairpin
+      [235, 1.35, 155],
+      [195, 1.05, 165],
+      [155, 0.55, 215], // Portier
+      [185, 0.28, 265],
+      [225, 0.25, 345], // Tunnel flat out blast
+      [205, 0.25, 435],
+      [155, 0.25, 495],
+      [95, 0.25, 465], // Nouvelle Chicane
+      [65, 0.25, 405],
+      [45, 0.25, 325], // Tabac
+      [15, 0.25, 245], // Swimming Pool
+      [30, 0.25, 165],
+      [-15, 0.25, 105], // Rascasse
+      [-40, 0.25, 55],
     ]),
   },
 
-  // 7. British Grand Prix (Silverstone) - >94m clearance everywhere
+  // 7. British Grand Prix (Silverstone) - Historic airfield triangle with Copse, Maggotts-Becketts, & Stowe
   {
     id: 'silverstone',
     name: 'British Grand Prix',
@@ -1009,26 +1032,37 @@ export const CIRCUITS: CircuitInfo[] = [
     timeOfDay: 'day',
     trackPoints: createTrackSpline([
       [0, 0.25, 0],
-      [0, 0.25, -170],
-      [0, 0.25, -340],
-      [70, 0.25, -450],
-      [180, 0.25, -480],
-      [280, 0.25, -410],
-      [330, 0.25, -280],
-      [320, 0.25, -130],
-      [340, 0.25, 40],
-      [330, 0.25, 220],
-      [260, 0.25, 380],
-      [160, 0.25, 480],
-      [20, 0.25, 500],
-      [-110, 0.25, 450],
-      [-180, 0.25, 320],
-      [-130, 0.25, 220],
-      [-50, 0.25, 120],
+      [0, 0.25, -120],
+      [0, 0.25, -230], // Hamilton Straight
+      [65, 0.25, -290], // Abbey
+      [135, 0.25, -275], // Farm
+      [185, 0.25, -215], // Village
+      [195, 0.25, -145], // The Loop
+      [145, 0.25, -125], // Aintree
+      [95, 0.25, -45], // Wellington Straight
+      [45, 0.25, 65],
+      [25, 0.25, 155], // Brooklands & Luffield
+      [75, 0.25, 205],
+      [125, 0.25, 175],
+      [175, 0.25, 115], // Woodcote
+      [225, 0.25, 45],
+      [295, 0.25, -25], // Copse Corner flat out
+      [335, 0.25, -125],
+      [385, 0.25, -195], // Maggotts
+      [435, 0.25, -165], // Becketts
+      [445, 0.25, -85], // Chapel
+      [475, 0.25, -25],
+      [465, 0.25, 85], // Hangar Straight
+      [425, 0.25, 225],
+      [365, 0.25, 295], // Stowe
+      [285, 0.25, 315],
+      [195, 0.25, 255], // Vale & Club
+      [115, 0.25, 165],
+      [35, 0.25, 85],
     ]),
   },
 
-  // 8. Belgian Grand Prix (Spa-Francorchamps) - >87m clearance everywhere
+  // 8. Belgian Grand Prix (Spa-Francorchamps) - Undulating Ardennes rollercoaster with Eau Rouge & Raidillon
   {
     id: 'spa',
     name: 'Belgian Grand Prix',
@@ -1046,26 +1080,32 @@ export const CIRCUITS: CircuitInfo[] = [
     timeOfDay: 'day',
     trackPoints: createTrackSpline([
       [0, 0.25, 0],
-      [0, 0.25, -160],
-      [0, 0.25, -320],
-      [50, 0.4, -420],
-      [130, 0.5, -480],
-      [230, 0.8, -440],
-      [290, 1.2, -310],
-      [330, 1.8, -140],
-      [350, 2.4, 50],
-      [330, 1.8, 240],
-      [270, 1.2, 390],
-      [170, 0.8, 490],
-      [40, 0.5, 510],
-      [-100, 0.4, 450],
-      [-180, 0.3, 330],
-      [-130, 0.25, 220],
-      [-50, 0.25, 120],
+      [0, 0.25, -110],
+      [0, 0.25, -190],
+      [55, 0.25, -250], // La Source hairpin
+      [95, 0.25, -225],
+      [125, 0.12, -145], // Eau Rouge dip
+      [145, 0.85, -65],
+      [165, 2.9, 15], // Raidillon crest
+      [195, 3.5, 135], // Kemmel Straight uphill
+      [235, 3.85, 285],
+      [285, 3.55, 365], // Les Combes chicane
+      [335, 3.05, 355],
+      [345, 2.45, 295], // Malmedy
+      [315, 1.65, 215], // Bruxelles
+      [285, 1.25, 145], // Rivage
+      [245, 0.85, 75], // Double Gauche Pouhon
+      [195, 0.65, 35],
+      [145, 0.45, -25], // Fagnes & Stavelot
+      [105, 0.38, -85],
+      [55, 0.25, -135], // Blanchimont
+      [25, 0.25, -105],
+      [-25, 0.25, -55], // Bus Stop Chicane
+      [-18, 0.25, -12],
     ]),
   },
 
-  // 9. Italian Grand Prix (Monza) - >120m clearance everywhere
+  // 9. Italian Grand Prix (Monza) - Temple of Speed with long blasts, Prima Variante, & Parabolica
   {
     id: 'monza',
     name: 'Italian Grand Prix',
@@ -1083,27 +1123,33 @@ export const CIRCUITS: CircuitInfo[] = [
     timeOfDay: 'sunset',
     trackPoints: createTrackSpline([
       [0, 0.25, 0],
-      [0, 0.25, -200],
-      [0, 0.25, -400],
-      [50, 0.25, -500],
-      [140, 0.25, -550],
-      [240, 0.25, -480],
-      [280, 0.25, -340],
-      [300, 0.25, -140],
-      [310, 0.25, 80],
-      [310, 0.25, 290],
-      [260, 0.25, 480],
-      [170, 0.25, 610],
-      [30, 0.25, 650],
-      [-120, 0.25, 590],
-      [-200, 0.25, 440],
-      [-190, 0.25, 280],
-      [-110, 0.25, 190],
-      [-40, 0.25, 100],
+      [0, 0.25, -180],
+      [0, 0.25, -360], // Massive Rettifilo straight
+      [35, 0.25, -440], // Prima Variante chicane
+      [-20, 0.25, -480],
+      [45, 0.25, -570], // Curva Grande sweeping right
+      [145, 0.25, -640],
+      [245, 0.25, -620],
+      [315, 0.25, -530], // Variante della Roggia
+      [345, 0.25, -445],
+      [385, 0.25, -345], // Lesmo 1 & Lesmo 2
+      [415, 0.25, -235],
+      [395, 0.25, -95], // Serraglio under old banking bridge
+      [355, 0.25, 65],
+      [305, 0.25, 175], // Variante Ascari
+      [245, 0.25, 225],
+      [275, 0.25, 295],
+      [255, 0.25, 435], // Back straight
+      [205, 0.25, 555],
+      [125, 0.25, 615], // Curva Parabolica
+      [25, 0.25, 585],
+      [-55, 0.25, 475],
+      [-75, 0.25, 315],
+      [-40, 0.25, 145],
     ]),
   },
 
-  // 10. Abu Dhabi Grand Prix (Yas Marina) - Finale with >51m clearance
+  // 10. Abu Dhabi Grand Prix (Yas Marina) - Waterfront marina showcase with hotel underpass & fireworks
   {
     id: 'abudhabi',
     name: 'Abu Dhabi Grand Prix',
@@ -1121,22 +1167,28 @@ export const CIRCUITS: CircuitInfo[] = [
     timeOfDay: 'twilight',
     trackPoints: createTrackSpline([
       [0, 0.25, 0],
-      [0, 0.25, -140],
-      [0, 0.25, -280],
-      [40, 0.25, -360],
-      [110, 0.25, -390],
-      [180, 0.25, -330],
-      [230, 0.25, -210],
-      [260, 0.25, -70],
-      [280, 0.25, 80],
-      [280, 0.25, 230],
-      [220, 0.25, 330],
-      [130, 0.25, 390],
-      [20, 0.25, 380],
-      [-80, 0.25, 310],
-      [-110, 0.25, 220],
-      [-55, 0.25, 150],
-      [-15, 0.25, 80],
+      [0, 0.25, -120],
+      [0, 0.25, -240],
+      [-55, 0.25, -315], // Turn 1 left
+      [-125, 0.25, -335],
+      [-195, 0.5, -285], // Uphill sweep
+      [-235, 0.62, -195],
+      [-265, 0.42, -95], // Turn 5 Hairpin
+      [-245, 0.25, -35],
+      [-165, 0.25, 75], // 1.2km Back Straight
+      [-75, 0.25, 205],
+      [35, 0.25, 325],
+      [95, 0.25, 375], // Chicane
+      [135, 0.25, 345],
+      [215, 0.38, 275], // Banked Turn 9
+      [265, 0.38, 175],
+      [285, 0.25, 65], // Marina waterfront complex
+      [255, 0.25, -35],
+      [195, 0.25, -75],
+      [135, 0.25, -35], // Hotel underpass
+      [95, 0.25, 35],
+      [55, 0.25, 75],
+      [18, 0.25, 45],
     ]),
   },
 ];

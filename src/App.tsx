@@ -672,9 +672,14 @@ export default function App() {
             setInRace(false);
             setIsPracticeMode(false);
             setPracticeCircuit(null);
+            setIsMultiplayerRace(false);
+            setMultiplayerRoom(null);
           }}
           isPracticeMode={isPracticeMode}
           practiceDifficulty={isPracticeMode ? practiceDifficulty : undefined}
+          isMultiplayer={isMultiplayerRace}
+          multiplayerRoom={multiplayerRoom}
+          onOpenControls={() => setShowButtonMappingModal(true)}
         />
       ) : (
         <SeasonHub
@@ -694,6 +699,8 @@ export default function App() {
           onStartNextSeason={handleStartNextSeason}
           onQuitCareer={handleQuitCareer}
           onSellCustomTeam={handleSellCustomTeam}
+          onOpenMultiplayer={() => setShowMultiplayerModal(true)}
+          onOpenControls={() => setShowButtonMappingModal(true)}
         />
       )}
 
@@ -956,6 +963,20 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* 4-Digit Code Multiplayer Rooms Modal */}
+      <MultiplayerModal
+        isOpen={showMultiplayerModal}
+        onClose={() => setShowMultiplayerModal(false)}
+        onLaunchRace={handleLaunchMultiplayerRace}
+        season={season}
+      />
+
+      {/* Button & Gamepad Controls Re-mapping Modal */}
+      <ButtonMappingModal
+        isOpen={showButtonMappingModal}
+        onClose={() => setShowButtonMappingModal(false)}
+      />
     </div>
   );
 }

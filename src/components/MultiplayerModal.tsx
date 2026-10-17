@@ -7,6 +7,8 @@ import {
 } from '../services/multiplayerService';
 import { CIRCUITS, TEAMS } from '../constants/f1Data';
 import { SeasonState } from '../types/racing';
+import { TrackLayoutPreview } from './TrackLayoutPreview';
+import { formatDistance, getStoredUnitSystem } from '../utils/units';
 import {
   X,
   Users,
@@ -589,10 +591,29 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
                     >
                       {CIRCUITS.map((c) => (
                         <option key={c.id} value={c.id}>
-                          {c.name} ({c.location}) - {c.lengthKm} km
+                          {c.name} ({c.location}) - {formatDistance(c.lengthKm, getStoredUnitSystem())}
                         </option>
                       ))}
                     </select>
+
+                    {/* Circuit Layout Outline */}
+                    {(() => {
+                      const selectedCirc = CIRCUITS.find((c) => c.id === circuitId) || CIRCUITS[0];
+                      return (
+                        <div className="bg-neutral-950/80 rounded-xl p-2.5 border border-white/5 my-2">
+                          <TrackLayoutPreview
+                            circuit={selectedCirc}
+                            height={120}
+                            strokeColor="#ef4444"
+                            strokeWidth={3}
+                            showStartFinish={true}
+                            showDirection={true}
+                            showTurnLabels={true}
+                          />
+                        </div>
+                      );
+                    })()}
+
                     <p className="text-xs text-neutral-400">
                       {CIRCUITS.find((c) => c.id === circuitId)?.description}
                     </p>

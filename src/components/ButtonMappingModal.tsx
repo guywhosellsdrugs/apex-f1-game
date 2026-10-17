@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { inputManager, CustomControlBindings, CustomGamepadBindings, DEFAULT_KEY_BINDINGS, DEFAULT_GAMEPAD_BINDINGS } from '../services/inputManager';
-import { X, Gamepad2, Keyboard, RotateCcw, Check, Sparkles, AlertCircle } from 'lucide-react';
+import { X, Gamepad2, Keyboard, RotateCcw, Check, Sparkles, AlertCircle, Gauge } from 'lucide-react';
+import { UnitSystem, getStoredUnitSystem, setStoredUnitSystem, onUnitSystemChange } from '../utils/units';
 
 interface ButtonMappingModalProps {
   isOpen: boolean;
@@ -55,6 +56,11 @@ export const ButtonMappingModal: React.FC<ButtonMappingModalProps> = ({ isOpen, 
   const [tab, setTab] = useState<'keyboard' | 'gamepad'>('keyboard');
   const [keyBindings, setKeyBindings] = useState<CustomControlBindings>(() => inputManager.getKeyBindings());
   const [gamepadBindings, setGamepadBindings] = useState<CustomGamepadBindings>(() => inputManager.getGamepadBindings());
+  const [unitSystem, setUnitSystem] = useState<UnitSystem>(getStoredUnitSystem());
+
+  useEffect(() => {
+    return onUnitSystemChange(setUnitSystem);
+  }, []);
   
   const [listeningKeyAction, setListeningKeyAction] = useState<KeyAction | null>(null);
   const [listeningGamepadAction, setListeningGamepadAction] = useState<GamepadAction | null>(null);
@@ -395,17 +401,32 @@ export const ButtonMappingModal: React.FC<ButtonMappingModalProps> = ({ isOpen, 
 
         {/* Footer Actions */}
         <div className="p-6 border-t border-neutral-800 bg-neutral-950/80 flex items-center justify-between">
-          <button
-            onClick={handleResetDefaults}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-white text-xs font-bold transition-colors"
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-            Restore Factory Defaults
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => {
+                const next = unitSystem === 'metric' ? 'imperial' : 'metric';
+                setUnitSystem(next);
+                setStoredUnitSystem(next);
+              }}
+              className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 text-neutral-200 text-xs font-mono font-bold transition-colors cursor-pointer"
+              title="Toggle between American (MPH / Miles) and Metric (KM/H / KM) measurements"
+            >
+              <Gauge className="w-3.5 h-3.5 text-cyan-400" />
+              <span>{unitSystem === 'imperial' ? '🇺🇸 American (MPH)' : '🌐 Metric (KM/H)'}</span>
+            </button>
+
+            <button
+              onClick={handleResetDefaults}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-white text-xs font-bold transition-colors cursor-pointer"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              Restore Factory Defaults
+            </button>
+          </div>
 
           <button
             onClick={onClose}
-            className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold text-sm tracking-wide shadow-lg shadow-red-900/30 transition-all"
+            className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold text-sm tracking-wide shadow-lg shadow-red-900/30 transition-all cursor-pointer"
           >
             <Check className="w-4 h-4" />
             Save & Close

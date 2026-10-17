@@ -203,6 +203,8 @@ export interface CustomTeamConfig {
   baseSponsorPerRace?: number;
   customerTeamsSupplied?: string[]; // IDs of customer grid teams using player's engine
   customerSupplyRevenuePerRace?: number; // Total lease revenue received per race from customer teams
+  customerContractSeasons?: Record<string, number>; // Maps teamId -> seasonNumber when signed (1 season commitment)
+  engineReliability?: number; // 75 - 100% component reliability to withstand light taps without engine stall
 }
 
 export interface CustomerTeamPUOffer {
@@ -341,6 +343,9 @@ export interface TelemetryData {
   crashWaitTimer?: number;
   crashWaitMax?: number;
   crashWaitMode?: 'rookie' | 'pro' | 'legend';
+  engineReliability?: number;
+  lapCurrent?: number;
+  lateralOffset?: number;
   protectionShieldTimer?: number;
   slipstreamActive?: boolean;
   slipstreamFactor?: number;

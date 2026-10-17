@@ -64,6 +64,17 @@ import {
   Volume2,
 } from 'lucide-react';
 import { soundEngine } from '../services/soundEngine';
+import { TrackLayoutPreview } from './TrackLayoutPreview';
+import {
+  UnitSystem,
+  getStoredUnitSystem,
+  setStoredUnitSystem,
+  formatSpeed,
+  formatDistance,
+  getSpeedUnitLabel,
+  getDistanceUnitLabel,
+  onUnitSystemChange,
+} from '../utils/units';
 
 interface SeasonHubProps {
   season: SeasonState;
@@ -108,6 +119,19 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'weekend' | 'contracts' | 'myteam' | 'standings' | 'calendar' | 'records'>('weekend');
   const [selectedLaps, setSelectedLaps] = useState<number>(season.lapCount || 5);
+  const [unitSystem, setUnitSystem] = useState<UnitSystem>(getStoredUnitSystem());
+
+  React.useEffect(() => {
+    return onUnitSystemChange((newUnit) => {
+      setUnitSystem(newUnit);
+    });
+  }, []);
+
+  const toggleUnits = () => {
+    const nextUnit = unitSystem === 'metric' ? 'imperial' : 'metric';
+    setUnitSystem(nextUnit);
+    setStoredUnitSystem(nextUnit);
+  };
 
   // Driver Edit Modal
   const [editingProfile, setEditingProfile] = useState(false);
@@ -415,17 +439,17 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
 
     const curTeam = season.career.customTeam;
     const curPower = curTeam.enginePower || 84;
+    const curReliability = curTeam.engineReliability || 80;
+    const isSuperHighPower = curPower >= 100;
     const hiredEngineer = ENGINE_ENGINEER_OPTIONS.find((e) => e.id === curTeam.engineEngineerId);
     const hiredScientist = ENGINE_SCIENTIST_OPTIONS.find((s) => s.id === curTeam.engineScientistId);
 
-    // Dynamic Odds Calculation:
-    // "the better engineers and scientists etc u have the better chance u will make a beter engine u hav to pay money for an attempt the more u pay the better chance of a better engine"
+    // Dynamic Odds Calculation
     const engineerSuccess = hiredEngineer ? hiredEngineer.successBonus : 0;
     const engineerFailureCut = hiredEngineer ? hiredEngineer.failureReduction : 0;
     const scientistSuccess = hiredScientist ? hiredScientist.successBonus : 0;
     const scientistFailureCut = hiredScientist ? hiredScientist.failureReduction : 0;
 
-    // As engine power approaches 100, achieving gains is harder without top scientists
     const powerPenalty = Math.max(0, (curPower - 80) * 0.45);
     const powerRiskBonus = Math.max(0, (curPower - 82) * 0.35);
 
@@ -436,32 +460,62 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
     const roll = Math.random() * 100;
     let outcome: 'breakthrough' | 'upgrade' | 'neutral' | 'downgrade' = 'neutral';
     let powerDelta = 0;
+    let newPower = curPower;
+    let newReliability = curReliability;
     let message = '';
 
-    if (roll < successOdds) {
-      const isBreakthrough = roll < successOdds * 0.35 || (hiredScientist?.id === 'legend_scientist' && Math.random() < 0.4);
-      if (isBreakthrough) {
-        outcome = 'breakthrough';
-        powerDelta = 3 + Math.floor(Math.random() * 4) + (hiredEngineer?.powerGainBonus || 0);
-        message = `BREAKTHROUGH POWER UNIT: Cylinder pre-chamber combustion pressure +18%! Power surged from ${curPower} to ${curPower + powerDelta} ${curPower + powerDelta > 100 ? '(HYPER-SPEC)!' : ''}!`;
+    if (isSuperHighPower) {
+      // Once engine rating goes super high (>= 100), power cannot increase further — only RELIABILITY can improve!
+      // "make it so once my engine rating goes super high then i can only improve my reliability the more reliable an engine the harder the hits the car can take with out stalling but DONT make it fully immune to hits its just that it can survive like a light tap."
+      newPower = curPower;
+      if (roll < successOdds) {
+        const isBreakthrough = roll < successOdds * 0.35 || (hiredScientist?.id === 'legend_scientist' && Math.random() < 0.4);
+        if (isBreakthrough) {
+          outcome = 'breakthrough';
+          const relGain = 3 + Math.floor(Math.random() * 3) + (hiredEngineer?.powerGainBonus || 0);
+          newReliability = Math.min(99, curReliability + relGain);
+          message = `MAX POWER CEILING REACHED (Rating: ${curPower}): Combustion power is maxed! Breakthrough in Component Endurance: Reliability improved from ${curReliability}% to ${newReliability}%! The car can now take light barrier taps and wheel rubs without stalling the engine!`;
+        } else {
+          outcome = 'upgrade';
+          const relGain = 1 + Math.floor(Math.random() * 2);
+          newReliability = Math.min(99, curReliability + relGain);
+          message = `MAX POWER CEILING REACHED: Power is at peak limit. Dyno endurance stress-testing reinforced engine mounts: Reliability improved from ${curReliability}% to ${newReliability}%! Enhanced resistance to light impact stalls.`;
+        }
+      } else if (roll < successOdds + neutralOdds) {
+        outcome = 'neutral';
+        newReliability = curReliability;
+        message = `STEADY DYNO RUN: Endurance stress analysis normal. Reliability remains steady at ${curReliability}% (Power Rating: ${curPower}).`;
       } else {
-        outcome = 'upgrade';
-        powerDelta = 1 + Math.floor(Math.random() * 3) + Math.floor((hiredEngineer?.powerGainBonus || 0) * 0.5);
-        message = `DYNO UPGRADE CONFIRMED: MGU-H turbo recovery improved. Power increased from ${curPower} to ${curPower + powerDelta} ${curPower + powerDelta > 100 ? '(HYPER-SPEC)' : ''}.`;
+        outcome = 'downgrade';
+        const relLoss = Math.min(curReliability - 75, 1 + Math.floor(Math.random() * 2));
+        newReliability = Math.max(75, curReliability - relLoss);
+        message = `DYNO KNOCKING & FATIGUE: High-RPM resonance micro-fracture! Component reliability decreased from ${curReliability}% to ${newReliability}%. Hire senior scientists to damp high-frequency vibration.`;
       }
-    } else if (roll < successOdds + neutralOdds) {
-      outcome = 'neutral';
-      powerDelta = 0;
-      message = `FLAT DYNO RUN: New camshaft profile matched baseline output. Power remains steady at ${curPower}.`;
     } else {
-      // WORSE ENGINE (as explicitly requested: "sometimes whenu try to build a better engine u might build a worse one thats y u also have to higher engine engineers and like scientists")
-      outcome = 'downgrade';
-      powerDelta = -Math.min(curPower - 70, 2 + Math.floor(Math.random() * 3));
-      message = `DYNO DETONATION FAILURE: Severe thermal knocking and pre-ignition! Power DECREASED from ${curPower} to ${curPower + powerDelta}! Higher tier scientists and master engineers are essential to stabilize high-compression combustion.`;
+      // Normal power scaling prior to super-high ceiling
+      if (roll < successOdds) {
+        const isBreakthrough = roll < successOdds * 0.35 || (hiredScientist?.id === 'legend_scientist' && Math.random() < 0.4);
+        if (isBreakthrough) {
+          outcome = 'breakthrough';
+          powerDelta = 3 + Math.floor(Math.random() * 4) + (hiredEngineer?.powerGainBonus || 0);
+          message = `BREAKTHROUGH POWER UNIT: Cylinder pre-chamber combustion pressure +18%! Power surged from ${curPower} to ${curPower + powerDelta} ${curPower + powerDelta >= 100 ? '(HYPER-SPEC PEAK REACHED)!' : ''}!`;
+        } else {
+          outcome = 'upgrade';
+          powerDelta = 1 + Math.floor(Math.random() * 3) + Math.floor((hiredEngineer?.powerGainBonus || 0) * 0.5);
+          message = `DYNO UPGRADE CONFIRMED: MGU-H turbo recovery improved. Power increased from ${curPower} to ${curPower + powerDelta} ${curPower + powerDelta >= 100 ? '(HYPER-SPEC PEAK)' : ''}.`;
+        }
+      } else if (roll < successOdds + neutralOdds) {
+        outcome = 'neutral';
+        powerDelta = 0;
+        message = `FLAT DYNO RUN: New camshaft profile matched baseline output. Power remains steady at ${curPower}.`;
+      } else {
+        outcome = 'downgrade';
+        powerDelta = -Math.min(curPower - 70, 2 + Math.floor(Math.random() * 3));
+        message = `DYNO DETONATION FAILURE: Severe thermal knocking and pre-ignition! Power DECREASED from ${curPower} to ${curPower + powerDelta}! Higher tier scientists and master engineers are essential to stabilize high-compression combustion.`;
+      }
+      newPower = Math.max(70, curPower + powerDelta);
     }
 
-    // Uncapped engine power (can exceed 100 with hyper-engineering!)
-    const newPower = Math.max(70, curPower + powerDelta);
     const engineName = customEngineNameInput.trim() || curTeam.engine || `${curTeam.name} Works Turbo`;
 
     const dynoResult: EngineDynoResult = {
@@ -478,6 +532,7 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
       engine: engineName,
       engineId: 'works_inhouse_custom',
       enginePower: newPower,
+      engineReliability: newReliability,
       engineTopSpeed: 348 + Math.round((newPower - 80) * 2.4),
       isWorksEngine: true,
       engineDevelopmentAttempts: (curTeam.engineDevelopmentAttempts || 0) + 1,
@@ -500,10 +555,43 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
     const curTeam = season.career.customTeam;
     const currentCustomers = curTeam.customerTeamsSupplied || [];
     const isAlreadySupplied = currentCustomers.includes(offer.teamId);
+    const curSeasonNumber = season.career.seasonNumber || 1;
+    const contractSeasons = { ...(curTeam.customerContractSeasons || {}) };
 
     let updatedCustomers: string[];
+    let costDeduction = 0;
+
     if (isAlreadySupplied) {
-      updatedCustomers = currentCustomers.filter((id) => id !== offer.teamId);
+      const signedSeason = contractSeasons[offer.teamId] ?? curSeasonNumber;
+      const isEarlyTermination = curSeasonNumber <= signedSeason;
+
+      if (isEarlyTermination) {
+        // Must refund the signing bonus back if terminating before 1 full season ends
+        // "make it so once i sign a contract with a team i have to keep that contract for 1 season and if i terminate it before that one season ends then i have to pay them the signing bonus back"
+        const penaltyToRefund = offer.signingBonus;
+        if ((season.career.careerEarnings || 0) < penaltyToRefund) {
+          setNotificationMsg(
+            `INSUFFICIENT FUNDS: Cannot terminate early! You must pay back the ${formatMoney(penaltyToRefund)} signing bonus to ${offer.teamName}. Current funds: ${formatMoney(season.career.careerEarnings || 0)}.`
+          );
+          return;
+        }
+
+        costDeduction = penaltyToRefund; // Positive number deducts from team cash
+        delete contractSeasons[offer.teamId];
+        updatedCustomers = currentCustomers.filter((id) => id !== offer.teamId);
+
+        setNotificationMsg(
+          `EARLY CONTRACT TERMINATION: Agreement with ${offer.teamName} terminated before 1 full season ended. Full signing bonus of ${formatMoney(penaltyToRefund)} was refunded back to ${offer.teamName}.`
+        );
+      } else {
+        // 1 season commitment fulfilled!
+        delete contractSeasons[offer.teamId];
+        updatedCustomers = currentCustomers.filter((id) => id !== offer.teamId);
+        costDeduction = 0;
+        setNotificationMsg(
+          `CONTRACT CONCLUDED: 1-season supply contract with ${offer.teamName} successfully fulfilled. Agreement concluded without penalty.`
+        );
+      }
     } else {
       const enginePower = curTeam.enginePower || 84;
       if (enginePower < offer.minPowerRequired) {
@@ -513,6 +601,12 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
         return;
       }
       updatedCustomers = [...currentCustomers, offer.teamId];
+      contractSeasons[offer.teamId] = curSeasonNumber;
+      costDeduction = -(offer.signingBonus || 0); // Negative cost adds signing bonus cash!
+
+      setNotificationMsg(
+        `OFFICIAL 1-SEASON CONTRACT SIGNED: ${offer.teamName} licensed ${curTeam.name} Power Units! Received +${formatMoney(offer.signingBonus)} upfront signing bonus and +${formatMoney(offer.feePerRace)} every Grand Prix! (Contract locked for Season ${curSeasonNumber}).`
+      );
     }
 
     const totalRevenue = updatedCustomers.reduce((sum, tId) => {
@@ -524,21 +618,11 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
       ...curTeam,
       customerTeamsSupplied: updatedCustomers,
       customerSupplyRevenuePerRace: totalRevenue,
+      customerContractSeasons: contractSeasons,
     };
 
-    const upfrontBonus = !isAlreadySupplied ? (offer.signingBonus || 0) : 0;
     if (onUpdateCustomTeam) {
-      onUpdateCustomTeam(updatedTeam, -upfrontBonus);
-    }
-
-    if (!isAlreadySupplied) {
-      setNotificationMsg(
-        `OFFICIAL FIA CONTRACT SIGNED: ${offer.teamName} bought and licensed ${curTeam.name} Power Units! Received +${formatMoney(offer.signingBonus)} upfront signing fee and will receive +${formatMoney(offer.feePerRace)} in supply revenue every Grand Prix!`
-      );
-    } else {
-      setNotificationMsg(
-        `CONTRACT TERMINATED: Supply agreement with ${offer.teamName} has been concluded.`
-      );
+      onUpdateCustomTeam(updatedTeam, costDeduction);
     }
   };
 
@@ -929,6 +1013,16 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
         </div>
 
         <div className="flex items-center gap-2">
+          {/* American vs Metric Measurements Toggle Switch */}
+          <button
+            onClick={toggleUnits}
+            className="text-xs font-mono font-bold text-neutral-200 hover:text-white bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors shadow-sm cursor-pointer"
+            title="Switch measurements between American (MPH / Miles / °F) and Metric (KM/H / KM / °C)"
+          >
+            <Gauge className="w-3.5 h-3.5 text-cyan-400" />
+            <span>{unitSystem === 'imperial' ? '🇺🇸 American (MPH / Miles)' : '🌐 Metric (KM/H / KM)'}</span>
+          </button>
+
           <button
             onClick={() => setShowResetStandingsModal(true)}
             className="text-xs text-neutral-400 hover:text-white flex items-center gap-1.5 px-3 py-1.5 rounded-lg hover:bg-neutral-800 transition-colors"
@@ -980,14 +1074,36 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
                 </div>
                 <h1 className="text-3xl font-black text-white tracking-wide">{currentCircuit.name}</h1>
                 <p className="text-sm text-neutral-400 font-semibold">{currentCircuit.location}, {currentCircuit.country}</p>
-                <p className="text-sm text-neutral-300 mt-3 leading-relaxed">{currentCircuit.description}</p>
+                <p className="text-sm text-neutral-300 mt-2 leading-relaxed">{currentCircuit.description}</p>
+
+                {/* Official Circuit Layout Outline Preview */}
+                <div className="bg-neutral-950/80 rounded-xl p-3 border border-white/5 my-3">
+                  <div className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-neutral-400 mb-1 px-1">
+                    <span className="flex items-center gap-1.5 text-red-400">
+                      <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                      Official 2026 Circuit Geometry Layout
+                    </span>
+                    <span className="font-mono text-neutral-500">
+                      {currentCircuit.turns} Corners • Direction ➔ • Start Line ▌
+                    </span>
+                  </div>
+                  <TrackLayoutPreview
+                    circuit={currentCircuit}
+                    height={190}
+                    strokeColor="#ef4444"
+                    strokeWidth={3.5}
+                    showStartFinish={true}
+                    showDirection={true}
+                    showTurnLabels={true}
+                  />
+                </div>
               </div>
 
               {/* Circuit Stats Grid */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-neutral-950/70 p-4 rounded-xl border border-white/5">
                 <div>
                   <span className="text-[10px] uppercase font-bold text-neutral-400">Circuit Length</span>
-                  <p className="text-base font-black text-white">{currentCircuit.lengthKm} KM</p>
+                  <p className="text-base font-black text-white">{formatDistance(currentCircuit.lengthKm, unitSystem)}</p>
                 </div>
                 <div>
                   <span className="text-[10px] uppercase font-bold text-neutral-400">Turns</span>
@@ -1756,7 +1872,7 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
                               {season.career.customTeam?.engine || 'Baseline Turbo V6'}
                             </span>
                             <span className="text-xs text-cyan-400 font-mono font-bold">
-                              Power Rating: {season.career.customTeam?.enginePower || 84} {(season.career.customTeam?.enginePower || 84) >= 100 ? '★ HYPER-SPEC' : ''} • Top Speed: {season.career.customTeam?.engineTopSpeed || 340} KM/H
+                              Power Rating: {season.career.customTeam?.enginePower || 84} {(season.career.customTeam?.enginePower || 84) >= 100 ? '★ HYPER-SPEC (MAX CEILING)' : ''} • Top Speed: {formatSpeed(season.career.customTeam?.engineTopSpeed || 340, unitSystem)} • Reliability: {season.career.customTeam?.engineReliability || 80}%
                             </span>
                           </div>
                         </div>
@@ -1769,6 +1885,25 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
                           </span>
                         </div>
                       </div>
+
+                      {/* SUPER-HIGH POWER RATING NOTICE & RELIABILITY UPGRADE NOTICE */}
+                      {(season.career.customTeam?.enginePower || 84) >= 100 && (
+                        <div className="p-3.5 bg-amber-500/10 border border-amber-500/40 rounded-xl flex items-center justify-between gap-4">
+                          <div className="flex items-center gap-3">
+                            <div className="p-2 bg-amber-500/20 rounded-lg text-amber-400">
+                              <Zap className="w-5 h-5" />
+                            </div>
+                            <div>
+                              <span className="text-xs font-black text-amber-300 uppercase tracking-wider block">
+                                Super-High Engine Rating Ceiling Active (Rating: {season.career.customTeam?.enginePower || 100})
+                              </span>
+                              <p className="text-xs text-neutral-300 mt-0.5 leading-relaxed">
+                                Peak regulatory combustion limit reached! Dyno R&D is now focused entirely on <strong>Component Reliability & Impact Hardening</strong> (Current: {season.career.customTeam?.engineReliability || 80}%). The higher your reliability, the harder the hits your car can withstand without the engine stalling! (Survives light barrier taps and wheel rubs).
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
 
                       {/* LAST DYNO TEST RESULT ALERT */}
                       {dynoResultNotice && (
@@ -2312,30 +2447,64 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
                                 </div>
 
                                 <div className="mt-2 pt-2 border-t border-neutral-900">
-                                  {isSupplied ? (
-                                    <button
-                                      onClick={() => handleToggleCustomerTeamPU(offer)}
-                                      className="w-full py-2 bg-neutral-800 hover:bg-red-950 hover:text-red-300 text-neutral-300 font-bold text-xs rounded-lg transition-colors cursor-pointer flex items-center justify-center gap-1.5"
-                                    >
-                                      <span>Terminate Supply Agreement</span>
-                                    </button>
-                                  ) : (
-                                    <button
-                                      onClick={() => handleToggleCustomerTeamPU(offer)}
-                                      disabled={!meetsPower}
-                                      className={`w-full py-2.5 font-black text-xs rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                                        meetsPower
-                                          ? 'bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-600 hover:from-emerald-500 text-white shadow-lg shadow-emerald-950/40 ring-1 ring-emerald-400/50'
-                                          : 'bg-neutral-800 text-neutral-500 cursor-not-allowed opacity-60'
-                                      }`}
-                                    >
-                                      <Zap className="w-3.5 h-3.5" />
-                                      <span>
-                                        {meetsPower
-                                          ? `Sell Engine (Get +${formatMoney(offer.signingBonus)} + ${formatMoney(offer.feePerRace)}/GP)`
-                                          : `Develop Engine to Power ${offer.minPowerRequired}`}
-                                      </span>
-                                    </button>
+                                  {isSupplied ? (() => {
+                                    const curSeason = season.career.seasonNumber || 1;
+                                    const signedSeason = season.career.customTeam?.customerContractSeasons?.[offer.teamId] ?? curSeason;
+                                    const isEarly = curSeason <= signedSeason;
+                                    return (
+                                      <div className="flex flex-col gap-1.5">
+                                        <div className="flex items-center justify-between text-[10px] font-mono">
+                                          <span className={isEarly ? 'text-amber-400 font-bold' : 'text-emerald-400 font-bold'}>
+                                            {isEarly ? '● 1-Season Active Contract' : '✓ 1-Season Fulfilled'}
+                                          </span>
+                                          <span className="text-neutral-400">Signed S{signedSeason}</span>
+                                        </div>
+                                        {isEarly ? (
+                                          <>
+                                            <p className="text-[10px] text-amber-300/90 leading-tight">
+                                              Must keep contract for 1 full season. Early termination requires paying back the {formatMoney(offer.signingBonus)} signing bonus.
+                                            </p>
+                                            <button
+                                              onClick={() => handleToggleCustomerTeamPU(offer)}
+                                              className="w-full py-2 bg-red-950/60 hover:bg-red-900 border border-red-500/40 text-red-200 font-bold text-xs rounded-lg transition-colors cursor-pointer flex items-center justify-center gap-1.5"
+                                            >
+                                              <span>Terminate Early (Refund -{formatMoney(offer.signingBonus)})</span>
+                                            </button>
+                                          </>
+                                        ) : (
+                                          <button
+                                            onClick={() => handleToggleCustomerTeamPU(offer)}
+                                            className="w-full py-2 bg-neutral-800 hover:bg-neutral-700 text-white font-bold text-xs rounded-lg transition-colors cursor-pointer flex items-center justify-center gap-1.5"
+                                          >
+                                            <span>Conclude Contract (Fulfilled - No Penalty)</span>
+                                          </button>
+                                        )}
+                                      </div>
+                                    );
+                                  })() : (
+                                    <div className="flex flex-col gap-1">
+                                      <button
+                                        onClick={() => handleToggleCustomerTeamPU(offer)}
+                                        disabled={!meetsPower}
+                                        className={`w-full py-2.5 font-black text-xs rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                                          meetsPower
+                                            ? 'bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-600 hover:from-emerald-500 text-white shadow-lg shadow-emerald-950/40 ring-1 ring-emerald-400/50'
+                                            : 'bg-neutral-800 text-neutral-500 cursor-not-allowed opacity-60'
+                                        }`}
+                                      >
+                                        <CircleDollarSign className="w-4 h-4" />
+                                        <span>
+                                          {meetsPower
+                                            ? `Sign 1-Season Contract (+${formatMoney(offer.signingBonus)} upfront)`
+                                            : `Develop Engine to Power ${offer.minPowerRequired}`}
+                                        </span>
+                                      </button>
+                                      {meetsPower && (
+                                        <span className="text-[10px] text-neutral-500 text-center">
+                                          1-season commitment required • Early termination refunds signing bonus
+                                        </span>
+                                      )}
+                                    </div>
                                   )}
                                 </div>
                               </div>
@@ -2633,7 +2802,7 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
                           <div className="flex justify-between text-neutral-400 mb-1">
                             <span>Top Speed</span>
                             <span className="font-bold text-white">
-                              {season.career.customTeam.engineTopSpeed || 340} KM/H (Power: {season.career.customTeam.enginePower || 88} {(season.career.customTeam.enginePower || 88) >= 100 ? '★' : ''})
+                              {formatSpeed(season.career.customTeam.engineTopSpeed || 340, unitSystem)} (Power: {season.career.customTeam.enginePower || 88} {(season.career.customTeam.enginePower || 88) >= 100 ? '★' : ''})
                             </span>
                           </div>
                           <div className="w-full bg-neutral-950 h-2 rounded-full overflow-hidden border border-white/5">
@@ -2813,7 +2982,7 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
                       >
                         {ENGINE_OPTIONS.map((eng) => (
                           <option key={eng.id} value={eng.name}>
-                            {eng.name} — {formatMoney(eng.purchaseCost)} upfront (Power: {eng.powerRating}, Top Speed: {eng.topSpeedKmh} KM/H)
+                            {eng.name} — {formatMoney(eng.purchaseCost)} upfront (Power: {eng.powerRating}, Top Speed: {formatSpeed(eng.topSpeedKmh, unitSystem)})
                           </option>
                         ))}
                       </select>
@@ -3079,10 +3248,22 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
                       </div>
                       <h4 className="font-black text-base text-white">{circ.name}</h4>
                       <p className="text-xs text-neutral-400">{circ.location}</p>
+
+                      {/* Unique authentic track shape for each Grand Prix */}
+                      <div className="my-2 p-1 bg-neutral-900/70 rounded-lg border border-white/5">
+                        <TrackLayoutPreview
+                          circuit={circ}
+                          height={115}
+                          strokeColor={isCurrent ? '#ef4444' : isCompleted ? '#10b981' : '#38bdf8'}
+                          strokeWidth={3}
+                          showStartFinish={true}
+                          showDirection={true}
+                        />
+                      </div>
                     </div>
 
                     <div className="pt-2 border-t border-neutral-800/80 flex items-center justify-between text-xs text-neutral-400 font-mono">
-                      <span>{circ.lengthKm} KM • {circ.turns} Turns</span>
+                      <span>{formatDistance(circ.lengthKm, unitSystem)} • {circ.turns} Turns</span>
                       <button
                         onClick={() => {
                           setPracticeSelectedCircuit(circ);
@@ -3561,10 +3742,23 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
               >
                 {CIRCUITS.map((circ, idx) => (
                   <option key={circ.id} value={circ.id}>
-                    Round {idx + 1}: {circ.name} ({circ.country}) — {circ.lengthKm} KM, {circ.turns} Turns
+                    Round {idx + 1}: {circ.name} ({circ.country}) — {formatDistance(circ.lengthKm, unitSystem)}, {circ.turns} Turns
                   </option>
                 ))}
               </select>
+
+              {/* Dynamic 2D Track Geometry Outline */}
+              <div className="bg-neutral-950/90 rounded-xl p-2.5 border border-white/5">
+                <TrackLayoutPreview
+                  circuit={practiceSelectedCircuit}
+                  height={130}
+                  strokeColor="#f59e0b"
+                  strokeWidth={3}
+                  showStartFinish={true}
+                  showDirection={true}
+                  showTurnLabels={true}
+                />
+              </div>
             </div>
 
             {/* Practice AI Difficulty Selector */}
