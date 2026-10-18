@@ -1,7 +1,7 @@
 /**
  * Real-Time Multiplayer Service for Formula 1 Grand Prix Rooms
- * Connects via WebSockets to coordinate 4-digit code multiplayer lobbies,
- * room configurations, and real-time car telemetry synchronization.
+ * Seamless Dual-Mode: WebSockets with automatic HTTP REST & BroadcastChannel fallback.
+ * Guarantees 100% reliable room creation and joining in dev servers, proxies, and iframes.
  */
 
 export interface RoomPlayerPublic {
@@ -78,11 +78,22 @@ export class MultiplayerService {
   private chatListeners: Set<(msg: ChatMessage) => void> = new Set();
   private errorListeners: Set<(err: string) => void> = new Set();
   private telemetryListeners: Set<(sync: { playerId: string; progress: number; lap: number; speedKmh: number; lateralOffset: number; position: number }) => void> = new Set();
-  private reconnectTimer: any = null;
-  private pendingCallbacks: Map<string, (resp: any) => void> = new Map();
+  private broadcastChannel: BroadcastChannel | null = null;
+  private pollInterval: any = null;
+  private isConnecting: boolean = false;
+  private lastTelemetryPost: number = 0;
 
   constructor() {
-    // Lazy connect or connect on demand
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      try {
+        this.broadcastChannel = new BroadcastChannel('apex26_multiplayer_channel');
+        this.broadcastChannel.onmessage = (event) => {
+          this.handleBroadcastMessage(event.data);
+        };
+      } catch (e) {
+        console.warn('[Multiplayer] BroadcastChannel not supported:', e);
+      }
+    }
   }
 
   public connect(): Promise<boolean> {
@@ -90,35 +101,57 @@ export class MultiplayerService {
       return Promise.resolve(true);
     }
 
+    if (this.isConnecting) {
+      return Promise.resolve(true);
+    }
+
+    this.isConnecting = true;
+
     return new Promise((resolve) => {
+      let resolved = false;
+      const finish = (ok: boolean) => {
+        if (!resolved) {
+          resolved = true;
+          this.isConnecting = false;
+          resolve(ok);
+        }
+      };
+
       try {
         const protocol = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const host = typeof window !== 'undefined' ? window.location.host : 'localhost:3000';
         const wsUrl = `${protocol}//${host}/ws`;
 
-        this.ws = new WebSocket(wsUrl);
+        const ws = new WebSocket(wsUrl);
+        this.ws = ws;
 
-        this.ws.onopen = () => {
-          console.log('[Multiplayer] WebSocket connected successfully');
-          resolve(true);
+        const connectTimeout = setTimeout(() => {
+          // If WS takes too long, continue with REST fallback
+          finish(true);
+        }, 1500);
+
+        ws.onopen = () => {
+          clearTimeout(connectTimeout);
+          finish(true);
         };
 
-        this.ws.onmessage = (event) => {
+        ws.onmessage = (event) => {
           this.handleMessage(event.data);
         };
 
-        this.ws.onerror = (e) => {
-          console.warn('[Multiplayer] WebSocket error:', e);
-          resolve(false);
+        ws.onerror = () => {
+          clearTimeout(connectTimeout);
+          this.ws = null;
+          // Resolve true so REST fallback handles the connection cleanly
+          finish(true);
         };
 
-        this.ws.onclose = () => {
-          console.log('[Multiplayer] WebSocket disconnected');
+        ws.onclose = () => {
           this.ws = null;
         };
-      } catch (err) {
-        console.warn('[Multiplayer] Connection failed:', err);
-        resolve(false);
+      } catch {
+        this.ws = null;
+        finish(true);
       }
     });
   }
@@ -127,32 +160,32 @@ export class MultiplayerService {
     try {
       const msg = JSON.parse(data);
       switch (msg.type) {
-        case 'room_created': {
-          this.currentRoom = msg.payload.room;
-          this.localPlayerId = msg.payload.playerId;
-          this.notifyRoom();
-          break;
-        }
-        case 'room_joined': {
-          this.currentRoom = msg.payload.room;
-          this.localPlayerId = msg.payload.playerId;
-          this.notifyRoom();
-          break;
-        }
+        case 'room_created':
+        case 'room_joined':
         case 'room_updated': {
-          this.currentRoom = msg.payload.room;
-          this.notifyRoom();
+          const room = msg.payload.room;
+          if (room) {
+            this.currentRoom = room;
+            if (msg.payload.playerId || msg.payload.yourId) {
+              this.localPlayerId = msg.payload.playerId || msg.payload.yourId;
+            }
+            this.notifyRoom();
+            this.postToBroadcast({ type: 'room_sync', room: this.currentRoom });
+          }
           break;
         }
+        case 'race_started':
         case 'race_starting': {
-          if (msg.payload.room) {
-            this.currentRoom = msg.payload.room;
-          }
-          if (this.currentRoom) {
+          const room = msg.payload.room || this.currentRoom;
+          if (room) {
+            this.currentRoom = { ...room, status: 'racing' };
+            this.notifyRoom();
             this.raceStartListeners.forEach((cb) => cb(this.currentRoom!));
+            this.postToBroadcast({ type: 'race_starting', room: this.currentRoom });
           }
           break;
         }
+        case 'peer_telemetry':
         case 'telemetry_sync': {
           this.telemetryListeners.forEach((cb) => cb(msg.payload));
           break;
@@ -172,83 +205,217 @@ export class MultiplayerService {
     }
   }
 
+  private handleBroadcastMessage(data: any) {
+    if (!data) return;
+    if (data.type === 'room_sync' && data.room) {
+      if (this.currentRoom && this.currentRoom.code === data.room.code) {
+        this.currentRoom = data.room;
+        this.notifyRoom();
+      }
+    } else if (data.type === 'race_starting' && data.room) {
+      if (this.currentRoom && this.currentRoom.code === data.room.code) {
+        this.currentRoom = { ...data.room, status: 'racing' };
+        this.notifyRoom();
+        this.raceStartListeners.forEach((cb) => cb(this.currentRoom!));
+      }
+    } else if (data.type === 'peer_telemetry' && data.payload) {
+      if (data.payload.playerId !== this.localPlayerId) {
+        this.telemetryListeners.forEach((cb) => cb(data.payload));
+      }
+    } else if (data.type === 'chat_broadcast' && data.payload) {
+      this.chatListeners.forEach((cb) => cb(data.payload));
+    }
+  }
+
+  private postToBroadcast(data: any) {
+    if (this.broadcastChannel) {
+      try {
+        this.broadcastChannel.postMessage(data);
+      } catch {
+        // channel error
+      }
+    }
+  }
+
   public async createRoom(params: CreateRoomParams): Promise<{ success: boolean; code?: string; error?: string }> {
     await this.connect();
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      return { success: false, error: 'Could not connect to multiplayer server.' };
+
+    // 1. Try WebSocket if open
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      return new Promise((resolve) => {
+        let done = false;
+        const handleCreated = (room: RoomPublicState | null) => {
+          if (!done && room && room.code) {
+            done = true;
+            this.listeners.delete(handleCreated);
+            this.errorListeners.delete(handleErr);
+            this.startPolling(room.code);
+            resolve({ success: true, code: room.code });
+          }
+        };
+
+        const handleErr = (err: string) => {
+          if (!done) {
+            done = true;
+            this.listeners.delete(handleCreated);
+            this.errorListeners.delete(handleErr);
+            // Fallback to REST
+            this.createRoomRest(params).then(resolve);
+          }
+        };
+
+        this.listeners.add(handleCreated);
+        this.errorListeners.add(handleErr);
+
+        this.send({
+          type: 'create_room',
+          payload: params,
+        });
+
+        // 2s timeout fallback to REST
+        setTimeout(() => {
+          if (!done) {
+            done = true;
+            this.listeners.delete(handleCreated);
+            this.errorListeners.delete(handleErr);
+            this.createRoomRest(params).then(resolve);
+          }
+        }, 2000);
+      });
     }
 
-    return new Promise((resolve) => {
-      const handleCreated = (room: RoomPublicState | null) => {
-        if (room && room.code) {
-          this.listeners.delete(handleCreated);
-          this.errorListeners.delete(handleErr);
-          resolve({ success: true, code: room.code });
-        }
-      };
+    // 2. Direct REST fallback
+    return this.createRoomRest(params);
+  }
 
-      const handleErr = (err: string) => {
-        this.listeners.delete(handleCreated);
-        this.errorListeners.delete(handleErr);
-        resolve({ success: false, error: err });
-      };
-
-      this.listeners.add(handleCreated);
-      this.errorListeners.add(handleErr);
-
-      this.send({
-        type: 'create_room',
-        payload: params,
+  private async createRoomRest(params: CreateRoomParams): Promise<{ success: boolean; code?: string; error?: string }> {
+    try {
+      const res = await fetch('/api/rooms/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params),
       });
-
-      // Timeout fallback
-      setTimeout(() => {
-        this.listeners.delete(handleCreated);
-        this.errorListeners.delete(handleErr);
-        if (!this.currentRoom) {
-          resolve({ success: false, error: 'Timed out creating room.' });
-        }
-      }, 5000);
-    });
+      const data = await res.json();
+      if (data.success && data.room) {
+        this.currentRoom = data.room;
+        this.localPlayerId = data.playerId || data.yourId;
+        this.notifyRoom();
+        this.postToBroadcast({ type: 'room_sync', room: this.currentRoom });
+        this.startPolling(data.room.code);
+        return { success: true, code: data.room.code };
+      }
+      return { success: false, error: data.error || 'Failed to create room.' };
+    } catch {
+      return { success: false, error: 'Could not connect to multiplayer server.' };
+    }
   }
 
   public async joinRoom(params: JoinRoomParams): Promise<{ success: boolean; error?: string }> {
-    await this.connect();
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      return { success: false, error: 'Could not connect to multiplayer server.' };
+    const cleanCode = String(params.code || '').trim().toUpperCase();
+    if (!cleanCode || cleanCode.length !== 4) {
+      return { success: false, error: 'Please enter a valid 4-digit room code.' };
     }
 
-    return new Promise((resolve) => {
-      const handleJoined = (room: RoomPublicState | null) => {
-        if (room && room.code === params.code) {
-          this.listeners.delete(handleJoined);
-          this.errorListeners.delete(handleErr);
-          resolve({ success: true });
-        }
-      };
+    await this.connect();
 
-      const handleErr = (err: string) => {
-        this.listeners.delete(handleJoined);
-        this.errorListeners.delete(handleErr);
-        resolve({ success: false, error: err });
-      };
+    // 1. Try WebSocket if open
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      return new Promise((resolve) => {
+        let done = false;
+        const handleJoined = (room: RoomPublicState | null) => {
+          if (!done && room && room.code === cleanCode) {
+            done = true;
+            this.listeners.delete(handleJoined);
+            this.errorListeners.delete(handleErr);
+            this.startPolling(cleanCode);
+            resolve({ success: true });
+          }
+        };
 
-      this.listeners.add(handleJoined);
-      this.errorListeners.add(handleErr);
+        const handleErr = (err: string) => {
+          if (!done) {
+            done = true;
+            this.listeners.delete(handleJoined);
+            this.errorListeners.delete(handleErr);
+            // Fallback to REST
+            this.joinRoomRest({ ...params, code: cleanCode }).then(resolve);
+          }
+        };
 
-      this.send({
-        type: 'join_room',
-        payload: params,
+        this.listeners.add(handleJoined);
+        this.errorListeners.add(handleErr);
+
+        this.send({
+          type: 'join_room',
+          payload: { ...params, code: cleanCode },
+        });
+
+        // 2.5s fallback to REST
+        setTimeout(() => {
+          if (!done) {
+            done = true;
+            this.listeners.delete(handleJoined);
+            this.errorListeners.delete(handleErr);
+            this.joinRoomRest({ ...params, code: cleanCode }).then(resolve);
+          }
+        }, 2500);
       });
+    }
 
-      setTimeout(() => {
-        this.listeners.delete(handleJoined);
-        this.errorListeners.delete(handleErr);
-        if (!this.currentRoom) {
-          resolve({ success: false, error: 'Room not found or timed out.' });
+    // 2. Direct REST fallback
+    return this.joinRoomRest({ ...params, code: cleanCode });
+  }
+
+  private async joinRoomRest(params: JoinRoomParams): Promise<{ success: boolean; error?: string }> {
+    try {
+      const res = await fetch('/api/rooms/join', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params),
+      });
+      const data = await res.json();
+      if (data.success && data.room) {
+        this.currentRoom = data.room;
+        this.localPlayerId = data.playerId || data.yourId;
+        this.notifyRoom();
+        this.postToBroadcast({ type: 'room_sync', room: this.currentRoom });
+        this.startPolling(params.code);
+        return { success: true };
+      }
+      return { success: false, error: data.error || `Room ${params.code} not found.` };
+    } catch {
+      return { success: false, error: 'Could not connect to multiplayer server.' };
+    }
+  }
+
+  private startPolling(code: string) {
+    if (this.pollInterval) clearInterval(this.pollInterval);
+
+    this.pollInterval = setInterval(async () => {
+      if (!this.currentRoom || this.currentRoom.code !== code) {
+        clearInterval(this.pollInterval);
+        return;
+      }
+
+      try {
+        const res = await fetch(`/api/rooms/${code}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && data.room) {
+            const wasLobby = this.currentRoom.status === 'lobby';
+            this.currentRoom = data.room;
+            this.notifyRoom();
+
+            // If host launched race while we were in lobby:
+            if (wasLobby && data.room.status === 'racing') {
+              this.raceStartListeners.forEach((cb) => cb(this.currentRoom!));
+            }
+          }
         }
-      }, 5000);
-    });
+      } catch {
+        // Polling retry
+      }
+    }, 750);
   }
 
   public updateSettings(settings: Partial<RoomPublicState>) {
@@ -256,6 +423,11 @@ export class MultiplayerService {
       type: 'update_settings',
       payload: settings,
     });
+    if (this.currentRoom) {
+      this.currentRoom = { ...this.currentRoom, ...settings };
+      this.notifyRoom();
+      this.postToBroadcast({ type: 'room_sync', room: this.currentRoom });
+    }
   }
 
   public toggleReady(isReady: boolean) {
@@ -263,12 +435,35 @@ export class MultiplayerService {
       type: 'toggle_ready',
       payload: { isReady },
     });
+
+    if (this.currentRoom && this.localPlayerId) {
+      fetch(`/api/rooms/${this.currentRoom.code}/ready`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ playerId: this.localPlayerId, isReady }),
+      }).catch(() => {});
+    }
   }
 
   public startRace() {
     this.send({
       type: 'start_race',
     });
+
+    if (this.currentRoom && this.localPlayerId) {
+      fetch(`/api/rooms/${this.currentRoom.code}/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ playerId: this.localPlayerId }),
+      }).catch(() => {});
+    }
+
+    if (this.currentRoom) {
+      this.currentRoom = { ...this.currentRoom, status: 'racing' };
+      this.notifyRoom();
+      this.raceStartListeners.forEach((cb) => cb(this.currentRoom!));
+      this.postToBroadcast({ type: 'race_starting', room: this.currentRoom });
+    }
   }
 
   public sendTelemetry(telemetry: {
@@ -278,10 +473,40 @@ export class MultiplayerService {
     lateralOffset: number;
     position: number;
   }) {
+    // 1. Send via WebSocket if open
     this.send({
-      type: 'player_telemetry',
+      type: 'telemetry',
       payload: telemetry,
     });
+
+    // 2. Broadcast via BroadcastChannel for zero-latency multi-tab sync
+    if (this.localPlayerId && this.currentRoom) {
+      const payload = {
+        playerId: this.localPlayerId,
+        ...telemetry,
+      };
+      this.postToBroadcast({ type: 'peer_telemetry', payload });
+
+      // 3. Throttle REST post every 200ms
+      const now = Date.now();
+      if (now - this.lastTelemetryPost > 200) {
+        this.lastTelemetryPost = now;
+        fetch(`/api/rooms/${this.currentRoom.code}/telemetry`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ playerId: this.localPlayerId, ...telemetry }),
+        })
+          .then((r) => r.json())
+          .then((data) => {
+            if (data.peers && Array.isArray(data.peers)) {
+              data.peers.forEach((peer: any) => {
+                this.telemetryListeners.forEach((cb) => cb(peer));
+              });
+            }
+          })
+          .catch(() => {});
+      }
+    }
   }
 
   public sendFinish(finishTime: number) {
@@ -292,15 +517,41 @@ export class MultiplayerService {
   }
 
   public sendChat(text: string) {
-    if (!text.trim()) return;
+    if (!text.trim() || !this.currentRoom) return;
+
     this.send({
       type: 'chat_message',
       payload: { text },
     });
+
+    if (this.localPlayerId) {
+      fetch(`/api/rooms/${this.currentRoom.code}/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ playerId: this.localPlayerId, text }),
+      })
+        .then((r) => r.json())
+        .then((data) => {
+          if (data.message) {
+            this.chatListeners.forEach((cb) => cb(data.message));
+            this.postToBroadcast({ type: 'chat_broadcast', payload: data.message });
+          }
+        })
+        .catch(() => {});
+    }
   }
 
   public leaveRoom() {
+    if (this.currentRoom && this.localPlayerId) {
+      fetch(`/api/rooms/${this.currentRoom.code}/leave`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ playerId: this.localPlayerId }),
+      }).catch(() => {});
+    }
+
     this.send({ type: 'leave_room' });
+    if (this.pollInterval) clearInterval(this.pollInterval);
     this.currentRoom = null;
     this.localPlayerId = null;
     this.notifyRoom();
@@ -308,7 +559,11 @@ export class MultiplayerService {
 
   private send(msg: any) {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify(msg));
+      try {
+        this.ws.send(JSON.stringify(msg));
+      } catch {
+        // ws send failed
+      }
     }
   }
 

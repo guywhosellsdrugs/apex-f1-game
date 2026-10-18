@@ -1,5 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { inputManager, CustomControlBindings, CustomGamepadBindings, DEFAULT_KEY_BINDINGS, DEFAULT_GAMEPAD_BINDINGS } from '../services/inputManager';
+import {
+  inputManager,
+  CustomControlBindings,
+  CustomGamepadBindings,
+  DEFAULT_KEY_BINDINGS,
+  DEFAULT_GAMEPAD_BINDINGS,
+} from '../services/inputManager';
 import { X, Gamepad2, Keyboard, RotateCcw, Check, Sparkles, AlertCircle, Gauge } from 'lucide-react';
 import { UnitSystem, getStoredUnitSystem, setStoredUnitSystem, onUnitSystemChange } from '../utils/units';
 
@@ -12,15 +18,19 @@ type KeyAction = keyof CustomControlBindings;
 type GamepadAction = keyof CustomGamepadBindings;
 
 const KEY_LABELS: Record<KeyAction, { title: string; desc: string }> = {
-  throttle: { title: 'Accelerate / Throttle', desc: 'Accelerate forward' },
-  brake: { title: 'Brake / Reverse', desc: 'Decelerate or hold to reverse' },
-  steerLeft: { title: 'Steer Left', desc: 'Turn wheels left' },
-  steerRight: { title: 'Steer Right', desc: 'Turn wheels right' },
+  throttle: { title: 'Accelerate / Throttle', desc: 'Forward drive & launch acceleration' },
+  brake: { title: 'Brake / Reverse', desc: 'Braking deceleration or hold to reverse' },
+  steerLeft: { title: 'Steer Left', desc: 'Turn vehicle wheels left' },
+  steerRight: { title: 'Steer Right', desc: 'Turn vehicle wheels right' },
   boost: { title: 'ERS / Overtake Boost', desc: 'Deploy battery energy boost' },
   drs: { title: 'DRS Wing Flap', desc: 'Open rear wing flap in DRS zones' },
   switchCamera: { title: 'Switch Camera', desc: 'Cycle cockpit, chase, nose cam' },
   reset: { title: 'Reset Car', desc: 'Recover car to track center' },
   pause: { title: 'Pause / Options', desc: 'Open in-game pause menu' },
+  orderBlock: { title: 'Teammate Order: Block Pack', desc: 'Hotkey [1]: Tell teammate to defend apex & hold up trailing pack' },
+  orderYield: { title: 'Teammate Order: Yield Position', desc: 'Hotkey [2]: Tell teammate to yield line & let you pass' },
+  orderPush: { title: 'Teammate Order: Push', desc: 'Hotkey [3]: Tell teammate to attack and push to overtake' },
+  orderNeutral: { title: 'Teammate Order: Free Racing', desc: 'Hotkey [4]: Free racing mode for teammate' },
 };
 
 const GAMEPAD_LABELS: Record<GamepadAction, { title: string; desc: string }> = {
@@ -31,6 +41,10 @@ const GAMEPAD_LABELS: Record<GamepadAction, { title: string; desc: string }> = {
   switchCameraButton: { title: 'Switch Camera', desc: 'Cycle camera (default: Y / Triangle)' },
   resetButton: { title: 'Reset Car', desc: 'Car recovery (default: B / Circle)' },
   pauseButton: { title: 'Pause', desc: 'Pause game (default: Start / Options)' },
+  orderBlockButton: { title: 'Teammate Order: Block Pack', desc: 'Teammate block command (default: D-Pad Left)' },
+  orderYieldButton: { title: 'Teammate Order: Yield Position', desc: 'Teammate yield command (default: D-Pad Down)' },
+  orderPushButton: { title: 'Teammate Order: Push', desc: 'Teammate push command (default: D-Pad Right)' },
+  orderNeutralButton: { title: 'Teammate Order: Free Racing', desc: 'Teammate free racing command (default: D-Pad Up)' },
 };
 
 const GAMEPAD_BUTTON_NAMES: Record<number, string> = {
@@ -57,14 +71,14 @@ export const ButtonMappingModal: React.FC<ButtonMappingModalProps> = ({ isOpen, 
   const [keyBindings, setKeyBindings] = useState<CustomControlBindings>(() => inputManager.getKeyBindings());
   const [gamepadBindings, setGamepadBindings] = useState<CustomGamepadBindings>(() => inputManager.getGamepadBindings());
   const [unitSystem, setUnitSystem] = useState<UnitSystem>(getStoredUnitSystem());
+  const [listeningKeyAction, setListeningKeyAction] = useState<KeyAction | null>(null);
+  const [listeningGamepadAction, setListeningGamepadAction] = useState<GamepadAction | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   useEffect(() => {
     return onUnitSystemChange(setUnitSystem);
   }, []);
-  
-  const [listeningKeyAction, setListeningKeyAction] = useState<KeyAction | null>(null);
-  const [listeningGamepadAction, setListeningGamepadAction] = useState<GamepadAction | null>(null);
-  
+
   const [liveInput, setLiveInput] = useState({
     throttle: 0,
     brake: 0,
@@ -73,6 +87,17 @@ export const ButtonMappingModal: React.FC<ButtonMappingModalProps> = ({ isOpen, 
     isGamepadActive: false,
     gamepadName: null as string | null,
   });
+
+  // Re-sync bindings whenever modal opens
+  useEffect(() => {
+    if (isOpen) {
+      setKeyBindings(inputManager.getKeyBindings());
+      setGamepadBindings(inputManager.getGamepadBindings());
+      setListeningKeyAction(null);
+      setListeningGamepadAction(null);
+      setSuccessMsg(null);
+    }
+  }, [isOpen]);
 
   // Poll live test inputs
   useEffect(() => {
@@ -99,20 +124,23 @@ export const ButtonMappingModal: React.FC<ButtonMappingModalProps> = ({ isOpen, 
       e.preventDefault();
       e.stopPropagation();
 
-      const newCode = e.code;
+      const newCode = e.code || e.key;
       if (newCode === 'Escape') {
         setListeningKeyAction(null);
         return;
       }
 
       setKeyBindings((prev) => {
-        const updated = {
+        const updated: CustomControlBindings = {
           ...prev,
           [listeningKeyAction]: [newCode],
         };
         inputManager.setKeyBindings(updated);
         return updated;
       });
+
+      setSuccessMsg(`Mapped ${KEY_LABELS[listeningKeyAction].title} to ${formatKeyName(newCode)}`);
+      setTimeout(() => setSuccessMsg(null), 2500);
       setListeningKeyAction(null);
     };
 
@@ -120,28 +148,52 @@ export const ButtonMappingModal: React.FC<ButtonMappingModalProps> = ({ isOpen, 
     return () => window.removeEventListener('keydown', handleKey, { capture: true });
   }, [isOpen, listeningKeyAction]);
 
-  // Listen for gamepad input when rebinding
+  // Listen for gamepad input when rebinding with safe debounce
   useEffect(() => {
     if (!isOpen || !listeningGamepadAction) return;
 
     let animId: number;
+    const initialPressedButtons = new Set<number>();
+    let hasSampledInitial = false;
+
     const pollGamepad = () => {
       if (typeof navigator !== 'undefined' && navigator.getGamepads) {
         const gamepads = navigator.getGamepads();
         for (const gp of gamepads) {
           if (!gp || !gp.connected) continue;
+
+          // Snapshot initially held/resting buttons on first frame so triggers don't immediately fire
+          if (!hasSampledInitial) {
+            hasSampledInitial = true;
+            for (let i = 0; i < gp.buttons.length; i++) {
+              if (gp.buttons[i].pressed || gp.buttons[i].value > 0.35) {
+                initialPressedButtons.add(i);
+              }
+            }
+            break;
+          }
+
+          // Check for freshly pressed button
           for (let i = 0; i < gp.buttons.length; i++) {
-            if (gp.buttons[i].pressed) {
+            const btn = gp.buttons[i];
+            const isPressed = btn.value > 0.6 || (btn.pressed && btn.value > 0.3);
+
+            if (isPressed && !initialPressedButtons.has(i)) {
               setGamepadBindings((prev) => {
-                const updated = {
+                const updated: CustomGamepadBindings = {
                   ...prev,
                   [listeningGamepadAction]: i,
                 };
                 inputManager.setGamepadBindings(updated);
                 return updated;
               });
+              const btnName = GAMEPAD_BUTTON_NAMES[i] || `Button ${i}`;
+              setSuccessMsg(`Mapped ${GAMEPAD_LABELS[listeningGamepadAction].title} to ${btnName}`);
+              setTimeout(() => setSuccessMsg(null), 2500);
               setListeningGamepadAction(null);
               return;
+            } else if (!isPressed && initialPressedButtons.has(i)) {
+              initialPressedButtons.delete(i);
             }
           }
         }
@@ -161,14 +213,19 @@ export const ButtonMappingModal: React.FC<ButtonMappingModalProps> = ({ isOpen, 
     setGamepadBindings(inputManager.getGamepadBindings());
     setListeningKeyAction(null);
     setListeningGamepadAction(null);
+    setSuccessMsg('Restored default keyboard and controller bindings');
+    setTimeout(() => setSuccessMsg(null), 2500);
   };
 
   const formatKeyName = (code: string) => {
     if (code.startsWith('Key')) return code.slice(3);
     if (code.startsWith('Digit')) return code.slice(5);
     if (code.startsWith('Arrow')) return code.slice(5) + ' Arrow';
+    if (code.startsWith('Numpad')) return 'Num ' + code.slice(6);
     if (code === 'Space') return 'Spacebar';
     if (code === 'ShiftLeft' || code === 'ShiftRight') return 'Shift';
+    if (code === 'ControlLeft' || code === 'ControlRight') return 'Ctrl';
+    if (code === 'AltLeft' || code === 'AltRight') return 'Alt';
     return code;
   };
 
@@ -192,7 +249,7 @@ export const ButtonMappingModal: React.FC<ButtonMappingModalProps> = ({ isOpen, 
           </div>
           <button
             onClick={onClose}
-            className="w-9 h-9 rounded-full bg-neutral-800 hover:bg-neutral-700 text-neutral-300 flex items-center justify-center transition-colors"
+            className="w-9 h-9 rounded-full bg-neutral-800 hover:bg-neutral-700 text-neutral-300 flex items-center justify-center transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
@@ -261,6 +318,14 @@ export const ButtonMappingModal: React.FC<ButtonMappingModalProps> = ({ isOpen, 
           </div>
         </div>
 
+        {/* Success Banner */}
+        {successMsg && (
+          <div className="px-6 py-2.5 bg-emerald-950/70 border-b border-emerald-500/30 text-emerald-300 text-xs flex items-center gap-2">
+            <Check className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+            <span>{successMsg}</span>
+          </div>
+        )}
+
         {/* Tab Selector */}
         <div className="flex border-b border-neutral-800 bg-neutral-950/40 px-6 pt-3">
           <button
@@ -268,7 +333,7 @@ export const ButtonMappingModal: React.FC<ButtonMappingModalProps> = ({ isOpen, 
               setTab('keyboard');
               setListeningGamepadAction(null);
             }}
-            className={`flex items-center gap-2 pb-3 px-4 font-bold text-sm tracking-wide border-b-2 transition-colors ${
+            className={`flex items-center gap-2 pb-3 px-4 font-bold text-sm tracking-wide border-b-2 transition-colors cursor-pointer ${
               tab === 'keyboard'
                 ? 'border-red-500 text-white'
                 : 'border-transparent text-neutral-400 hover:text-neutral-200'
@@ -282,7 +347,7 @@ export const ButtonMappingModal: React.FC<ButtonMappingModalProps> = ({ isOpen, 
               setTab('gamepad');
               setListeningKeyAction(null);
             }}
-            className={`flex items-center gap-2 pb-3 px-4 font-bold text-sm tracking-wide border-b-2 transition-colors ${
+            className={`flex items-center gap-2 pb-3 px-4 font-bold text-sm tracking-wide border-b-2 transition-colors cursor-pointer ${
               tab === 'gamepad'
                 ? 'border-red-500 text-white'
                 : 'border-transparent text-neutral-400 hover:text-neutral-200'
@@ -316,9 +381,17 @@ export const ButtonMappingModal: React.FC<ButtonMappingModalProps> = ({ isOpen, 
 
                     <div className="flex items-center gap-2">
                       {isListening ? (
-                        <div className="px-4 py-1.5 rounded-xl bg-red-600 text-white font-mono text-xs font-bold animate-pulse flex items-center gap-2">
-                          <Sparkles className="w-3.5 h-3.5" />
-                          Press Any Key... (Esc to cancel)
+                        <div className="flex items-center gap-2">
+                          <div className="px-4 py-1.5 rounded-xl bg-red-600 text-white font-mono text-xs font-bold animate-pulse flex items-center gap-2">
+                            <Sparkles className="w-3.5 h-3.5" />
+                            Press Any Key...
+                          </div>
+                          <button
+                            onClick={() => setListeningKeyAction(null)}
+                            className="px-2.5 py-1 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-xs font-bold cursor-pointer"
+                          >
+                            Cancel
+                          </button>
                         </div>
                       ) : (
                         <div className="flex items-center gap-1.5">
@@ -335,7 +408,7 @@ export const ButtonMappingModal: React.FC<ButtonMappingModalProps> = ({ isOpen, 
                               setListeningGamepadAction(null);
                               setListeningKeyAction(action);
                             }}
-                            className="ml-2 px-3 py-1 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-white text-xs font-bold transition-colors"
+                            className="ml-2 px-3 py-1 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-white text-xs font-bold transition-colors cursor-pointer"
                           >
                             Rebind
                           </button>
@@ -371,9 +444,17 @@ export const ButtonMappingModal: React.FC<ButtonMappingModalProps> = ({ isOpen, 
 
                     <div className="flex items-center gap-2">
                       {isListening ? (
-                        <div className="px-4 py-1.5 rounded-xl bg-red-600 text-white font-mono text-xs font-bold animate-pulse flex items-center gap-2">
-                          <Gamepad2 className="w-3.5 h-3.5" />
-                          Press Controller Button...
+                        <div className="flex items-center gap-2">
+                          <div className="px-4 py-1.5 rounded-xl bg-red-600 text-white font-mono text-xs font-bold animate-pulse flex items-center gap-2">
+                            <Gamepad2 className="w-3.5 h-3.5" />
+                            Press Controller Button...
+                          </div>
+                          <button
+                            onClick={() => setListeningGamepadAction(null)}
+                            className="px-2.5 py-1 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-xs font-bold cursor-pointer"
+                          >
+                            Cancel
+                          </button>
                         </div>
                       ) : (
                         <div className="flex items-center gap-2">
@@ -385,7 +466,7 @@ export const ButtonMappingModal: React.FC<ButtonMappingModalProps> = ({ isOpen, 
                               setListeningKeyAction(null);
                               setListeningGamepadAction(action);
                             }}
-                            className="px-3 py-1 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-white text-xs font-bold transition-colors"
+                            className="px-3 py-1 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-white text-xs font-bold transition-colors cursor-pointer"
                           >
                             Rebind
                           </button>
@@ -429,7 +510,7 @@ export const ButtonMappingModal: React.FC<ButtonMappingModalProps> = ({ isOpen, 
             className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold text-sm tracking-wide shadow-lg shadow-red-900/30 transition-all cursor-pointer"
           >
             <Check className="w-4 h-4" />
-            Save & Close
+            Done & Save
           </button>
         </div>
       </div>

@@ -320,8 +320,18 @@ export const RaceView: React.FC<RaceViewProps> = ({
         });
       }
 
-      if (input.reset) {
-        physics.resetPlayer();
+      // Teammate strategy order controls (1: Block Pack, 2: Yield Position, 3: Push, 4: Free)
+      if (input.orderBlock) {
+        physics.issueTeamOrder('block');
+      }
+      if (input.orderYield) {
+        physics.issueTeamOrder('yield');
+      }
+      if (input.orderPush) {
+        physics.issueTeamOrder('push');
+      }
+      if (input.orderNeutral) {
+        physics.issueTeamOrder('neutral');
       }
 
       // Update Physics Simulation
@@ -432,13 +442,18 @@ export const RaceView: React.FC<RaceViewProps> = ({
     window.addEventListener('resize', handleResize);
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === '1') {
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+        return;
+      }
+
+      if (e.key === '1' || e.code === 'Digit1' || e.code === 'Numpad1') {
         physicsRef.current?.issueTeamOrder('block');
-      } else if (e.key === '2') {
+      } else if (e.key === '2' || e.code === 'Digit2' || e.code === 'Numpad2') {
         physicsRef.current?.issueTeamOrder('yield');
-      } else if (e.key === '3') {
+      } else if (e.key === '3' || e.code === 'Digit3' || e.code === 'Numpad3') {
         physicsRef.current?.issueTeamOrder('push');
-      } else if (e.key === '4') {
+      } else if (e.key === '4' || e.code === 'Digit4' || e.code === 'Numpad4') {
         physicsRef.current?.issueTeamOrder('neutral');
       }
     };

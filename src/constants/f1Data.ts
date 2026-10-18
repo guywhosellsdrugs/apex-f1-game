@@ -900,32 +900,39 @@ export const CIRCUITS: CircuitInfo[] = [
     timeOfDay: 'day',
     trackPoints: createTrackSpline([
       [0, 0.25, 0],
-      [0, 0.25, -150],
-      [0, 0.25, -260],
-      [65, 0.35, -330],
-      [140, 0.5, -315],
-      [165, 0.75, -230],
-      [215, 1.1, -210],
-      [185, 1.45, -140],
-      [235, 1.8, -85],
-      [285, 2.1, -30],
-      [290, 2.2, 45],
-      [245, 1.9, 105],
-      [200, 1.4, 120],
-      [145, 0.28, 110], // Passes under the bridge
-      [85, 0.25, 175],
-      [45, 0.25, 215],
-      [80, 0.25, 255],
-      [155, 0.45, 325],
-      [235, 0.7, 385],
-      [285, 0.6, 360],
-      [250, 0.45, 295],
-      [165, 1.85, 195],
-      [105, 3.2, 110], // Flies OVER the bridge crossing!
-      [40, 1.4, 25],
-      [-25, 0.75, -45],
-      [-55, 0.3, -115],
-      [-20, 0.25, -60],
+      [0, 0.25, -120],
+      [0, 0.25, -230], // Main straight
+      [45, 0.35, -305], // Turn 1 First Corner
+      [105, 0.45, -320], // Turn 2
+      [145, 0.6, -280],
+      [135, 0.75, -215], // S-Curves Turn 3
+      [175, 0.95, -155], // S-Curves Turn 4
+      [160, 1.15, -95], // S-Curves Turn 5
+      [195, 1.35, -35], // S-Curves Turn 6
+      [185, 1.55, 30], // Dunlop curve
+      [150, 1.6, 85],
+      [105, 1.55, 125],
+      [135, 1.45, 165], // Degner 1
+      [180, 1.3, 185], // Degner 2
+      [225, 1.1, 160],
+      [255, 0.9, 100],
+      [280, 0.75, 30],
+      [315, 0.6, -20], // Turn 11 Hairpin
+      [340, 0.6, 15],
+      [330, 0.65, 75],
+      [345, 0.75, 160], // 200R
+      [370, 0.85, 255],
+      [365, 0.9, 345], // Spoon approach
+      [335, 0.9, 415], // Spoon Turn 13
+      [275, 0.85, 450], // Spoon Turn 14
+      [210, 0.75, 435],
+      [165, 0.65, 380], // Spoon exit onto Backstraight
+      [120, 0.55, 290], // Backstraight
+      [85, 0.45, 190],
+      [55, 0.35, 110], // 130R approach
+      [30, 0.3, 60], // 130R
+      [10, 0.25, 30], // Casio Triangle chicane
+      [0, 0.25, 15], // Onto pit straight
     ]),
   },
 
@@ -1031,34 +1038,49 @@ export const CIRCUITS: CircuitInfo[] = [
     ambientLight: 0.85,
     timeOfDay: 'day',
     trackPoints: createTrackSpline([
-      [0, 0.25, 0],
-      [0, 0.25, -120],
-      [0, 0.25, -230], // Hamilton Straight
-      [65, 0.25, -290], // Abbey
-      [135, 0.25, -275], // Farm
-      [185, 0.25, -215], // Village
-      [195, 0.25, -145], // The Loop
-      [145, 0.25, -125], // Aintree
-      [95, 0.25, -45], // Wellington Straight
-      [45, 0.25, 65],
-      [25, 0.25, 155], // Brooklands & Luffield
-      [75, 0.25, 205],
-      [125, 0.25, 175],
-      [175, 0.25, 115], // Woodcote
-      [225, 0.25, 45],
-      [295, 0.25, -25], // Copse Corner flat out
-      [335, 0.25, -125],
-      [385, 0.25, -195], // Maggotts
-      [435, 0.25, -165], // Becketts
-      [445, 0.25, -85], // Chapel
-      [475, 0.25, -25],
-      [465, 0.25, 85], // Hangar Straight
-      [425, 0.25, 225],
-      [365, 0.25, 295], // Stowe
-      [285, 0.25, 315],
-      [195, 0.25, 255], // Vale & Club
-      [115, 0.25, 165],
-      [35, 0.25, 85],
+      [0, 0.25, 0], // Start/Finish on Hamilton Straight
+      [0, 0.25, -90], // Hamilton Straight
+      [0, 0.25, -180], // Braking zone into Abbey
+      [30, 0.25, -240], // Abbey entry (Turn 1 - fast right)
+      [80, 0.25, -270], // Abbey apex
+      [140, 0.25, -265], // Farm curve (Turn 2 - gentle left flick)
+      [200, 0.25, -240], // Approach to Village
+      [240, 0.25, -195], // Village (Turn 3 - sharp right)
+      [245, 0.25, -145], // Approaching The Loop
+      [225, 0.25, -105], // The Loop hairpin apex (Turn 4 - tight left)
+      [180, 0.25, -95], // The Loop exit
+      [140, 0.25, -70], // Aintree (Turn 5 - left kink)
+      [120, 0.25, -20], // Wellington Straight entry
+      [110, 0.25, 60], // Wellington Straight
+      [100, 0.25, 140], // Wellington Straight
+      [95, 0.25, 210], // Wellington Straight braking zone
+      [105, 0.25, 275], // Brooklands entry (Turn 6 - left)
+      [145, 0.25, 325], // Brooklands apex / Luffield entry
+      [205, 0.25, 335], // Luffield carousel (Turn 7 - long sweeping right)
+      [255, 0.25, 305], // Luffield apex
+      [275, 0.25, 245], // Woodcote (Turn 8 - fast right onto National Pit Straight)
+      [290, 0.25, 160], // National Pit Straight
+      [315, 0.25, 70], // National Pit Straight
+      [345, 0.25, -20], // National Pit Straight
+      [385, 0.25, -100], // Copse entry (Turn 9 - legendary fast right)
+      [440, 0.25, -145], // Copse exit
+      [500, 0.25, -155], // Maggotts entry (Turn 10 - fast left)
+      [555, 0.25, -130], // Maggotts apex (Turn 11 - right flick)
+      [585, 0.25, -75], // Becketts (Turn 12/13 - left-right complex)
+      [580, 0.25, -15], // Chapel (Turn 14 - right hander onto Hangar Straight)
+      [550, 0.25, 60], // Hangar Straight entry
+      [505, 0.25, 160], // Hangar Straight
+      [455, 0.25, 270], // Hangar Straight
+      [395, 0.25, 380], // Stowe braking zone
+      [340, 0.25, 455], // Stowe apex (Turn 15 - fast sweeping right)
+      [270, 0.25, 495], // Stowe exit
+      [195, 0.25, 505], // Vale braking zone (Turn 16)
+      [130, 0.25, 475], // Vale chicane flick (Turn 17)
+      [75, 0.25, 420], // Club entry (Turn 18 - double apex right)
+      [35, 0.25, 340], // Club apex
+      [15, 0.25, 230], // Club exit
+      [5, 0.25, 120], // Accelerating onto Hamilton Straight
+      [0, 0.25, 50], // Hamilton Straight approach to line
     ]),
   },
 
@@ -1080,28 +1102,33 @@ export const CIRCUITS: CircuitInfo[] = [
     timeOfDay: 'day',
     trackPoints: createTrackSpline([
       [0, 0.25, 0],
-      [0, 0.25, -110],
-      [0, 0.25, -190],
-      [55, 0.25, -250], // La Source hairpin
-      [95, 0.25, -225],
-      [125, 0.12, -145], // Eau Rouge dip
-      [145, 0.85, -65],
-      [165, 2.9, 15], // Raidillon crest
-      [195, 3.5, 135], // Kemmel Straight uphill
-      [235, 3.85, 285],
-      [285, 3.55, 365], // Les Combes chicane
-      [335, 3.05, 355],
-      [345, 2.45, 295], // Malmedy
-      [315, 1.65, 215], // Bruxelles
-      [285, 1.25, 145], // Rivage
-      [245, 0.85, 75], // Double Gauche Pouhon
-      [195, 0.65, 35],
-      [145, 0.45, -25], // Fagnes & Stavelot
-      [105, 0.38, -85],
-      [55, 0.25, -135], // Blanchimont
-      [25, 0.25, -105],
-      [-25, 0.25, -55], // Bus Stop Chicane
-      [-18, 0.25, -12],
+      [0, 0.25, -70],
+      [0, 0.25, -150], // Pit straight heading down to La Source
+      [35, 0.25, -200], // La Source hairpin right
+      [85, 0.25, -190], // La Source exit
+      [145, 0.18, -120], // Downhill sprint
+      [195, 0.10, -40], // Eau Rouge dip
+      [240, 1.45, 60], // Raidillon steep climb
+      [280, 2.85, 170], // Raidillon crest
+      [325, 3.5, 290], // Kemmel Straight uphill blast
+      [370, 3.9, 420],
+      [410, 4.0, 540],
+      [430, 3.8, 620], // Les Combes chicane
+      [380, 3.4, 660],
+      [320, 2.9, 640],
+      [270, 2.4, 570], // Malmedy
+      [230, 1.9, 470], // Bruxelles (Rivage) hairpin
+      [200, 1.5, 370],
+      [180, 1.2, 280], // Speaker corner
+      [160, 0.95, 200], // Pouhon double left entry
+      [140, 0.75, 130], // Pouhon mid
+      [115, 0.60, 75], // Pouhon exit
+      [90, 0.50, 35], // Fagnes chicane
+      [65, 0.42, 20], // Stavelot
+      [45, 0.35, 15], // Courbe Paul Frère
+      [30, 0.28, 12], // Blanchimont
+      [18, 0.25, 10], // Bus Stop Chicane
+      [0, 0.25, 5], // Start/finish straight
     ]),
   },
 

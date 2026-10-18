@@ -8,6 +8,10 @@ export interface UnifiedInput {
   switchCamera: boolean;
   reset: boolean;
   pause: boolean;
+  orderBlock: boolean; // 1: Tell teammate to block pack
+  orderYield: boolean; // 2: Tell teammate to yield position
+  orderPush: boolean; // 3: Tell teammate to push pace
+  orderNeutral: boolean; // 4: Free racing
   isGamepadActive: boolean;
   gamepadName: string | null;
 }
@@ -22,6 +26,10 @@ export interface CustomControlBindings {
   switchCamera: string[];
   reset: string[];
   pause: string[];
+  orderBlock: string[];
+  orderYield: string[];
+  orderPush: string[];
+  orderNeutral: string[];
 }
 
 export interface CustomGamepadBindings {
@@ -32,6 +40,10 @@ export interface CustomGamepadBindings {
   switchCameraButton: number; // default 3 (Y / Triangle)
   resetButton: number; // default 1 (B / Circle)
   pauseButton: number; // default 9 (Start / Options)
+  orderBlockButton: number; // default 14 (D-Pad Left)
+  orderYieldButton: number; // default 13 (D-Pad Down)
+  orderPushButton: number; // default 15 (D-Pad Right)
+  orderNeutralButton: number; // default 12 (D-Pad Up)
 }
 
 export const DEFAULT_KEY_BINDINGS: CustomControlBindings = {
@@ -44,6 +56,10 @@ export const DEFAULT_KEY_BINDINGS: CustomControlBindings = {
   switchCamera: ['KeyC', 'KeyV'],
   reset: ['KeyR'],
   pause: ['Escape', 'KeyP'],
+  orderBlock: ['Digit1', 'Numpad1', '1'],
+  orderYield: ['Digit2', 'Numpad2', '2'],
+  orderPush: ['Digit3', 'Numpad3', '3'],
+  orderNeutral: ['Digit4', 'Numpad4', '4'],
 };
 
 export const DEFAULT_GAMEPAD_BINDINGS: CustomGamepadBindings = {
@@ -54,6 +70,10 @@ export const DEFAULT_GAMEPAD_BINDINGS: CustomGamepadBindings = {
   switchCameraButton: 3, // Y
   resetButton: 1, // B
   pauseButton: 9, // Start
+  orderBlockButton: 14, // D-Pad Left
+  orderYieldButton: 13, // D-Pad Down
+  orderPushButton: 15, // D-Pad Right
+  orderNeutralButton: 12, // D-Pad Up
 };
 
 const STORAGE_KEY_CONTROLS = 'apex26_custom_button_mapping_v2';
@@ -67,6 +87,10 @@ class InputManager {
   private cameraJustPressed: boolean = false;
   private resetJustPressed: boolean = false;
   private pauseJustPressed: boolean = false;
+  private orderBlockJustPressed: boolean = false;
+  private orderYieldJustPressed: boolean = false;
+  private orderPushJustPressed: boolean = false;
+  private orderNeutralJustPressed: boolean = false;
 
   private prevGamepadButtons: Record<number, boolean> = {};
   private activeGamepadIndex: number | null = null;
@@ -82,6 +106,7 @@ class InputManager {
       window.addEventListener('keyup', this.handleKeyUp);
       window.addEventListener('gamepadconnected', this.handleGamepadConnected);
       window.addEventListener('gamepaddisconnected', this.handleGamepadDisconnected);
+      window.addEventListener('blur', this.handleWindowBlur);
     }
   }
 
@@ -125,9 +150,23 @@ class InputManager {
     this.saveBindings();
   }
 
+  public setKeyBindings(bindings: CustomControlBindings) {
+    this.keyBindings = { ...bindings };
+    this.saveBindings();
+  }
+
   public setGamepadBinding(action: keyof CustomGamepadBindings, btnIndex: number) {
     this.gamepadBindings[action] = btnIndex;
     this.saveBindings();
+  }
+
+  public setGamepadBindings(bindings: CustomGamepadBindings) {
+    this.gamepadBindings = { ...bindings };
+    this.saveBindings();
+  }
+
+  public getUnifiedInput(): UnifiedInput {
+    return this.poll();
   }
 
   public resetToDefaults() {
@@ -146,11 +185,24 @@ class InputManager {
     this.onKeyCapturedCallback = null;
   }
 
+  private setKeyState(codeOrKey: string, val: boolean) {
+    if (!codeOrKey) return;
+    this.keys[codeOrKey] = val;
+    this.keys[codeOrKey.toLowerCase()] = val;
+    this.keys[codeOrKey.toUpperCase()] = val;
+    if (codeOrKey.startsWith('Key')) {
+      const letter = codeOrKey.slice(3);
+      this.keys[letter] = val;
+      this.keys[letter.toLowerCase()] = val;
+      this.keys[letter.toUpperCase()] = val;
+    }
+  }
+
   private handleKeyDown = (e: KeyboardEvent) => {
     // If we are currently capturing a custom button rebind:
     if (this.listeningAction && this.onKeyCapturedCallback) {
       e.preventDefault();
-      const code = e.code;
+      const code = e.code || e.key;
       const action = this.listeningAction;
       this.keyBindings[action] = [code];
       this.saveBindings();
@@ -170,7 +222,8 @@ class InputManager {
     if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) {
       e.preventDefault();
     }
-    this.keys[e.code] = true;
+    if (e.code) this.setKeyState(e.code, true);
+    if (e.key) this.setKeyState(e.key, true);
   };
 
   private handleKeyUp = (e: KeyboardEvent) => {
@@ -178,7 +231,16 @@ class InputManager {
     if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
       return;
     }
-    this.keys[e.code] = false;
+    if (e.code) this.setKeyState(e.code, false);
+    if (e.key) this.setKeyState(e.key, false);
+  };
+
+  public clearAllKeys() {
+    this.keys = {};
+  }
+
+  private handleWindowBlur = () => {
+    this.clearAllKeys();
   };
 
   private handleGamepadConnected = (e: GamepadEvent) => {
@@ -222,7 +284,15 @@ class InputManager {
 
   private isActionPressed(action: keyof CustomControlBindings): boolean {
     const boundKeys = this.keyBindings[action] || [];
-    return boundKeys.some((k) => this.keys[k]);
+    return boundKeys.some((k) => {
+      if (!k) return false;
+      if (this.keys[k] || this.keys[k.toLowerCase()] || this.keys[k.toUpperCase()]) return true;
+      if (k.startsWith('Key')) {
+        const letter = k.slice(3);
+        if (this.keys[letter] || this.keys[letter.toLowerCase()] || this.keys[letter.toUpperCase()]) return true;
+      }
+      return false;
+    });
   }
 
   public poll(): UnifiedInput {
@@ -235,6 +305,11 @@ class InputManager {
     let pause = false;
     let isGamepadActive = false;
     let gamepadName: string | null = null;
+
+    let orderBlock = false;
+    let orderYield = false;
+    let orderPush = false;
+    let orderNeutral = false;
 
     // 1. Process Keyboard Input with Custom Control Mapping
     if (this.isActionPressed('throttle')) throttle = 1;
@@ -274,6 +349,43 @@ class InputManager {
       this.pauseJustPressed = false;
     }
 
+    // Teammate Radio Orders: 1 = Block Pack, 2 = Yield Position, 3 = Push Pace, 4 = Free Racing
+    if (this.isActionPressed('orderBlock')) {
+      if (!this.orderBlockJustPressed) {
+        orderBlock = true;
+        this.orderBlockJustPressed = true;
+      }
+    } else {
+      this.orderBlockJustPressed = false;
+    }
+
+    if (this.isActionPressed('orderYield')) {
+      if (!this.orderYieldJustPressed) {
+        orderYield = true;
+        this.orderYieldJustPressed = true;
+      }
+    } else {
+      this.orderYieldJustPressed = false;
+    }
+
+    if (this.isActionPressed('orderPush')) {
+      if (!this.orderPushJustPressed) {
+        orderPush = true;
+        this.orderPushJustPressed = true;
+      }
+    } else {
+      this.orderPushJustPressed = false;
+    }
+
+    if (this.isActionPressed('orderNeutral')) {
+      if (!this.orderNeutralJustPressed) {
+        orderNeutral = true;
+        this.orderNeutralJustPressed = true;
+      }
+    } else {
+      this.orderNeutralJustPressed = false;
+    }
+
     // 2. Process Gamepad Input with Custom Control Mapping
     if (typeof navigator !== 'undefined' && navigator.getGamepads) {
       const gamepads = navigator.getGamepads();
@@ -307,7 +419,11 @@ class InputManager {
           b[this.gamepadBindings.boostButton]?.pressed ||
           b[this.gamepadBindings.resetButton]?.pressed ||
           b[this.gamepadBindings.switchCameraButton]?.pressed ||
-          b[this.gamepadBindings.pauseButton]?.pressed
+          b[this.gamepadBindings.pauseButton]?.pressed ||
+          b[this.gamepadBindings.orderBlockButton]?.pressed ||
+          b[this.gamepadBindings.orderYieldButton]?.pressed ||
+          b[this.gamepadBindings.orderPushButton]?.pressed ||
+          b[this.gamepadBindings.orderNeutralButton]?.pressed
         ) {
           isGamepadActive = true;
         }
@@ -345,6 +461,31 @@ class InputManager {
         }
         this.prevGamepadButtons[this.gamepadBindings.pauseButton] = !!pauseBtnPressed;
 
+        // Gamepad Teammate Orders (D-Pad or custom buttons)
+        const obBtn = this.gamepadBindings.orderBlockButton;
+        if (b[obBtn] && b[obBtn].pressed && !this.prevGamepadButtons[obBtn]) {
+          orderBlock = true;
+        }
+        this.prevGamepadButtons[obBtn] = !!(b[obBtn] && b[obBtn].pressed);
+
+        const oyBtn = this.gamepadBindings.orderYieldButton;
+        if (b[oyBtn] && b[oyBtn].pressed && !this.prevGamepadButtons[oyBtn]) {
+          orderYield = true;
+        }
+        this.prevGamepadButtons[oyBtn] = !!(b[oyBtn] && b[oyBtn].pressed);
+
+        const opBtn = this.gamepadBindings.orderPushButton;
+        if (b[opBtn] && b[opBtn].pressed && !this.prevGamepadButtons[opBtn]) {
+          orderPush = true;
+        }
+        this.prevGamepadButtons[opBtn] = !!(b[opBtn] && b[opBtn].pressed);
+
+        const onBtn = this.gamepadBindings.orderNeutralButton;
+        if (b[onBtn] && b[onBtn].pressed && !this.prevGamepadButtons[onBtn]) {
+          orderNeutral = true;
+        }
+        this.prevGamepadButtons[onBtn] = !!(b[onBtn] && b[onBtn].pressed);
+
         break;
       }
     }
@@ -357,6 +498,10 @@ class InputManager {
       switchCamera,
       reset,
       pause,
+      orderBlock,
+      orderYield,
+      orderPush,
+      orderNeutral,
       isGamepadActive,
       gamepadName,
     };

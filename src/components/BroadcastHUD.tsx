@@ -211,60 +211,64 @@ export const BroadcastHUD: React.FC<BroadcastHUDProps> = ({
           </div>
 
           {/* IN-RACE TEAM RADIO STRATEGY CONSOLE:
-              "allow me to make stratagies and like for example my teammate is in a higher or lower position then me and i tell him to block for me like block other players for me and yield his position some drivers will listen some wont add like a listening rating or something" */}
-          {telemetry.teammatePosition && onIssueTeamOrder && (
-            <div className="flex items-center gap-1.5 bg-black/85 backdrop-blur-md px-3 py-1.5 rounded-xl border border-emerald-500/30 shadow-xl pointer-events-auto">
+              "and add controlls to tell ur teamates what to do like 1 is to tell them to block pack 2 is too tell them to yield position and 3 is to tell them to push" */}
+          {(telemetry.teammatePosition || telemetry.teammateShortName || telemetry.teammateDriverName) && onIssueTeamOrder && (
+            <div className="flex items-center gap-1.5 bg-black/90 backdrop-blur-md px-3 py-1.5 rounded-xl border border-emerald-500/40 shadow-xl pointer-events-auto">
               <div className="flex items-center gap-1.5 text-[10px] font-black uppercase text-emerald-400 mr-1">
                 <Radio className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
-                <span className="hidden sm:inline">PIT ORDERS ({telemetry.teammateObedience ?? 75}% COMPLY):</span>
+                <span className="hidden sm:inline">PIT ORDERS ({telemetry.teammateObedience ?? 75}%):</span>
                 <span className="sm:hidden">ORDERS:</span>
               </div>
               <button
                 onClick={() => onIssueTeamOrder('block')}
-                className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase transition-all cursor-pointer flex items-center gap-1 ${
+                className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase transition-all cursor-pointer flex items-center gap-1.5 ${
                   telemetry.teammateCurrentOrder === 'block'
                     ? 'bg-amber-500 text-black font-black ring-2 ring-amber-300 shadow-md'
                     : 'bg-neutral-800 hover:bg-neutral-700 text-amber-300 border border-amber-500/30'
                 }`}
-                title="Tell teammate to defend apex and block trailing rival cars"
+                title="Press [1] or Click: Tell teammate to defend apex and block pack behind"
               >
+                <kbd className="px-1.5 py-0.2 rounded bg-black/70 border border-amber-400/50 text-amber-300 font-mono font-black text-[9px] shadow-sm">1</kbd>
                 <span>🛡️</span>
                 <span>Block Pack</span>
               </button>
               <button
                 onClick={() => onIssueTeamOrder('yield')}
-                className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase transition-all cursor-pointer flex items-center gap-1 ${
+                className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase transition-all cursor-pointer flex items-center gap-1.5 ${
                   telemetry.teammateCurrentOrder === 'yield'
                     ? 'bg-cyan-500 text-black font-black ring-2 ring-cyan-300 shadow-md'
                     : 'bg-neutral-800 hover:bg-neutral-700 text-cyan-300 border border-cyan-500/30'
                 }`}
-                title="Tell teammate to yield position and let you pass cleanly"
+                title="Press [2] or Click: Tell teammate to yield position and let you pass cleanly"
               >
+                <kbd className="px-1.5 py-0.2 rounded bg-black/70 border border-cyan-400/50 text-cyan-300 font-mono font-black text-[9px] shadow-sm">2</kbd>
                 <span>↔️</span>
                 <span>Yield Position</span>
               </button>
               <button
                 onClick={() => onIssueTeamOrder('push')}
-                className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase transition-all cursor-pointer flex items-center gap-1 ${
+                className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase transition-all cursor-pointer flex items-center gap-1.5 ${
                   telemetry.teammateCurrentOrder === 'push'
                     ? 'bg-red-600 text-white font-black ring-2 ring-red-400 shadow-md'
                     : 'bg-neutral-800 hover:bg-neutral-700 text-red-300 border border-red-500/30'
                 }`}
-                title="Tell teammate to attack and push to overtake"
+                title="Press [3] or Click: Tell teammate to attack and push to overtake"
               >
+                <kbd className="px-1.5 py-0.2 rounded bg-black/70 border border-red-400/50 text-red-300 font-mono font-black text-[9px] shadow-sm">3</kbd>
                 <Zap className="w-3 h-3 text-red-400" />
                 <span>Push</span>
               </button>
               <button
                 onClick={() => onIssueTeamOrder('neutral')}
-                className={`px-2 py-1 rounded-lg text-[10px] font-medium uppercase transition-all cursor-pointer ${
+                className={`px-2 py-1 rounded-lg text-[10px] font-medium uppercase transition-all cursor-pointer flex items-center gap-1 ${
                   telemetry.teammateCurrentOrder === 'neutral'
                     ? 'bg-neutral-600 text-white'
                     : 'bg-neutral-800 hover:bg-neutral-700 text-neutral-400'
                 }`}
-                title="Free racing"
+                title="Press [4] or Click: Free racing for teammate"
               >
-                Free
+                <kbd className="px-1 py-0.2 rounded bg-black/50 border border-white/20 text-neutral-400 font-mono text-[9px]">4</kbd>
+                <span>Free</span>
               </button>
             </div>
           )}
@@ -773,6 +777,7 @@ export const BroadcastHUD: React.FC<BroadcastHUDProps> = ({
               )}
             </div>
             <div className="text-[10px] text-neutral-400 flex flex-col items-end font-mono leading-tight">
+              <span className="text-emerald-400/90 font-bold">[1] BLOCK • [2] YIELD • [3] PUSH</span>
               <span>[E / A] BOOST / DRS</span>
               <span>[W / RT] THROTTLE</span>
               <span>[S / LT] BRAKE</span>

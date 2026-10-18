@@ -23,6 +23,10 @@ const ACTION_LABELS: Record<keyof CustomControlBindings, { label: string; desc: 
   switchCamera: { label: 'Cycle Camera View', desc: 'Toggle chase, close, cockpit, nose cameras' },
   reset: { label: 'Reset Vehicle', desc: 'Recover car back to center of track' },
   pause: { label: 'Pause / Options Menu', desc: 'Open in-race pause and settings' },
+  orderBlock: { label: 'Teammate: Block Pack', desc: 'Hotkey [1]: Tell teammate to defend apex and block rival pack' },
+  orderYield: { label: 'Teammate: Yield Position', desc: 'Hotkey [2]: Tell teammate to yield line and let you pass' },
+  orderPush: { label: 'Teammate: Push', desc: 'Hotkey [3]: Tell teammate to attack and push to overtake' },
+  orderNeutral: { label: 'Teammate: Free Racing', desc: 'Hotkey [4]: Free racing mode for teammate' },
 };
 
 const GAMEPAD_BUTTON_NAMES: Record<number, string> = {
