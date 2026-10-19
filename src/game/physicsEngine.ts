@@ -16,6 +16,9 @@ export interface AICarState {
   targetOffset: number;
   smoothLateralVel: number;
   steerAngle: number;
+  pitchAngle?: number;
+  rollAngle?: number;
+  smoothEvasiveOffset?: number;
   raceFormPace: number;
   lap: number;
   hasCrossedInitialStartLine: boolean;
@@ -226,6 +229,7 @@ export class PhysicsEngine {
   public brakesScore: number = 85;
   public customTopSpeedKmh?: number;
   public teammateDriverId?: string;
+  public playerDriver: Driver;
   public peerCars: Map<string, PeerCar> = new Map();
   public multiplayerMode: boolean = false;
 
@@ -239,6 +243,7 @@ export class PhysicsEngine {
     public customTeamConfig?: CustomTeamConfig | null
   ) {
     this.totalLaps = laps;
+    this.playerDriver = DRIVERS.find((d) => d.id === this.playerDriverId) || DRIVERS[0];
 
     // Determine player's active teammate
     if (this.customTeamConfig && this.playerTeam?.id === this.customTeamConfig.id) {
@@ -1674,14 +1679,15 @@ export class PhysicsEngine {
         }
       }
 
-      // ULTRA-FLUID RACING LINE & PROGRESSIVE CORNERING:
+      // ULTRA-FLUID RACING LINE & PURE PURSUIT CORNERING:
       // "make the cpu movements more fluid"
-      // Harmonic continuous racing line replaces jumpy random step offsets:
-      const harmonicApexFlow = Math.sin(ai.progress * Math.PI * 6.0 + (ai.driver.number % 5)) * 1.6;
-      let targetLateral = ai.targetOffset * 0.5 + harmonicApexFlow;
-      if (activeEvasiveSteer !== 0) {
-        targetLateral += Math.max(-4.0, Math.min(4.0, activeEvasiveSteer * 0.20));
-      }
+      // Smoothly blend evasive offsets over time instead of single-frame step jumps
+      const desiredEvasive = activeEvasiveSteer !== 0 ? Math.max(-4.0, Math.min(4.0, activeEvasiveSteer * 0.22)) : 0;
+      ai.smoothEvasiveOffset = THREE.MathUtils.lerp(ai.smoothEvasiveOffset || 0, desiredEvasive, Math.min(1.0, dt * 5.0));
+
+      // Continuous harmonic racing line (smooth apex hugging, zero twitching)
+      const harmonicApexFlow = Math.sin(ai.progress * Math.PI * 6.0 + (ai.driver.number % 5)) * 1.5;
+      let targetLateral = ai.targetOffset * 0.5 + harmonicApexFlow + (ai.smoothEvasiveOffset || 0);
       targetLateral = Math.max(-trackBarrierLimit, Math.min(trackBarrierLimit, targetLateral));
 
       // Silky-smooth critically damped spring transition (ultra-fluid, zero jerk or stepping)
@@ -1739,23 +1745,51 @@ export class PhysicsEngine {
       ai.pos.copy(pt.position).addScaledVector(normal, ai.lateralOffset);
       ai.pos.y = pt.position.y + 0.08;
 
-      // Realistic smooth wheel steer angle & chassis yaw rotation into turns:
-      const fwdSpeed = Math.max(12, ai.speedKmh / 3.6);
-      const targetSteerAngle = Math.atan2(ai.smoothLateralVel, fwdSpeed);
-      ai.steerAngle = (ai.steerAngle || 0) + (targetSteerAngle - (ai.steerAngle || 0)) * Math.min(1.0, dt * 10.0);
+      // PURE PURSUIT LOOKAHEAD TRAJECTORY (Dynamic Lookahead for ultra-fluid, natural cornering arcs):
+      // Instead of deriving heading only from the instant spline tangent beneath the centroid,
+      // project forward to a target point 10m to 26m ahead along the racing line.
+      const lookaheadMeters = THREE.MathUtils.clamp((ai.speedKmh / 320) * 24.0, 10.0, 26.0);
+      const lookaheadProg = (ai.progress + lookaheadMeters / this.track.trackLength) % 1.0;
+      const ptAhead = this.track.getTrackPointAtProgress(lookaheadProg);
+      const aheadLateral = THREE.MathUtils.clamp(targetLateral * 0.85, -trackBarrierLimit, trackBarrierLimit);
+      const targetWorldPos = ptAhead.position.clone().addScaledVector(ptAhead.normal, aheadLateral);
 
-      const trackHeading = Math.atan2(-pt.tangent.x, -pt.tangent.z);
-      // Car chassis rotates smoothly into the direction of travel + steering angle
-      const targetHeading = trackHeading - ai.steerAngle * 0.75;
-      ai.heading += (targetHeading - ai.heading) * Math.min(1.0, dt * 9.0);
+      // Smooth forward trajectory vector from current position to lookahead point
+      const dirX = targetWorldPos.x - ai.pos.x;
+      const dirZ = targetWorldPos.z - ai.pos.z;
+      const naturalHeading = Math.atan2(-dirX, -dirZ);
 
+      // Smooth yaw rotation towards target heading with angle normalization to [-PI, PI]
+      let headingDelta = naturalHeading - ai.heading;
+      while (headingDelta > Math.PI) headingDelta -= Math.PI * 2;
+      while (headingDelta < -Math.PI) headingDelta += Math.PI * 2;
+
+      const headingDamping = this.difficulty === 'legend' ? 12.0 : 9.5;
+      ai.heading += headingDelta * Math.min(1.0, dt * headingDamping);
+
+      // Realistic front-wheel steering angle based on curvature and lateral transition:
+      const targetSteerAngle = THREE.MathUtils.clamp(headingDelta * 2.8, -0.65, 0.65);
+      ai.steerAngle = (ai.steerAngle || 0) + (targetSteerAngle - (ai.steerAngle || 0)) * Math.min(1.0, dt * 14.0);
+
+      // Organic chassis suspension dynamics: body roll into turns and pitch under acceleration/braking
+      const speedFactor = Math.min(1.0, ai.speedKmh / 240);
+      const targetRoll = -ai.steerAngle * 0.16 * speedFactor;
+      ai.rollAngle = (ai.rollAngle || 0) + (targetRoll - (ai.rollAngle || 0)) * Math.min(1.0, dt * 10.0);
+
+      const isBraking = ai.speedKmh > desiredSpeed + 4;
+      const isAccelerating = ai.speedKmh < desiredSpeed - 4 && ai.speedKmh > 30;
+      const targetPitch = isBraking ? 0.022 : (isAccelerating ? -0.012 : 0);
+      ai.pitchAngle = (ai.pitchAngle || 0) + (targetPitch - (ai.pitchAngle || 0)) * Math.min(1.0, dt * 8.0);
+
+      // Set root position & rotation using 3D Euler angles (pitch, yaw, roll)
       ai.builtCar.root.position.copy(ai.pos);
-      ai.builtCar.root.rotation.y = ai.heading;
-      ai.builtCar.setSteerAngle(-ai.steerAngle * 1.2);
+      ai.builtCar.root.rotation.set(ai.pitchAngle || 0, ai.heading, ai.rollAngle || 0, 'YXZ');
+
+      ai.builtCar.setSteerAngle(-ai.steerAngle * 1.1);
       ai.builtCar.setWheelSpin(ai.speedKmh, dt);
     }
 
-    // AI-to-AI separation (so CPUs don't noclip through each other)
+    // AI-to-AI separation (Fluid soft physical pushback projected onto track normal velocity)
     for (let i = 0; i < this.aiCars.length; i++) {
       const a = this.aiCars[i];
       if (a.finished) continue;
@@ -1768,16 +1802,17 @@ export class PhysicsEngine {
         if (d < 3.4 && d > 0.05) {
           const push = (3.4 - d) * 0.55;
           const n = diff.normalize();
-          a.pos.addScaledVector(n, push);
-          b.pos.addScaledVector(n, -push);
-          a.lateralOffset += n.x * push * 0.45;
-          b.lateralOffset -= n.x * push * 0.45;
 
-          // Elastic physical pushback without chain-reaction stalling of uninvolved cars
-          // If either car has a recovery protection shield active, smooth separation without getting wedged
+          // Project push along the track normal to smoothly deflect lateral velocity without position jumping
+          const ptA = this.track.getTrackPointAtProgress(a.progress);
+          const latPush = n.dot(ptA.normal);
+          const pushVel = (latPush >= 0 ? 1 : -1) * push * 3.5;
+          a.smoothLateralVel = (a.smoothLateralVel || 0) + pushVel * dt * 8.0;
+          b.smoothLateralVel = (b.smoothLateralVel || 0) - pushVel * dt * 8.0;
+
           if (a.protectionShieldTimer > 0 || b.protectionShieldTimer > 0) {
-            a.lateralOffset += n.x * push * 0.8;
-            b.lateralOffset -= n.x * push * 0.8;
+            a.smoothLateralVel += pushVel * dt * 12.0;
+            b.smoothLateralVel -= pushVel * dt * 12.0;
           }
         }
       }
@@ -1839,7 +1874,8 @@ export class PhysicsEngine {
     const playerScore = playerEntry?.score || 0;
 
     entries.forEach((e, idx) => {
-      this.currentPositionsMap.set(e.id, idx + 1);
+      const pos = idx + 1;
+      this.currentPositionsMap.set(e.id, pos);
 
       // Accurate seconds gap to P1
       const gapToLeader = Math.max(0, Math.round(((p1Score - e.score) * this.track.trackLength) / avgSpeedMs * 100) / 100);
@@ -1855,12 +1891,75 @@ export class PhysicsEngine {
       // Negative = this car is ahead of player by X seconds
       const gapToPlayer = Math.round(((playerScore - e.score) * this.track.trackLength) / avgSpeedMs * 100) / 100;
       this.currentGapsToPlayerMap.set(e.id, gapToPlayer);
+
+      // 3D In-World Broadcast Position Tag updates on cars
+      if (!e.isPlayer) {
+        const aiCar = this.aiCars.find((a) => a.driver.id === e.id);
+        if (aiCar) {
+          const isTeammate = Boolean(this.teammateDriverId && aiCar.driver.id === this.teammateDriverId);
+          aiCar.builtCar.setPositionTag(pos, aiCar.driver.shortName, isTeammate, false);
+        }
+      }
     });
 
     const playerIndex = entries.findIndex((e) => e.isPlayer);
-    this.telemetry.position = playerIndex !== -1 ? playerIndex + 1 : 17;
+    const pPos = playerIndex !== -1 ? playerIndex + 1 : 1;
+    this.telemetry.position = pPos;
     this.telemetry.p1LeadSeconds = this.currentP1LeadSeconds;
     this.telemetry.deltaToLeader = this.currentGapsToLeaderMap.get('player') || 0;
+
+    // Leader Information for HUD
+    const p1Entry = entries[0];
+    if (p1Entry) {
+      if (p1Entry.isPlayer) {
+        this.telemetry.leaderShortName = this.playerDriver?.shortName || 'YOU';
+        this.telemetry.leaderDriverName = this.playerDriver?.name || 'You';
+      } else {
+        const p1Ai = this.aiCars.find((a) => a.driver.id === p1Entry.id);
+        this.telemetry.leaderShortName = p1Ai?.driver.shortName;
+        this.telemetry.leaderDriverName = p1Ai?.driver.name;
+      }
+    }
+
+    // Car Directly Ahead & Behind
+    if (playerIndex > 0) {
+      const carAheadEntry = entries[playerIndex - 1];
+      const aheadAi = this.aiCars.find((a) => a.driver.id === carAheadEntry?.id);
+      this.telemetry.carAheadShortName = aheadAi?.driver.shortName || carAheadEntry?.id?.slice(0, 3)?.toUpperCase();
+      this.telemetry.carAheadGapSeconds = this.currentIntervalsMap.get('player') || 0;
+    } else {
+      this.telemetry.carAheadShortName = undefined;
+      this.telemetry.carAheadGapSeconds = undefined;
+    }
+
+    if (playerIndex >= 0 && playerIndex < entries.length - 1) {
+      const carBehindEntry = entries[playerIndex + 1];
+      const behindAi = this.aiCars.find((a) => a.driver.id === carBehindEntry?.id);
+      this.telemetry.carBehindShortName = behindAi?.driver.shortName || carBehindEntry?.id?.slice(0, 3)?.toUpperCase();
+      this.telemetry.carBehindGapSeconds = this.currentIntervalsMap.get(carBehindEntry?.id) || 0;
+    } else {
+      this.telemetry.carBehindShortName = undefined;
+      this.telemetry.carBehindGapSeconds = undefined;
+    }
+
+    // Top 3 Drivers Summary for Instant HUD Visibility
+    this.telemetry.top3Drivers = entries.slice(0, 3).map((e, idx) => {
+      if (e.isPlayer) {
+        return {
+          position: idx + 1,
+          shortName: this.playerDriver?.shortName || 'YOU',
+          teamColor: this.playerTeam?.primaryColor || '#ff8000',
+          gapSeconds: this.currentGapsToLeaderMap.get('player') || 0,
+        };
+      }
+      const aiCar = this.aiCars.find((a) => a.driver.id === e.id);
+      return {
+        position: idx + 1,
+        shortName: aiCar?.driver.shortName || e.id.slice(0, 3).toUpperCase(),
+        teamColor: aiCar?.team.primaryColor || '#ffffff',
+        gapSeconds: this.currentGapsToLeaderMap.get(e.id) || 0,
+      };
+    });
   }
 
   public getFinalStandings(playerDriver: Driver): {

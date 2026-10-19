@@ -1,0 +1,75 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile & Career State",
+      "description": "F1 driver profile, career championship standings, constructor team ownership, and statistics.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "displayName": { "type": "string", "maxLength": 80 },
+        "driverName": { "type": "string", "maxLength": 80 },
+        "email": { "type": "string", "maxLength": 150 },
+        "cashBalance": { "type": "number" },
+        "selectedTeamId": { "type": "string", "maxLength": 64 },
+        "selectedDriverId": { "type": "string", "maxLength": 64 },
+        "difficulty": { "type": "string", "enum": ["rookie", "pro", "legend"] },
+        "racesEntered": { "type": "number" },
+        "wins": { "type": "number" },
+        "podiums": { "type": "number" },
+        "championshipPoints": { "type": "number" },
+        "customTeamName": { "type": "string", "maxLength": 80 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "displayName", "cashBalance", "createdAt", "updatedAt"]
+    },
+    "LeaderboardRecord": {
+      "title": "Circuit Lap Time Record",
+      "description": "Global fastest lap time set on a specific Formula 1 Grand Prix circuit.",
+      "type": "object",
+      "properties": {
+        "circuitId": { "type": "string", "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "userId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "driverName": { "type": "string", "maxLength": 80 },
+        "teamId": { "type": "string", "maxLength": 64 },
+        "lapTimeSeconds": { "type": "number" },
+        "lapTimeFormatted": { "type": "string", "maxLength": 32 },
+        "carNumber": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["circuitId", "userId", "driverName", "lapTimeSeconds", "lapTimeFormatted", "createdAt"]
+    },
+    "RaceResult": {
+      "title": "Grand Prix Finish Result",
+      "description": "Historical record of a completed Grand Prix race event.",
+      "type": "object",
+      "properties": {
+        "circuitId": { "type": "string", "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "userId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "driverName": { "type": "string", "maxLength": 80 },
+        "teamId": { "type": "string", "maxLength": 64 },
+        "position": { "type": "number" },
+        "totalLaps": { "type": "number" },
+        "totalTimeSeconds": { "type": "number" },
+        "bestLapSeconds": { "type": "number" },
+        "pointsAwarded": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["circuitId", "userId", "position", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "Authenticated driver cloud profile and persistent career progression."
+    },
+    "/leaderboards/{circuitId}/records/{recordId}": {
+      "schema": { "$ref": "#/entities/LeaderboardRecord" },
+      "description": "Global verified circuit hot-lap leaderboard entries."
+    },
+    "/raceResults/{resultId}": {
+      "schema": { "$ref": "#/entities/RaceResult" },
+      "description": "Archived Grand Prix finishes and race classification records."
+    }
+  }
+}

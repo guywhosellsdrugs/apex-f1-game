@@ -62,6 +62,7 @@ import {
   CircleDollarSign,
   Zap,
   Volume2,
+  Cloud,
 } from 'lucide-react';
 import { soundEngine } from '../services/soundEngine';
 import { TrackLayoutPreview } from './TrackLayoutPreview';
@@ -95,6 +96,7 @@ interface SeasonHubProps {
   onSellCustomTeam?: (saleValue?: number) => void;
   onOpenMultiplayer?: () => void;
   onOpenControls?: () => void;
+  onOpenCloud?: () => void;
 }
 
 export const SeasonHub: React.FC<SeasonHubProps> = ({
@@ -116,6 +118,7 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
   onSellCustomTeam,
   onOpenMultiplayer,
   onOpenControls,
+  onOpenCloud,
 }) => {
   const [activeTab, setActiveTab] = useState<'weekend' | 'contracts' | 'myteam' | 'standings' | 'calendar' | 'records'>('weekend');
   const [selectedLaps, setSelectedLaps] = useState<number>(season.lapCount || 5);
@@ -887,6 +890,17 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
             >
               <Users className="w-3.5 h-3.5" />
               <span>Multiplayer</span>
+            </button>
+          )}
+
+          {onOpenCloud && (
+            <button
+              onClick={onOpenCloud}
+              className="flex items-center gap-1.5 px-3 py-1 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white rounded-md text-xs font-black shadow-md shadow-amber-950/40 transition-all cursor-pointer"
+              title="Firebase Cloud Save & Global Circuit Leaderboards"
+            >
+              <Cloud className="w-3.5 h-3.5" />
+              <span>Cloud Save</span>
             </button>
           )}
 

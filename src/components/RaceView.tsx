@@ -9,6 +9,7 @@ import { inputManager } from '../services/inputManager';
 import { soundEngine } from '../services/soundEngine';
 import { BroadcastHUD } from './BroadcastHUD';
 import { multiplayerService, RoomPublicState } from '../services/multiplayerService';
+import { recordCircuitLapTime } from '../services/firebase';
 
 interface RaceViewProps {
   circuit: CircuitInfo;
@@ -132,7 +133,6 @@ export const RaceView: React.FC<RaceViewProps> = ({
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(circuit.skyColor);
-    scene.fog = new THREE.FogExp2(circuit.fogColor, 0.0016);
 
     const camera = new THREE.PerspectiveCamera(66, width / height, 0.1, 2400);
 
@@ -142,32 +142,115 @@ export const RaceView: React.FC<RaceViewProps> = ({
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.15;
+    renderer.toneMappingExposure = circuit.id === 'abudhabi' ? 1.25 : 1.15;
 
     containerRef.current.appendChild(renderer.domElement);
 
-    // 2. Load Circuit Skybox
-    const textureLoader = new THREE.TextureLoader();
-    textureLoader.load(
-      '/src/assets/images/skybox_f1_circuit_1791403761165.jpg',
-      (tex) => {
-        tex.mapping = THREE.EquirectangularReflectionMapping;
-        scene.environment = tex;
-      },
-      undefined,
-      () => {
-        // Fallback ambient
+    // Dynamic High-Fidelity Circuit Sky Dome
+    const skyRadius = 1900;
+    const skyCanvas = document.createElement('canvas');
+    skyCanvas.width = 1024;
+    skyCanvas.height = 1024;
+    const sCtx = skyCanvas.getContext('2d');
+    if (sCtx) {
+      const grad = sCtx.createLinearGradient(0, 0, 0, 1024);
+      if (circuit.id === 'abudhabi') {
+        // Abu Dhabi Championship Twilight: Deep starry indigo -> Royal magenta -> Radiant amber sunset horizon
+        grad.addColorStop(0, '#0a041f');
+        grad.addColorStop(0.40, '#1c0836');
+        grad.addColorStop(0.68, '#881337');
+        grad.addColorStop(0.85, '#e11d48');
+        grad.addColorStop(0.95, '#ea580c');
+        grad.addColorStop(1.0, '#f59e0b');
+      } else if (circuit.id === 'bahrain' || circuit.id === 'jeddah') {
+        grad.addColorStop(0, '#030712');
+        grad.addColorStop(0.55, '#0b132b');
+        grad.addColorStop(0.88, '#1e293b');
+        grad.addColorStop(1.0, '#334155');
+      } else if (circuit.id === 'monaco') {
+        grad.addColorStop(0, '#0284c7');
+        grad.addColorStop(0.45, '#38bdf8');
+        grad.addColorStop(0.82, '#bae6fd');
+        grad.addColorStop(1.0, '#f0f9ff');
+      } else if (circuit.id === 'spa') {
+        grad.addColorStop(0, '#334155');
+        grad.addColorStop(0.48, '#64748b');
+        grad.addColorStop(0.82, '#94a3b8');
+        grad.addColorStop(1.0, '#cbd5e1');
+      } else if (circuit.id === 'monza') {
+        grad.addColorStop(0, '#0369a1');
+        grad.addColorStop(0.52, '#7dd3fc');
+        grad.addColorStop(0.82, '#fde68a');
+        grad.addColorStop(1.0, '#fed7aa');
+      } else {
+        grad.addColorStop(0, '#0284c7');
+        grad.addColorStop(0.55, '#38bdf8');
+        grad.addColorStop(0.88, '#e0f2fe');
+        grad.addColorStop(1.0, '#f8fafc');
       }
-    );
+      sCtx.fillStyle = grad;
+      sCtx.fillRect(0, 0, 1024, 1024);
 
-    // 3. Dynamic Sunlight & Skylight
-    const hemiLight = new THREE.HemisphereLight(0xdbeafe, 0x1e293b, 0.9);
+      // Stars for twilight & night circuits
+      if (circuit.timeOfDay === 'twilight' || circuit.id === 'abudhabi' || circuit.id === 'bahrain' || circuit.id === 'jeddah') {
+        sCtx.fillStyle = '#ffffff';
+        for (let s = 0; s < 280; s++) {
+          const sx = Math.random() * 1024;
+          const sy = Math.random() * 640;
+          const sr = Math.random() * 1.6 + 0.4;
+          sCtx.beginPath();
+          sCtx.arc(sx, sy, sr, 0, Math.PI * 2);
+          sCtx.fill();
+        }
+      }
+
+      const skyTex = new THREE.CanvasTexture(skyCanvas);
+      const skyGeom = new THREE.SphereGeometry(skyRadius, 32, 24);
+      const skyMat = new THREE.MeshBasicMaterial({ map: skyTex, side: THREE.BackSide });
+      const skyMesh = new THREE.Mesh(skyGeom, skyMat);
+      scene.add(skyMesh);
+    }
+
+    let fogDensity = 0.0014;
+    let hemiSky = 0xdbeafe;
+    let hemiGround = 0x1e293b;
+    let sunColor = 0xfffbeb;
+    let sunIntensity = 1.85;
+
+    if (circuit.id === 'abudhabi') {
+      hemiSky = 0x38bdf8;
+      hemiGround = 0x451a03;
+      sunColor = 0xff9e54; // Warm sunset gold
+      sunIntensity = 2.2;
+      fogDensity = 0.0010;
+    } else if (circuit.id === 'monaco') {
+      hemiSky = 0xbae6fd;
+      hemiGround = 0x0369a1;
+      sunColor = 0xffffff;
+      sunIntensity = 2.25;
+      fogDensity = 0.0008;
+    } else if (circuit.id === 'spa') {
+      hemiSky = 0x94a3b8;
+      hemiGround = 0x14532d;
+      sunColor = 0xfef08a;
+      sunIntensity = 1.65;
+      fogDensity = 0.0020;
+    } else if (circuit.id === 'monza') {
+      hemiSky = 0x7dd3fc;
+      hemiGround = 0x14532d;
+      sunColor = 0xffedd5;
+      sunIntensity = 2.0;
+    }
+
+    scene.fog = new THREE.FogExp2(circuit.fogColor, fogDensity);
+
+    const hemiLight = new THREE.HemisphereLight(hemiSky, hemiGround, 0.95);
     scene.add(hemiLight);
 
-    const ambientLight = new THREE.AmbientLight(0xffffff, circuit.ambientLight * 0.75);
+    const ambientLight = new THREE.AmbientLight(0xffffff, Math.max(0.68, circuit.ambientLight * 0.82));
     scene.add(ambientLight);
 
-    const sunLight = new THREE.DirectionalLight(0xfffbeb, 1.85);
+    const sunLight = new THREE.DirectionalLight(sunColor, sunIntensity);
     sunLight.castShadow = true;
     sunLight.shadow.mapSize.width = 2048;
     sunLight.shadow.mapSize.height = 2048;
@@ -414,6 +497,22 @@ export const RaceView: React.FC<RaceViewProps> = ({
 
       if (physics.raceFinished && !raceCompleteNotified) {
         raceCompleteNotified = true;
+
+        // Auto-save verified personal best lap record to Firebase Firestore Leaderboard
+        if (physics.telemetry.lapTimeBest && physics.telemetry.lapTimeBest > 20 && physics.telemetry.lapTimeBest < 600) {
+          const bestSec = physics.telemetry.lapTimeBest;
+          const mins = Math.floor(bestSec / 60);
+          const secs = (bestSec % 60).toFixed(3).padStart(6, '0');
+          recordCircuitLapTime({
+            circuitId: circuit.id,
+            driverName: playerDriver.name,
+            teamId: playerTeam.id,
+            lapTimeSeconds: bestSec,
+            lapTimeFormatted: `${mins}:${secs}`,
+            carNumber: playerDriver.number,
+          });
+        }
+
         setTimeout(() => {
           const finalStandings = physics.getFinalStandings(playerDriver);
           const playerRank =

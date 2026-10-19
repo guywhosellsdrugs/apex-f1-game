@@ -130,12 +130,54 @@ export const TrackMiniMap: React.FC<TrackMiniMapProps> = ({ circuit, carsRadar }
       };
     };
 
-    // Draw AI cars first (with special highlight for Teammate)
+    // Draw AI cars (Highlighting P1, P2, P3, and Teammate)
     for (const car of carsRadar) {
       if (car.isPlayer) continue;
 
       const pos = getPosFromProgress(car.progress);
-      if (car.isTeammate) {
+      if (car.position === 1) {
+        // P1 Leader: Radiant Gold Badge with "1"
+        ctx.strokeStyle = 'rgba(251, 191, 36, 0.7)';
+        ctx.lineWidth = 2.0;
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, 8.5, 0, Math.PI * 2);
+        ctx.stroke();
+
+        ctx.fillStyle = '#fbbf24';
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, 6.0, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#000000';
+        ctx.font = '900 8px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('1', pos.x, pos.y);
+      } else if (car.position === 2) {
+        // P2: Silver Badge with "2"
+        ctx.fillStyle = '#cbd5e1';
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, 5.0, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#000000';
+        ctx.font = '900 7px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('2', pos.x, pos.y);
+      } else if (car.position === 3) {
+        // P3: Bronze Badge with "3"
+        ctx.fillStyle = '#f97316';
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, 4.8, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '900 7px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('3', pos.x, pos.y);
+      } else if (car.isTeammate) {
         // Glowing double emerald beacon for teammate
         ctx.strokeStyle = 'rgba(16, 185, 129, 0.45)';
         ctx.lineWidth = 1.5;
@@ -161,42 +203,51 @@ export const TrackMiniMap: React.FC<TrackMiniMapProps> = ({ circuit, carsRadar }
       }
     }
 
-    // Draw Player Car with prominent glowing golden ping
+    // Draw Player Car with prominent glowing golden/cyan ping
     const playerCar = carsRadar.find((c) => c.isPlayer);
     if (playerCar) {
       const pos = getPosFromProgress(playerCar.progress);
 
       // Pulse ring
-      ctx.strokeStyle = 'rgba(251, 191, 36, 0.5)';
-      ctx.lineWidth = 2;
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.7)';
+      ctx.lineWidth = 2.5;
       ctx.beginPath();
-      ctx.arc(pos.x, pos.y, 7.5, 0, Math.PI * 2);
+      ctx.arc(pos.x, pos.y, 8.5, 0, Math.PI * 2);
       ctx.stroke();
 
       // Core dot
-      ctx.fillStyle = '#fbbf24';
+      ctx.fillStyle = '#38bdf8';
       ctx.beginPath();
-      ctx.arc(pos.x, pos.y, 4.5, 0, Math.PI * 2);
+      ctx.arc(pos.x, pos.y, 5.5, 0, Math.PI * 2);
       ctx.fill();
+
+      ctx.fillStyle = '#000000';
+      ctx.font = '900 7px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(String(playerCar.position || 'P'), pos.x, pos.y);
     }
   }, [normalizedPoints, carsRadar]);
 
   return (
-    <div className="relative flex flex-col items-center bg-neutral-950/80 backdrop-blur-md rounded-xl p-2.5 border border-white/10 shadow-2xl">
+    <div className="relative flex flex-col items-center bg-neutral-950/85 backdrop-blur-md rounded-xl p-2.5 border border-white/10 shadow-2xl">
       <div className="w-full flex items-center justify-between px-1 mb-1 text-[10px] uppercase font-bold tracking-wider text-neutral-400">
         <span className="truncate max-w-[120px]">{circuit.name}</span>
         <span className="text-red-400 font-mono">S/F</span>
       </div>
       <canvas ref={canvasRef} width={190} height={190} className="w-[170px] h-[170px]" />
-      <div className="w-full flex items-center justify-between px-1 mt-1 text-[9px] font-bold text-neutral-400">
-        <span className="flex items-center gap-1 text-amber-300">
-          <span className="w-2 h-2 rounded-full bg-amber-400 inline-block" /> You
+      <div className="w-full grid grid-cols-2 gap-1 px-1 mt-1 text-[9px] font-bold text-neutral-400 border-t border-white/10 pt-1.5">
+        <span className="flex items-center gap-1 text-amber-400">
+          <span className="w-2.5 h-2.5 rounded-full bg-amber-400 text-black flex items-center justify-center text-[7px] font-black">1</span> P1 Leader
+        </span>
+        <span className="flex items-center gap-1 text-sky-400">
+          <span className="w-2.5 h-2.5 rounded-full bg-sky-400 text-black flex items-center justify-center text-[7px] font-black">P</span> You
         </span>
         <span className="flex items-center gap-1 text-emerald-400">
-          <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block animate-pulse" /> Teammate
+          <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 inline-block animate-pulse" /> Teammate
         </span>
-        <span className="flex items-center gap-1 text-neutral-400">
-          <span className="w-2 h-2 rounded-full bg-cyan-400 inline-block" /> Rivals
+        <span className="flex items-center gap-1 text-slate-300">
+          <span className="w-2.5 h-2.5 rounded-full bg-slate-300 text-black flex items-center justify-center text-[7px] font-black">2</span> P2 Podium
         </span>
       </div>
     </div>

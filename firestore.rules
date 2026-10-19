@@ -1,0 +1,120 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Hardened Global Security Helpers
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Entity Validation: User Profile & Career
+    function isValidUser(data) {
+      return data.uid is string && data.uid.size() > 0 && data.uid.size() <= 128 &&
+             data.displayName is string && data.displayName.size() > 0 && data.displayName.size() <= 80 &&
+             data.cashBalance is number &&
+             (!('driverName' in data) || (data.driverName is string && data.driverName.size() <= 80)) &&
+             (!('email' in data) || (data.email is string && data.email.size() <= 150)) &&
+             (!('selectedTeamId' in data) || (data.selectedTeamId is string && data.selectedTeamId.size() <= 64)) &&
+             (!('selectedDriverId' in data) || (data.selectedDriverId is string && data.selectedDriverId.size() <= 64)) &&
+             (!('difficulty' in data) || (data.difficulty in ['rookie', 'pro', 'legend'])) &&
+             (!('racesEntered' in data) || data.racesEntered is number) &&
+             (!('wins' in data) || data.wins is number) &&
+             (!('podiums' in data) || data.podiums is number) &&
+             (!('championshipPoints' in data) || data.championshipPoints is number) &&
+             (!('customTeamName' in data) || (data.customTeamName is string && data.customTeamName.size() <= 80));
+    }
+
+    // Entity Validation: Leaderboard Record
+    function isValidLeaderboardRecord(data) {
+      return data.circuitId is string && data.circuitId.size() > 0 && data.circuitId.size() <= 64 &&
+             data.userId is string && data.userId.size() > 0 && data.userId.size() <= 128 &&
+             data.driverName is string && data.driverName.size() > 0 && data.driverName.size() <= 80 &&
+             data.lapTimeSeconds is number && data.lapTimeSeconds > 20.0 && data.lapTimeSeconds < 600.0 &&
+             data.lapTimeFormatted is string && data.lapTimeFormatted.size() <= 32 &&
+             (!('teamId' in data) || (data.teamId is string && data.teamId.size() <= 64)) &&
+             (!('carNumber' in data) || data.carNumber is number);
+    }
+
+    // Entity Validation: Grand Prix Race Result
+    function isValidRaceResult(data) {
+      return data.circuitId is string && data.circuitId.size() > 0 && data.circuitId.size() <= 64 &&
+             data.userId is string && data.userId.size() > 0 && data.userId.size() <= 128 &&
+             data.position is number && data.position >= 1 && data.position <= 20 &&
+             (!('driverName' in data) || (data.driverName is string && data.driverName.size() <= 80)) &&
+             (!('teamId' in data) || (data.teamId is string && data.teamId.size() <= 64)) &&
+             (!('totalLaps' in data) || data.totalLaps is number) &&
+             (!('totalTimeSeconds' in data) || data.totalTimeSeconds is number) &&
+             (!('bestLapSeconds' in data) || data.bestLapSeconds is number) &&
+             (!('pointsAwarded' in data) || data.pointsAwarded is number);
+    }
+
+    // 1. User Profiles & Persistent Career Saves
+    match /users/{userId} {
+      allow get: if isSignedIn() && isOwner(userId);
+      allow list: if false; // Deny broad user scraping to protect player data
+
+      allow create: if isSignedIn() && isOwner(userId) && isValidId(userId) &&
+        incoming().uid == userId &&
+        isValidUser(incoming()) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+
+      allow update: if isSignedIn() && isOwner(userId) && isValidId(userId) &&
+        incoming().uid == existing().uid &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        isValidUser(incoming());
+
+      allow delete: if false; // Protect career progress from accidental loss
+    }
+
+    // 2. Circuit Hot Lap Leaderboards (Global Public Read, Authenticated Write)
+    match /leaderboards/{circuitId}/records/{recordId} {
+      allow get, list: if true; // Public lap time leaderboard
+
+      allow create: if isSignedIn() &&
+        isValidId(circuitId) && isValidId(recordId) &&
+        incoming().circuitId == circuitId &&
+        incoming().userId == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        isValidLeaderboardRecord(incoming());
+
+      allow update, delete: if false; // Official lap records are immutable
+    }
+
+    // 3. Grand Prix Race Results Archive
+    match /raceResults/{resultId} {
+      allow get: if isSignedIn() && (resource.data.userId == request.auth.uid);
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+
+      allow create: if isSignedIn() &&
+        isValidId(resultId) &&
+        incoming().userId == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        isValidRaceResult(incoming());
+
+      allow update, delete: if false; // Race finishes are permanent race records
+    }
+  }
+}

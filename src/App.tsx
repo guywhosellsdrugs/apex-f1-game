@@ -19,9 +19,12 @@ import { SeasonHub } from './components/SeasonHub';
 import { RaceView } from './components/RaceView';
 import { MultiplayerModal } from './components/MultiplayerModal';
 import { ButtonMappingModal } from './components/ButtonMappingModal';
+import { FirebaseCloudModal } from './components/FirebaseCloudModal';
 import { RoomPublicState } from './services/multiplayerService';
 import { inputManager } from './services/inputManager';
-import { Trophy, ArrowRight, DollarSign, Award, CheckCircle2, Shield, Flame, Gauge, Zap } from 'lucide-react';
+import { auth, saveCareerToCloud, loadCareerFromCloud } from './services/firebase';
+import { onAuthStateChanged } from 'firebase/auth';
+import { Trophy, ArrowRight, DollarSign, Award, CheckCircle2, Shield, Flame, Gauge, Zap, Cloud } from 'lucide-react';
 
 const STORAGE_KEY = 'apex26_f1_career_v6';
 
@@ -128,8 +131,39 @@ export default function App() {
   // Multiplayer & Custom Controls state
   const [showMultiplayerModal, setShowMultiplayerModal] = useState(false);
   const [showButtonMappingModal, setShowButtonMappingModal] = useState(false);
+  const [showCloudModal, setShowCloudModal] = useState(false);
   const [isMultiplayerRace, setIsMultiplayerRace] = useState(false);
   const [multiplayerRoom, setMultiplayerRoom] = useState<RoomPublicState | null>(null);
+
+  // Seamless Firebase Firestore cloud profile synchronization
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        try {
+          const cloudData = await loadCareerFromCloud();
+          if (cloudData && cloudData.cashBalance !== undefined) {
+            setSeason((prev) => ({
+              ...prev,
+              selectedTeamId: cloudData.selectedTeamId || prev.selectedTeamId,
+              selectedDriverId: cloudData.selectedDriverId || prev.selectedDriverId,
+              difficulty: cloudData.difficulty || prev.difficulty,
+              career: {
+                ...prev.career,
+                driverName: cloudData.driverName || prev.career.driverName,
+                careerEarnings: Math.max(prev.career.careerEarnings, cloudData.cashBalance),
+                wins: Math.max(prev.career.wins, cloudData.wins || 0),
+                podiums: Math.max(prev.career.podiums, cloudData.podiums || 0),
+                racesDriven: Math.max(prev.career.racesDriven, cloudData.racesEntered || 0),
+              },
+            }));
+          }
+        } catch {
+          // Cloud sync fallback
+        }
+      }
+    });
+    return () => unsubscribe();
+  }, []);
 
   const handleLaunchMultiplayerRace = (room: RoomPublicState) => {
     const selectedCircuit = CIRCUITS.find((c) => c.id === room.circuitId) || CIRCUITS[0];
@@ -701,6 +735,7 @@ export default function App() {
           onSellCustomTeam={handleSellCustomTeam}
           onOpenMultiplayer={() => setShowMultiplayerModal(true)}
           onOpenControls={() => setShowButtonMappingModal(true)}
+          onOpenCloud={() => setShowCloudModal(true)}
         />
       )}
 
@@ -976,6 +1011,14 @@ export default function App() {
       <ButtonMappingModal
         isOpen={showButtonMappingModal}
         onClose={() => setShowButtonMappingModal(false)}
+      />
+
+      {/* Firebase Cloud Driver Profile & Global Leaderboard Modal */}
+      <FirebaseCloudModal
+        isOpen={showCloudModal}
+        onClose={() => setShowCloudModal(false)}
+        season={season}
+        onLoadSeason={(loaded) => setSeason(loaded)}
       />
     </div>
   );

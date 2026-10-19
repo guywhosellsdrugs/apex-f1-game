@@ -20,6 +20,7 @@ export interface BuiltCar {
   setBraking: (braking: boolean) => void;
   flashTailLight: (time: number) => void;
   updateSparks: (speedKmh: number, onCurb: boolean, delta: number) => void;
+  setPositionTag: (position: number, name: string, isTeammate?: boolean, isPlayer?: boolean) => void;
 }
 
 export function buildF1Car(team: Team, driver?: Driver): BuiltCar {
@@ -533,6 +534,118 @@ export function buildF1Car(team: Team, driver?: Driver): BuiltCar {
     sparkGeom.attributes.position.needsUpdate = true;
   };
 
+  // 3D In-World Broadcast Overhead Halo Position Tag
+  const tagCanvas = typeof document !== 'undefined' ? document.createElement('canvas') : null;
+  if (tagCanvas) {
+    tagCanvas.width = 256;
+    tagCanvas.height = 72;
+  }
+  const tagTexture = tagCanvas ? new THREE.CanvasTexture(tagCanvas) : null;
+  const tagMat = new THREE.SpriteMaterial({
+    map: tagTexture,
+    transparent: true,
+    depthTest: true,
+    depthWrite: false,
+  });
+  const tagSprite = new THREE.Sprite(tagMat);
+  tagSprite.position.set(0, 1.85, -0.2);
+  tagSprite.scale.set(2.4, 0.68, 1);
+  root.add(tagSprite);
+
+  let lastTagPos = -1;
+  let lastTagName = '';
+  let lastTagTeam = false;
+  let lastTagPlayer = false;
+
+  const setPositionTag = (pos: number, name: string, isTeammate?: boolean, isPlayer?: boolean) => {
+    if (!tagCanvas || !tagTexture) return;
+    if (pos === lastTagPos && name === lastTagName && isTeammate === lastTagTeam && isPlayer === lastTagPlayer) {
+      return;
+    }
+    lastTagPos = pos;
+    lastTagName = name;
+    lastTagTeam = !!isTeammate;
+    lastTagPlayer = !!isPlayer;
+
+    const ctx = tagCanvas.getContext('2d');
+    if (!ctx) return;
+    ctx.clearRect(0, 0, 256, 72);
+
+    // Pill background
+    const bgGrad = ctx.createLinearGradient(0, 0, 256, 0);
+    bgGrad.addColorStop(0, 'rgba(8, 12, 22, 0.92)');
+    bgGrad.addColorStop(1, 'rgba(15, 23, 42, 0.90)');
+    ctx.fillStyle = bgGrad;
+    ctx.beginPath();
+    ctx.roundRect(4, 6, 248, 60, 16);
+    ctx.fill();
+
+    // Border styling
+    let borderColor = team.primaryColor || '#00e5ff';
+    let posBgColor = '#1e293b';
+    let posTextColor = '#ffffff';
+
+    if (pos === 1) {
+      borderColor = '#fbbf24';
+      posBgColor = '#d97706';
+      posTextColor = '#ffffff';
+    } else if (pos === 2) {
+      borderColor = '#cbd5e1';
+      posBgColor = '#64748b';
+      posTextColor = '#ffffff';
+    } else if (pos === 3) {
+      borderColor = '#f97316';
+      posBgColor = '#b45309';
+      posTextColor = '#ffffff';
+    } else if (isPlayer) {
+      borderColor = '#38bdf8';
+      posBgColor = '#0284c7';
+    } else if (isTeammate) {
+      borderColor = '#10b981';
+      posBgColor = '#059669';
+    }
+
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = borderColor;
+    ctx.stroke();
+
+    // Position Badge Box
+    ctx.fillStyle = posBgColor;
+    ctx.beginPath();
+    ctx.roundRect(10, 12, 62, 48, 10);
+    ctx.fill();
+
+    ctx.fillStyle = posTextColor;
+    ctx.font = '900 28px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(`P${pos}`, 41, 36);
+
+    // Team Accent Bar
+    ctx.fillStyle = team.primaryColor || '#ef4444';
+    ctx.fillRect(78, 16, 4, 40);
+
+    // Driver Name & Role
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '900 24px sans-serif';
+    const cleanName = (name || driver?.shortName || 'DRV').toUpperCase().slice(0, 4);
+    ctx.fillText(cleanName, 90, 36);
+
+    // Subtag for YOU or TEAM
+    if (isPlayer) {
+      ctx.fillStyle = '#38bdf8';
+      ctx.font = '800 13px sans-serif';
+      ctx.fillText('YOU', 175, 36);
+    } else if (isTeammate) {
+      ctx.fillStyle = '#10b981';
+      ctx.font = '800 13px sans-serif';
+      ctx.fillText('TEAM', 165, 36);
+    }
+
+    tagTexture.needsUpdate = true;
+  };
+
   return {
     root,
     bodyMesh: cockpitMesh,
@@ -552,5 +665,6 @@ export function buildF1Car(team: Team, driver?: Driver): BuiltCar {
     setBraking,
     flashTailLight,
     updateSparks,
+    setPositionTag,
   };
 }

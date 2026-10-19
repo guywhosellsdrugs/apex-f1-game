@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { CircuitInfo } from '../types/racing';
+import { buildCircuitScenery } from './environmentBuilder';
 
 export interface SurfaceInfo {
   offTrack: boolean;
@@ -112,11 +113,34 @@ export function generateTrack(circuit: CircuitInfo): GeneratedTrack {
     curbVertsR.push(pRight.x, pRight.y, pRight.z);
     curbVertsR.push(curbOutR.x, curbOutR.y, curbOutR.z);
 
-    // Vivid FIA kerb alternating colors (Red & White)
-    const isRed = Math.floor((t * trackLength) / 2.2) % 2 === 0;
-    const cr = isRed ? 0.95 : 0.98;
-    const cg = isRed ? 0.08 : 0.98;
-    const cb = isRed ? 0.08 : 0.98;
+    // Authentic Circuit Curb Colors:
+    // Abu Dhabi: Yas Marina Cyan (#00a3b8) & White
+    // Spa: Belgian Yellow (#f59e0b) & Red
+    // Monza: Italian Tricolore Green (#16a34a), White, Red
+    // Default: FIA Red & White
+    const curbStep = Math.floor((t * trackLength) / 2.2);
+    let cr = 0.98, cg = 0.98, cb = 0.98;
+    if (circuit.id === 'abudhabi') {
+      const isYasCyan = curbStep % 2 === 0;
+      cr = isYasCyan ? 0.0 : 0.98;
+      cg = isYasCyan ? 0.65 : 0.98;
+      cb = isYasCyan ? 0.75 : 0.98;
+    } else if (circuit.id === 'spa') {
+      const isSpaYellow = curbStep % 2 === 0;
+      cr = isSpaYellow ? 0.96 : 0.88;
+      cg = isSpaYellow ? 0.72 : 0.12;
+      cb = isSpaYellow ? 0.08 : 0.12;
+    } else if (circuit.id === 'monza') {
+      const monzaMod = curbStep % 3;
+      if (monzaMod === 0) { cr = 0.08; cg = 0.65; cb = 0.28; } // Green
+      else if (monzaMod === 1) { cr = 0.98; cg = 0.98; cb = 0.98; } // White
+      else { cr = 0.90; cg = 0.12; cb = 0.12; } // Red
+    } else {
+      const isRed = curbStep % 2 === 0;
+      cr = isRed ? 0.95 : 0.98;
+      cg = isRed ? 0.08 : 0.98;
+      cb = isRed ? 0.08 : 0.98;
+    }
     curbColorsL.push(cr, cg, cb, cr, cg, cb);
     curbColorsR.push(cr, cg, cb, cr, cg, cb);
 
@@ -140,10 +164,18 @@ export function generateTrack(circuit: CircuitInfo): GeneratedTrack {
     runoffVertsR.push(curbOutR.x, curbOutR.y - 0.03, curbOutR.z);
     runoffVertsR.push(runoffOutR.x, runoffOutR.y - 0.03, runoffOutR.z);
 
-    const isRunoffBlue = Math.floor((t * trackLength) / 6.0) % 2 === 0;
-    const rR = isRunoffBlue ? 0.05 : 0.85;
-    const rG = isRunoffBlue ? 0.35 : 0.12;
-    const rB = isRunoffBlue ? 0.85 : 0.12;
+    let rR = 0.05, rG = 0.35, rB = 0.85;
+    if (circuit.id === 'abudhabi') {
+      const isAlt = Math.floor((t * trackLength) / 5.0) % 2 === 0;
+      rR = isAlt ? 0.0 : 0.05;
+      rG = isAlt ? 0.60 : 0.45;
+      rB = isAlt ? 0.78 : 0.65;
+    } else {
+      const isRunoffBlue = Math.floor((t * trackLength) / 6.0) % 2 === 0;
+      rR = isRunoffBlue ? 0.05 : 0.85;
+      rG = isRunoffBlue ? 0.35 : 0.12;
+      rB = isRunoffBlue ? 0.85 : 0.12;
+    }
     runoffColorsL.push(rR, rG, rB, rR, rG, rB);
     runoffColorsR.push(rR, rG, rB, rR, rG, rB);
 
@@ -371,11 +403,28 @@ export function generateTrack(circuit: CircuitInfo): GeneratedTrack {
   barrierMeshR.receiveShadow = true;
   group.add(barrierMeshR);
 
-  // Ground plane with terrain
+  // Ground plane with terrain tailored to circuit locale
   const groundGeom = new THREE.PlaneGeometry(3500, 3500, 16, 16);
   groundGeom.rotateX(-Math.PI / 2);
+  let groundColor = 0x223824; // Default European grass
+  if (circuit.id === 'abudhabi') {
+    groundColor = 0xc89f6d; // Warm Arabian desert sand
+  } else if (circuit.id === 'bahrain') {
+    groundColor = 0xbda27e; // Sakhir desert sand
+  } else if (circuit.id === 'monaco') {
+    groundColor = 0x334155; // Mediterranean cliffstone & asphalt
+  } else if (circuit.id === 'jeddah') {
+    groundColor = 0x1e293b; // Coastal corniche night asphalt
+  } else if (circuit.id === 'spa') {
+    groundColor = 0x16301a; // Ardennes deep forest pine green
+  } else if (circuit.id === 'silverstone') {
+    groundColor = 0x214422; // British countryside lush grass
+  } else if (circuit.id === 'monza') {
+    groundColor = 0x1d3d1f; // Royal Monza park lawn
+  }
+
   const groundMat = new THREE.MeshStandardMaterial({
-    color: circuit.timeOfDay === 'twilight' ? 0x12171e : circuit.id === 'bahrain' ? 0xbda27e : 0x223824,
+    color: groundColor,
     roughness: 0.95,
   });
   const groundMesh = new THREE.Mesh(groundGeom, groundMat);
@@ -656,6 +705,9 @@ export function generateTrack(circuit: CircuitInfo): GeneratedTrack {
     windowStrip.rotation.copy(building.rotation);
     group.add(windowStrip);
   }
+
+  // Authentic Photorealistic Circuit Scenery & Landmarks (Yas Hotel, Marina Yachts, Palms, Ferris Wheel, Silverstone Wing, etc.)
+  buildCircuitScenery(circuit, curve, isClearOfTrack, group);
 
   // 5. Sky Atmosphere & Procedural Clouds (High up in the sky, y = 150m - 220m)
   const skyGeom = new THREE.SphereGeometry(1400, 32, 16);

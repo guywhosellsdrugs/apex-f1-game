@@ -362,6 +362,13 @@ export interface TelemetryData {
   teammateRadioSpeaker?: string;
   teammateRadioStatus?: 'accepted' | 'refused' | 'idle';
   teammateDistanceMeters?: number;
+  leaderShortName?: string;
+  leaderDriverName?: string;
+  carAheadShortName?: string;
+  carAheadGapSeconds?: number;
+  carBehindShortName?: string;
+  carBehindGapSeconds?: number;
+  top3Drivers?: { position: number; shortName: string; teamColor: string; gapSeconds: number }[];
 }
 
 export interface ControllerState {

@@ -274,6 +274,66 @@ export const BroadcastHUD: React.FC<BroadcastHUDProps> = ({
           )}
         </div>
 
+        {/* F1 BROADCAST POSITION TICKER:
+            "also add like things so i can tell who is first place second place etc" */}
+        <div className="hidden sm:flex items-center gap-2.5 bg-neutral-950/90 backdrop-blur-md px-3.5 py-1.5 rounded-xl border border-white/15 shadow-xl text-xs font-mono">
+          {/* P1 Leader */}
+          <div className="flex items-center gap-1.5">
+            <span className="px-1.5 py-0.5 rounded bg-amber-400 text-black font-black text-[10px] flex items-center gap-1 shadow-sm">
+              <span>🥇</span>
+              <span>P1</span>
+            </span>
+            <span className="font-bold text-amber-300">
+              {telemetry.leaderShortName || 'LEADER'}
+            </span>
+            {telemetry.position === 1 ? (
+              <span className="text-[10px] text-amber-400 font-black animate-pulse">(YOU)</span>
+            ) : (
+              <span className="text-[10px] text-neutral-400 font-bold">(-{telemetry.deltaToLeader.toFixed(1)}s)</span>
+            )}
+          </div>
+
+          <div className="w-px h-3.5 bg-white/20" />
+
+          {/* Top 3 Summary */}
+          {telemetry.top3Drivers && telemetry.top3Drivers.length >= 3 && (
+            <div className="hidden md:flex items-center gap-2">
+              <div className="flex items-center gap-1 text-[11px]">
+                <span className="px-1 rounded bg-slate-300 text-black font-black text-[9px]">P2</span>
+                <span className="text-slate-200 font-semibold">{telemetry.top3Drivers[1]?.shortName}</span>
+              </div>
+              <div className="flex items-center gap-1 text-[11px]">
+                <span className="px-1 rounded bg-amber-600 text-white font-black text-[9px]">P3</span>
+                <span className="text-amber-200 font-semibold">{telemetry.top3Drivers[2]?.shortName}</span>
+              </div>
+              <div className="w-px h-3.5 bg-white/20" />
+            </div>
+          )}
+
+          {/* Player Position Context */}
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1">
+              <span className="text-neutral-400 text-[10px]">YOU:</span>
+              <span className="px-1.5 py-0.5 rounded bg-sky-500 text-black font-black text-[11px] shadow-sm">
+                P{telemetry.position}
+              </span>
+              <span className="text-neutral-400 text-[10px]">/ 20</span>
+            </div>
+
+            {/* Direct Battle Gaps: Ahead & Behind */}
+            {telemetry.carAheadShortName && (
+              <span className="text-[10px] text-emerald-400 hidden lg:inline">
+                ▲ P{telemetry.position - 1} {telemetry.carAheadShortName} (-{telemetry.carAheadGapSeconds?.toFixed(1)}s)
+              </span>
+            )}
+            {telemetry.carBehindShortName && (
+              <span className="text-[10px] text-rose-400 hidden lg:inline">
+                ▼ P{telemetry.position + 1} {telemetry.carBehindShortName} (+{telemetry.carBehindGapSeconds?.toFixed(1)}s)
+              </span>
+            )}
+          </div>
+        </div>
+
         {/* Right: Quick Controls & Camera */}
         <div className="flex items-center gap-2 pointer-events-auto">
           <button
@@ -564,13 +624,26 @@ export const BroadcastHUD: React.FC<BroadcastHUDProps> = ({
                 }`}
               >
                 <div className="flex items-center gap-1.5 truncate">
-                  <span className={`w-4 text-center font-bold font-mono text-[11px] ${position === 1 ? 'text-amber-400' : isTeammate ? 'text-emerald-400' : 'text-neutral-400'}`}>
+                  <span
+                    className={`w-5 h-5 rounded flex items-center justify-center font-black font-mono text-[10px] shrink-0 shadow-sm ${
+                      position === 1
+                        ? 'bg-amber-400 text-black ring-1 ring-amber-300'
+                        : position === 2
+                        ? 'bg-slate-300 text-black ring-1 ring-slate-100'
+                        : position === 3
+                        ? 'bg-amber-600 text-white ring-1 ring-amber-500'
+                        : position <= 10
+                        ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-500/40'
+                        : 'bg-neutral-900 text-neutral-400 border border-white/10'
+                    }`}
+                  >
                     {position}
                   </span>
                   <div className="w-1 h-3 rounded-full shrink-0" style={{ backgroundColor: isTeammate ? '#10b981' : teamColor }} />
-                  <span className={`font-mono tracking-wider truncate ${isPlayer ? 'text-amber-300 font-black' : isTeammate ? 'text-emerald-300 font-black flex items-center gap-1' : 'text-neutral-200'}`}>
-                    {driver.shortName}
-                    {isTeammate && <span className="text-[8px] bg-emerald-500/30 text-emerald-300 px-1 rounded font-sans shrink-0">TEAM</span>}
+                  <span className={`font-mono tracking-wider truncate flex items-center gap-1 ${isPlayer ? 'text-amber-300 font-black' : isTeammate ? 'text-emerald-300 font-black' : 'text-neutral-200'}`}>
+                    {position === 1 && <span className="text-[10px]">👑</span>}
+                    <span>{driver.shortName}</span>
+                    {isTeammate && <span className="text-[8px] bg-emerald-500/30 text-emerald-300 px-1 rounded font-sans shrink-0 font-bold">TEAM</span>}
                   </span>
                 </div>
                 
