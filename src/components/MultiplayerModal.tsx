@@ -61,10 +61,32 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
 
   // Join configuration state
   const [joinCode, setJoinCode] = useState('');
+  const [publicRooms, setPublicRooms] = useState<RoomPublicState[]>([]);
+  const [isLoadingRooms, setIsLoadingRooms] = useState(false);
 
   // Chat state
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState('');
+
+  const loadPublicRooms = async () => {
+    setIsLoadingRooms(true);
+    try {
+      const rooms = await multiplayerService.getPublicRooms();
+      setPublicRooms(rooms);
+    } catch {
+      setPublicRooms([]);
+    } finally {
+      setIsLoadingRooms(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isOpen && activeTab === 'join') {
+      loadPublicRooms();
+      const interval = setInterval(loadPublicRooms, 3000);
+      return () => clearInterval(interval);
+    }
+  }, [isOpen, activeTab]);
 
   // Subscribe to room changes and chat
   useEffect(() => {
@@ -132,21 +154,34 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
     }
   };
 
-  const handleJoinRoom = async () => {
-    const cleanCode = joinCode.trim().toUpperCase();
-    if (cleanCode.length !== 4) {
-      setErrorMsg('Please enter a valid 4-digit room code.');
-      return;
-    }
+  const handleQuickMatch = async () => {
+    setIsConnecting(true);
+    setErrorMsg(null);
 
+    const res = await multiplayerService.quickJoinRoom({
+      name: driverName.trim() || defaultPlayerName,
+      carNumber: Number(carNumber) || defaultCarNumber,
+      teamId: season.selectedTeamId || 'custom',
+      teamColor,
+      accentColor,
+      circuitId,
+    });
+
+    setIsConnecting(false);
+    if (!res.success) {
+      setErrorMsg(res.error || 'Quick match failed to connect.');
+    }
+  };
+
+  const handleJoinSpecificRoom = async (code: string) => {
     setIsConnecting(true);
     setErrorMsg(null);
 
     const res = await multiplayerService.joinRoom({
-      code: cleanCode,
+      code,
       player: {
-        name: driverName.trim() || 'Guest Driver',
-        carNumber: Number(carNumber) || 99,
+        name: driverName.trim() || defaultPlayerName,
+        carNumber: Number(carNumber) || defaultCarNumber,
         teamId: season.selectedTeamId || 'custom',
         teamColor,
         accentColor,
@@ -155,8 +190,18 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
 
     setIsConnecting(false);
     if (!res.success) {
-      setErrorMsg(res.error || 'Could not join room.');
+      setErrorMsg(res.error || `Could not join room ${code}.`);
     }
+  };
+
+  const handleJoinRoom = async () => {
+    const cleanCode = joinCode.trim().toUpperCase();
+    if (cleanCode.length !== 4) {
+      setErrorMsg('Please enter a valid 4-digit room code.');
+      return;
+    }
+
+    await handleJoinSpecificRoom(cleanCode);
   };
 
   const handleCopyCode = () => {
@@ -733,35 +778,119 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
 
             {/* TAB: Join Room */}
             {activeTab === 'join' && (
-              <div className="max-w-md mx-auto w-full py-8 space-y-6 text-center">
-                <div className="space-y-2">
-                  <div className="w-14 h-14 rounded-2xl bg-neutral-950 border border-neutral-800 flex items-center justify-center mx-auto text-red-500 shadow-inner">
-                    <Hash className="w-7 h-7" />
+              <div className="max-w-2xl mx-auto w-full py-4 space-y-6">
+                {/* 1. Instant Quick Match */}
+                <div className="p-5 rounded-2xl bg-gradient-to-r from-red-950/40 via-neutral-900 to-amber-950/30 border border-red-500/30 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-xl">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 font-mono text-[10px] uppercase font-bold border border-red-500/30">
+                        Zero Wait
+                      </span>
+                      <h4 className="text-base font-black text-white">Instant Quick Match</h4>
+                    </div>
+                    <p className="text-xs text-neutral-400 mt-1">
+                      Instantly join an active public race room, or spin one up automatically. Always connects!
+                    </p>
                   </div>
-                  <h3 className="text-xl font-black text-white">Enter 4-Digit Room Code</h3>
-                  <p className="text-xs text-neutral-400">
-                    Type the 4-digit code provided by the room host to join their Grand Prix lobby.
-                  </p>
+
+                  <button
+                    onClick={handleQuickMatch}
+                    disabled={isConnecting}
+                    className="shrink-0 px-6 py-3 rounded-xl bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white font-black text-xs uppercase tracking-wider shadow-lg shadow-red-900/40 transition-all cursor-pointer flex items-center gap-2"
+                  >
+                    {isConnecting ? <RotateCw className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4 fill-white" />}
+                    <span>⚡ Quick Match</span>
+                  </button>
                 </div>
 
-                <div className="flex justify-center">
-                  <input
-                    type="text"
-                    maxLength={4}
-                    value={joinCode}
-                    onChange={(e) => setJoinCode(e.target.value.toUpperCase().slice(0, 4))}
-                    placeholder="e.g. 7492"
-                    className="w-56 h-16 bg-neutral-950 border-2 border-red-500/60 focus:border-red-500 rounded-2xl text-center text-3xl font-mono font-black text-white tracking-[0.5em] uppercase focus:outline-none shadow-xl shadow-red-950/20"
-                  />
+                {/* 2. Live Public Lobbies List */}
+                <div className="bg-neutral-950 border border-neutral-800 rounded-2xl p-5 flex flex-col gap-3">
+                  <div className="flex items-center justify-between pb-2 border-b border-neutral-800/80">
+                    <div className="flex items-center gap-2">
+                      <Users className="w-4 h-4 text-emerald-400" />
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-white">
+                        Live Public Grand Prix Rooms ({publicRooms.length})
+                      </h4>
+                    </div>
+                    <button
+                      onClick={loadPublicRooms}
+                      disabled={isLoadingRooms}
+                      className="text-xs text-neutral-400 hover:text-white flex items-center gap-1 font-mono transition-colors"
+                    >
+                      <RotateCw className={`w-3.5 h-3.5 ${isLoadingRooms ? 'animate-spin' : ''}`} />
+                      <span>Refresh</span>
+                    </button>
+                  </div>
+
+                  {publicRooms.length === 0 ? (
+                    <div className="py-6 text-center text-xs text-neutral-500 flex flex-col items-center gap-1 font-mono">
+                      <span>No other open lobbies currently waiting.</span>
+                      <span className="text-[11px] text-neutral-600">Click Quick Match above or Host Room to begin!</span>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-2 max-h-52 overflow-y-auto pr-1">
+                      {publicRooms.map((r) => {
+                        const circuit = CIRCUITS.find((c) => c.id === r.circuitId) || CIRCUITS[0];
+                        const hostPlayer = r.players.find((p) => p.isHost) || r.players[0];
+                        return (
+                          <div
+                            key={r.code}
+                            className="p-3 bg-neutral-900 border border-neutral-800 rounded-xl flex items-center justify-between hover:border-neutral-700 transition-all text-xs"
+                          >
+                            <div className="flex items-center gap-3">
+                              <span className="px-2 py-1 rounded-lg bg-neutral-950 font-mono font-black text-amber-400 border border-neutral-800 text-sm">
+                                #{r.code}
+                              </span>
+                              <div>
+                                <span className="font-bold text-white block">{circuit.name}</span>
+                                <span className="text-[10px] text-neutral-400 font-mono">
+                                  {r.laps} Laps • Host: {hostPlayer?.name || 'Driver'} • {r.players.length}/20 Drivers
+                                </span>
+                              </div>
+                            </div>
+
+                            <button
+                              onClick={() => handleJoinSpecificRoom(r.code)}
+                              disabled={isConnecting}
+                              className="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs uppercase tracking-wider transition-colors shadow-md cursor-pointer"
+                            >
+                              Join Room
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
 
-                <button
-                  onClick={handleJoinRoom}
-                  disabled={isConnecting || joinCode.trim().length !== 4}
-                  className="w-full py-3.5 rounded-2xl bg-red-600 hover:bg-red-500 disabled:opacity-40 text-white font-black text-sm uppercase tracking-wider shadow-lg shadow-red-900/30 transition-all"
-                >
-                  {isConnecting ? 'Connecting to Room...' : 'Join Grand Prix Room'}
-                </button>
+                {/* 3. Manual 4-Digit Room Code */}
+                <div className="p-5 rounded-2xl bg-neutral-950 border border-neutral-800 text-center space-y-4">
+                  <div>
+                    <h4 className="text-sm font-bold text-white uppercase tracking-wider">Join Private Room via 4-Digit Code</h4>
+                    <p className="text-xs text-neutral-400 mt-0.5">
+                      Enter the 4-digit room code from a friend or league host.
+                    </p>
+                  </div>
+
+                  <div className="flex justify-center">
+                    <input
+                      type="text"
+                      maxLength={4}
+                      value={joinCode}
+                      onChange={(e) => setJoinCode(e.target.value.toUpperCase().slice(0, 4))}
+                      placeholder="e.g. 7492"
+                      className="w-48 h-12 bg-neutral-900 border-2 border-neutral-700 focus:border-red-500 rounded-xl text-center text-2xl font-mono font-black text-white tracking-[0.4em] uppercase focus:outline-none shadow-inner"
+                    />
+                  </div>
+
+                  <button
+                    onClick={handleJoinRoom}
+                    disabled={isConnecting || joinCode.trim().length !== 4}
+                    className="px-6 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 disabled:opacity-40 text-white font-black text-xs uppercase tracking-wider transition-all cursor-pointer"
+                  >
+                    {isConnecting ? 'Connecting...' : 'Join with Code'}
+                  </button>
+                </div>
               </div>
             )}
           </div>

@@ -63,6 +63,7 @@ import {
   Zap,
   Volume2,
   Cloud,
+  Pencil,
 } from 'lucide-react';
 import { soundEngine } from '../services/soundEngine';
 import { TrackLayoutPreview } from './TrackLayoutPreview';
@@ -150,6 +151,30 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
   const [customAccentColor, setCustomAccentColor] = useState('#ffd700');
   const [customEngine, setCustomEngine] = useState('Ferrari 066/14 V6 Turbo');
   const [customTeammate, setCustomTeammate] = useState('alonso');
+
+  // Mid-Season Team Rename Modal
+  const [isRenamingTeam, setIsRenamingTeam] = useState(false);
+  const [newTeamName, setNewTeamName] = useState(season.career.customTeam?.name || '');
+  const [newTeamShort, setNewTeamShort] = useState(season.career.customTeam?.shortName || '');
+
+  const handleSaveRenamedTeam = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!newTeamName.trim() || !season.career.customTeam) return;
+    const cleanName = newTeamName.trim();
+    const cleanShort = (newTeamShort.trim() || cleanName.split(' ')[0]).slice(0, 12);
+
+    const updatedTeam = {
+      ...season.career.customTeam,
+      name: cleanName,
+      shortName: cleanShort,
+    };
+
+    if (onUpdateCustomTeam) {
+      onUpdateCustomTeam(updatedTeam);
+    }
+    setIsRenamingTeam(false);
+    setNotificationMsg(`Team name successfully updated to "${cleanName}" (${cleanShort})!`);
+  };
 
   // Contract Modal
   const [selectedOffer, setSelectedOffer] = useState<{
@@ -1598,7 +1623,21 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
                             Season {season.career.seasonNumber || 1}
                           </span>
                         </div>
-                        <h2 className="text-2xl font-black text-white mt-0.5">{season.career.customTeam.name}</h2>
+                        <div className="flex items-center gap-2.5 mt-0.5">
+                          <h2 className="text-2xl font-black text-white">{season.career.customTeam.name}</h2>
+                          <button
+                            onClick={() => {
+                              setNewTeamName(season.career.customTeam?.name || '');
+                              setNewTeamShort(season.career.customTeam?.shortName || '');
+                              setIsRenamingTeam(true);
+                            }}
+                            className="p-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-400 hover:text-amber-400 transition-colors cursor-pointer flex items-center gap-1 text-xs font-bold"
+                            title="Rename your team mid-season"
+                          >
+                            <Pencil className="w-3.5 h-3.5 text-amber-400" />
+                            <span className="text-[11px] text-neutral-300">Rename Team</span>
+                          </button>
+                        </div>
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-neutral-400 mt-0.5">
                           <span className="text-cyan-400 font-semibold font-mono">PU: {season.career.customTeam.engine}</span>
                           <span>•</span>
@@ -3855,6 +3894,90 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
                 <span>Launch Practice Session ({practiceSelectedCircuit.name})</span>
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Mid-Season Team Rename Modal */}
+      {isRenamingTeam && season.career.customTeam && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-neutral-900 border border-neutral-700 max-w-lg w-full rounded-2xl shadow-2xl p-6 flex flex-col gap-5 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-3 border-b border-neutral-800">
+              <div className="flex items-center gap-3">
+                <div
+                  className="w-10 h-10 rounded-xl flex items-center justify-center font-black text-white text-base shadow"
+                  style={{ backgroundColor: season.career.customTeam.primaryColor }}
+                >
+                  <Pencil className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <span className="text-[10px] font-mono uppercase font-bold text-amber-400">Team Identity</span>
+                  <h3 className="text-xl font-black text-white">Rename Team Mid-Season</h3>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsRenamingTeam(false)}
+                className="w-8 h-8 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-400 hover:text-white flex items-center justify-center text-sm"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveRenamedTeam} className="flex flex-col gap-4">
+              <div>
+                <label className="text-xs font-bold uppercase tracking-wider text-neutral-300 block mb-1">
+                  Official Team Name
+                </label>
+                <input
+                  type="text"
+                  value={newTeamName}
+                  onChange={(e) => setNewTeamName(e.target.value)}
+                  placeholder="e.g. Scuderia Velocita"
+                  required
+                  maxLength={60}
+                  className="w-full bg-neutral-950 border border-neutral-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500 font-sans"
+                />
+                <span className="text-[10px] text-neutral-500 mt-1 block">
+                  Displayed on FIA leaderboards, race results, and constructor standings.
+                </span>
+              </div>
+
+              <div>
+                <label className="text-xs font-bold uppercase tracking-wider text-neutral-300 block mb-1">
+                  Short Name / Broadcast Code (Max 12 chars)
+                </label>
+                <input
+                  type="text"
+                  value={newTeamShort}
+                  onChange={(e) => setNewTeamShort(e.target.value)}
+                  placeholder="e.g. Velocita"
+                  required
+                  maxLength={12}
+                  className="w-full bg-neutral-950 border border-neutral-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500 font-mono uppercase"
+                />
+                <span className="text-[10px] text-neutral-500 mt-1 block">
+                  Displayed on the TV timing tower, mini-leaderboards, and telemetry tags.
+                </span>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-3 border-t border-neutral-800">
+                <button
+                  type="button"
+                  onClick={() => setIsRenamingTeam(false)}
+                  className="px-4 py-2.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-300 font-bold text-xs transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={!newTeamName.trim()}
+                  className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 text-black font-black text-xs uppercase tracking-wider shadow-lg shadow-amber-950/40 transition-all cursor-pointer disabled:opacity-50"
+                >
+                  Save Team Name
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

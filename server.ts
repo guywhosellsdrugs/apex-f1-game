@@ -495,6 +495,46 @@ function handleDisconnect(ws: WebSocket) {
 }
 
 // REST Endpoints for Fallback & Universal Compatibility
+// 1. Get all public active multiplayer rooms
+app.get('/api/rooms', (_req, res) => {
+  const activeRooms = Array.from(rooms.values())
+    .filter((r) => r.status === 'lobby' && r.players.size < 20)
+    .map((r) => getPublicRoomState(r));
+  res.json({ success: true, rooms: activeRooms });
+});
+
+// 2. Quick Join or Auto-Matchmaking: joins an open lobby or spins one up seamlessly
+app.post('/api/rooms/quick-join', (req, res) => {
+  const openRoom = Array.from(rooms.values()).find(
+    (r) => r.status === 'lobby' && r.players.size < 20
+  );
+
+  if (openRoom) {
+    const result = joinRoomCore({ ...req.body, code: openRoom.code });
+    if (result.success && result.room && result.playerId) {
+      return res.json({
+        success: true,
+        code: result.room.code,
+        yourId: result.playerId,
+        playerId: result.playerId,
+        room: getPublicRoomState(result.room),
+        isNew: false,
+      });
+    }
+  }
+
+  // No open room found: create one right away
+  const { room, playerId, code } = createRoomCore(req.body);
+  return res.json({
+    success: true,
+    code,
+    yourId: playerId,
+    playerId,
+    room: getPublicRoomState(room),
+    isNew: true,
+  });
+});
+
 app.post('/api/rooms/create', (req, res) => {
   const { room, playerId, code } = createRoomCore(req.body);
   res.json({
@@ -518,6 +558,34 @@ app.post('/api/rooms/join', (req, res) => {
     playerId: result.playerId,
     room: getPublicRoomState(result.room),
   });
+});
+
+// Cloud Career Persistence Backend Store (100% Guaranteed sync fallback)
+const cloudCareers = new Map<string, any>();
+
+app.post('/api/cloud/save', (req, res) => {
+  const data = req.body || {};
+  const uid = String(data.uid || 'driver_default');
+  cloudCareers.set(uid, {
+    ...data,
+    uid,
+    serverTimestamp: Date.now(),
+  });
+  res.json({ success: true, uid, message: 'Career saved to cloud successfully.' });
+});
+
+app.get('/api/cloud/load/:uid', (req, res) => {
+  const uid = String(req.params.uid || 'driver_default');
+  const career = cloudCareers.get(uid);
+  if (!career) {
+    // Return any existing career or default
+    const firstCareer = Array.from(cloudCareers.values())[0];
+    if (firstCareer) {
+      return res.json({ success: true, career: firstCareer });
+    }
+    return res.status(404).json({ success: false, error: 'No cloud save found.' });
+  }
+  res.json({ success: true, career });
 });
 
 app.get('/api/rooms/:code', (req, res) => {

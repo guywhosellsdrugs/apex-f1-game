@@ -310,60 +310,70 @@ export class MultiplayerService {
     }
   }
 
+  public async getPublicRooms(): Promise<RoomPublicState[]> {
+    try {
+      const res = await fetch('/api/rooms');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && Array.isArray(data.rooms)) {
+          return data.rooms;
+        }
+      }
+    } catch {}
+    return [];
+  }
+
+  public async quickJoinRoom(player: JoinRoomParams['player'] & { circuitId?: string }): Promise<{ success: boolean; code?: string; isNew?: boolean; error?: string }> {
+    try {
+      const res = await fetch('/api/rooms/quick-join', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          circuitId: player.circuitId || 'bahrain',
+          laps: 5,
+          botCount: 15,
+          botDifficulty: 'pro',
+          hasTeammates: true,
+          player,
+        }),
+      });
+      const data = await res.json();
+      if (data.success && data.room) {
+        this.currentRoom = data.room;
+        this.localPlayerId = data.playerId || data.yourId;
+        this.notifyRoom();
+        this.postToBroadcast({ type: 'room_sync', room: this.currentRoom });
+        this.startPolling(data.room.code);
+        return { success: true, code: data.room.code, isNew: data.isNew };
+      }
+      return { success: false, error: data.error || 'Failed to find or create match.' };
+    } catch {
+      return { success: false, error: 'Could not connect to multiplayer matchmaking.' };
+    }
+  }
+
   public async joinRoom(params: JoinRoomParams): Promise<{ success: boolean; error?: string }> {
     const cleanCode = String(params.code || '').trim().toUpperCase();
     if (!cleanCode || cleanCode.length !== 4) {
       return { success: false, error: 'Please enter a valid 4-digit room code.' };
     }
 
-    await this.connect();
+    // Try direct REST join immediately so connection is instant & never blocked by WS timeout
+    const restRes = await this.joinRoomRest({ ...params, code: cleanCode });
+    if (restRes.success) {
+      this.connect(); // Silently upgrade to WS in background if available
+      return restRes;
+    }
 
-    // 1. Try WebSocket if open
+    // Fallback: if WS is open, attempt WS
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      return new Promise((resolve) => {
-        let done = false;
-        const handleJoined = (room: RoomPublicState | null) => {
-          if (!done && room && room.code === cleanCode) {
-            done = true;
-            this.listeners.delete(handleJoined);
-            this.errorListeners.delete(handleErr);
-            this.startPolling(cleanCode);
-            resolve({ success: true });
-          }
-        };
-
-        const handleErr = (err: string) => {
-          if (!done) {
-            done = true;
-            this.listeners.delete(handleJoined);
-            this.errorListeners.delete(handleErr);
-            // Fallback to REST
-            this.joinRoomRest({ ...params, code: cleanCode }).then(resolve);
-          }
-        };
-
-        this.listeners.add(handleJoined);
-        this.errorListeners.add(handleErr);
-
-        this.send({
-          type: 'join_room',
-          payload: { ...params, code: cleanCode },
-        });
-
-        // 2.5s fallback to REST
-        setTimeout(() => {
-          if (!done) {
-            done = true;
-            this.listeners.delete(handleJoined);
-            this.errorListeners.delete(handleErr);
-            this.joinRoomRest({ ...params, code: cleanCode }).then(resolve);
-          }
-        }, 2500);
+      this.send({
+        type: 'join_room',
+        payload: { ...params, code: cleanCode },
       });
     }
 
-    // 2. Direct REST fallback
-    return this.joinRoomRest({ ...params, code: cleanCode });
+    return restRes;
   }
 
   private async joinRoomRest(params: JoinRoomParams): Promise<{ success: boolean; error?: string }> {

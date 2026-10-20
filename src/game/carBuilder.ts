@@ -205,24 +205,38 @@ export function buildF1Car(team: Team, driver?: Driver): BuiltCar {
   frontWingMesh.castShadow = true;
   root.add(frontWingMesh);
 
-  // Front Wing Upper Flap with Team Accent
-  const flapGeom = new THREE.BoxGeometry(1.84, 0.05, 0.26);
-  const flapMesh = new THREE.Mesh(flapGeom, secondaryPaintMat);
-  flapMesh.position.set(0, 0.25, -2.35);
-  flapMesh.rotation.x = -0.15;
-  root.add(flapMesh);
+  // Front Wing 3-Tier Aerodynamic Cascade Flaps with Team Accent
+  for (let f = 1; f <= 3; f++) {
+    const cascadeGeom = new THREE.BoxGeometry(1.86 - f * 0.06, 0.035, 0.22 - f * 0.03);
+    const cascadeMat = f === 1 ? secondaryPaintMat : (f === 2 ? accentPaintMat : carbonMat);
+    const cascadeMesh = new THREE.Mesh(cascadeGeom, cascadeMat);
+    cascadeMesh.position.set(0, 0.22 + f * 0.045, -2.4 + f * 0.06);
+    cascadeMesh.rotation.x = -0.12 - f * 0.05;
+    root.add(cascadeMesh);
+  }
 
-  // Front Endplates with Aerodynamic Dive Planes
-  const endplateGeom = new THREE.BoxGeometry(0.04, 0.32, 0.74);
+  // Front Endplates with Aerodynamic Dive Planes & S-Duct Fins
+  const endplateGeom = new THREE.BoxGeometry(0.04, 0.36, 0.76);
   const endL = new THREE.Mesh(endplateGeom, carPaintMat);
-  endL.position.set(-0.96, 0.26, -2.4);
+  endL.position.set(-0.96, 0.28, -2.4);
   endL.castShadow = true;
   root.add(endL);
 
   const endR = new THREE.Mesh(endplateGeom, carPaintMat);
-  endR.position.set(0.96, 0.26, -2.4);
+  endR.position.set(0.96, 0.28, -2.4);
   endR.castShadow = true;
   root.add(endR);
+
+  // Aerodynamic dive planes on outside of endplates
+  const divePlaneGeom = new THREE.BoxGeometry(0.12, 0.02, 0.28);
+  const diveL = new THREE.Mesh(divePlaneGeom, carbonMat);
+  diveL.position.set(-1.02, 0.32, -2.42);
+  diveL.rotation.z = -0.25;
+  root.add(diveL);
+  const diveR = new THREE.Mesh(divePlaneGeom, carbonMat);
+  diveR.position.set(1.02, 0.32, -2.42);
+  diveR.rotation.z = 0.25;
+  root.add(diveR);
 
   // Over-Wheel Wake Deflectors (Front Wheel Winglets)
   const deflectorGeom = new THREE.BoxGeometry(0.26, 0.03, 0.32);
@@ -235,6 +249,51 @@ export function buildF1Car(team: Team, driver?: Driver): BuiltCar {
   deflectorR.position.set(0.92, 0.58, -1.35);
   deflectorR.rotation.z = 0.15;
   root.add(deflectorR);
+
+  // Front Carbon Suspension Wishbones (Upper & Lower Wishbone Struts + Pushrod)
+  const wishboneMat = new THREE.MeshStandardMaterial({ color: 0x111116, metalness: 0.9, roughness: 0.25 });
+  [-1, 1].forEach((side) => {
+    // Upper Wishbone Arm Front
+    const upperWbF = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, 0.54, 8), wishboneMat);
+    upperWbF.position.set(side * 0.58, 0.44, -1.35);
+    upperWbF.rotation.z = side * 1.35;
+    upperWbF.rotation.y = side * 0.22;
+    root.add(upperWbF);
+
+    // Upper Wishbone Arm Rear
+    const upperWbR = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, 0.54, 8), wishboneMat);
+    upperWbR.position.set(side * 0.58, 0.44, -1.55);
+    upperWbR.rotation.z = side * 1.35;
+    upperWbR.rotation.y = -side * 0.22;
+    root.add(upperWbR);
+
+    // Lower Wishbone Arm
+    const lowerWb = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.58, 8), wishboneMat);
+    lowerWb.position.set(side * 0.60, 0.24, -1.45);
+    lowerWb.rotation.z = side * 1.45;
+    root.add(lowerWb);
+
+    // Diagonal Steering Pushrod
+    const pushrod = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.62, 8), wishboneMat);
+    pushrod.position.set(side * 0.56, 0.36, -1.42);
+    pushrod.rotation.z = side * 1.15;
+    root.add(pushrod);
+  });
+
+  // Sidepod Engine Cooling Louvers (5 aerodynamic gills on each sidepod shoulder)
+  const louverMat = new THREE.MeshStandardMaterial({ color: 0x050508, roughness: 0.95 });
+  for (let l = 0; l < 5; l++) {
+    const lz = -0.2 + l * 0.22;
+    const louverL = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.02, 0.06), louverMat);
+    louverL.position.set(-0.62, 0.54, lz);
+    louverL.rotation.y = 0.25;
+    root.add(louverL);
+
+    const louverR = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.02, 0.06), louverMat);
+    louverR.position.set(0.62, 0.54, lz);
+    louverR.rotation.y = -0.25;
+    root.add(louverR);
+  }
 
   // 4. Rear Wing with Swan-Neck Pylons & Active DRS Flap
   const wingPillarL = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.72, 0.08), carbonMat);
@@ -309,12 +368,26 @@ export function buildF1Car(team: Team, driver?: Driver): BuiltCar {
   visorMesh.position.set(0, 0.26, -0.16);
   driverGroup.add(visorMesh);
 
-  // Cockpit headrest safety foam
+  // Cockpit headrest safety foam & Shoulder Harness Belts
   const headrest = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.22, 0.32), matteBlackMat);
   headrest.position.set(0, 0.22, 0.18);
   driverGroup.add(headrest);
 
-  // F1 Steering Wheel with Digital LCD Screen
+  // 5-Point Racing Harness Straps across driver's shoulders
+  const harnessMat = new THREE.MeshStandardMaterial({ color: 0xcc0000, roughness: 0.8 });
+  const buckleMat = new THREE.MeshStandardMaterial({ color: 0xd1d5db, metalness: 0.9, roughness: 0.2 });
+  [-1, 1].forEach((side) => {
+    const strap = new THREE.Mesh(new THREE.BoxGeometry(0.065, 0.02, 0.28), harnessMat);
+    strap.position.set(side * 0.11, 0.14, 0.02);
+    strap.rotation.x = 0.28;
+    driverGroup.add(strap);
+
+    const buckle = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.03, 0.04), buckleMat);
+    buckle.position.set(side * 0.11, 0.14, 0.08);
+    driverGroup.add(buckle);
+  });
+
+  // F1 Steering Wheel with Digital LCD Screen, Shift LEDs, and Rotary Dials
   const steeringWheel = new THREE.Group();
   steeringWheel.position.set(0, 0.14, -0.45);
   steeringWheel.rotation.x = -0.3;
@@ -326,6 +399,29 @@ export function buildF1Car(team: Team, driver?: Driver): BuiltCar {
   lcdScreen.position.set(0, 0, -0.022);
   lcdScreen.rotation.y = Math.PI;
   steeringWheel.add(lcdScreen);
+
+  // Shift RPM LED strip along top of steering wheel rim (Green, Red, Blue)
+  const shiftColors = [0x00ff00, 0x00ff00, 0xff0000, 0xff0000, 0x0066ff];
+  for (let s = 0; s < 5; s++) {
+    const sx = -0.07 + s * 0.035;
+    const led = new THREE.Mesh(
+      new THREE.BoxGeometry(0.02, 0.015, 0.01),
+      new THREE.MeshBasicMaterial({ color: shiftColors[s] })
+    );
+    led.position.set(sx, 0.072, -0.021);
+    steeringWheel.add(led);
+  }
+
+  // Rotary dials on steering wheel
+  [-0.08, 0.08].forEach((rx) => {
+    const dial = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.014, 0.014, 0.015, 8),
+      new THREE.MeshBasicMaterial({ color: 0xffaa00 })
+    );
+    dial.rotateX(Math.PI / 2);
+    dial.position.set(rx, -0.04, -0.022);
+    steeringWheel.add(dial);
+  });
 
   driverGroup.add(steeringWheel);
   root.add(driverGroup);

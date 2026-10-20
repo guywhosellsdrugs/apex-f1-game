@@ -486,13 +486,14 @@ export function generateTrack(circuit: CircuitInfo): GeneratedTrack {
   group.add(startGantry);
 
   // Safety clearance function to guarantee NO prop, building, tower, or wall is EVER inside or near any part of the track
-  const isClearOfTrack = (worldPos: THREE.Vector3, minSafeRadius: number = 30.0): boolean => {
-    const checkSamples = 400;
+  const isClearOfTrack = (worldPos: THREE.Vector3, minSafeRadius: number = 34.0): boolean => {
+    const checkSamples = 1200;
+    const minSafeSq = minSafeRadius * minSafeRadius;
     for (let s = 0; s < checkSamples; s++) {
       const tp = curve.getPointAt(s / checkSamples);
       const dx = worldPos.x - tp.x;
       const dz = worldPos.z - tp.z;
-      if (dx * dx + dz * dz < minSafeRadius * minSafeRadius) {
+      if (dx * dx + dz * dz < minSafeSq) {
         return false;
       }
     }
@@ -660,31 +661,36 @@ export function generateTrack(circuit: CircuitInfo): GeneratedTrack {
     group.add(foliage);
   }
 
-  // 4. Modern Trackside Skyline Architecture (Strictly outside track limits > 35m + building half-diagonal, guaranteed zero track encroachment)
+  // 4. Modern Trackside Skyline Architecture (Strictly outside track limits > 34m + building half-diagonal, guaranteed zero track encroachment)
   const buildingMats = [
-    new THREE.MeshStandardMaterial({ color: 0x2b303c, metalness: 0.6, roughness: 0.4 }),
+    new THREE.MeshStandardMaterial({ color: 0x2b303c, metalness: 0.6, roughness: 0.35 }),
     new THREE.MeshStandardMaterial({ color: 0x1e2430, metalness: 0.8, roughness: 0.2 }),
-    new THREE.MeshStandardMaterial({ color: 0x3d4454, metalness: 0.4, roughness: 0.6 }),
+    new THREE.MeshStandardMaterial({ color: 0x3d4454, metalness: 0.5, roughness: 0.4 }),
+    new THREE.MeshStandardMaterial({ color: 0x181e28, metalness: 0.85, roughness: 0.15 }),
   ];
 
-  for (let t = 0.04; t < 0.98; t += 0.07) {
+  const rooftopMat = new THREE.MeshStandardMaterial({ color: 0x252a34, roughness: 0.8 });
+  const antennaMat = new THREE.MeshStandardMaterial({ color: 0xdddddd, metalness: 0.9, roughness: 0.2 });
+  const beaconMat = new THREE.MeshBasicMaterial({ color: 0xff0022 });
+
+  for (let t = 0.04; t < 0.98; t += 0.065) {
     const pt = curve.getPointAt(t);
     const tan = curve.getTangentAt(t).normalize();
     const r = new THREE.Vector3().crossVectors(tan, up).normalize();
 
-    const bWidth = 24 + ((t * 60) % 12);
-    const bDepth = 18 + ((t * 40) % 10);
-    const bHeight = 25 + ((t * 130) % 45); // 25m to 70m tall corporate suites & towers
+    const bWidth = 26 + ((t * 60) % 12);
+    const bDepth = 20 + ((t * 40) % 10);
+    const bHeight = 28 + ((t * 130) % 45); // 28m to 73m tall corporate suites & towers
     const bRadius = Math.hypot(bWidth * 0.5, bDepth * 0.5);
 
     // Place strictly OUTSIDE the track runoffs and barriers (distance safely clears outer diagonal)
     const side = Math.floor(t * 100) % 2 === 0 ? 1 : -1;
-    const distOutside = 28 + bRadius + (Math.floor(t * 100) % 4) * 8;
+    const distOutside = 32 + bRadius + (Math.floor(t * 100) % 4) * 8;
     const bPos = pt.clone().addScaledVector(r, side * distOutside);
 
     // CRITICAL: Ensure this building NEVER intersects any segment of the track ribbon!
-    // Safe radius checks full bounding diagonal + 22m track margin
-    if (!isClearOfTrack(bPos, bRadius + 22.0)) continue;
+    // Safe radius checks full bounding diagonal + 30m track clearance margin
+    if (!isClearOfTrack(bPos, bRadius + 30.0)) continue;
 
     const bGeom = new THREE.BoxGeometry(bWidth, bHeight, bDepth);
     const bMat = buildingMats[Math.floor(t * 10) % buildingMats.length];
@@ -695,15 +701,44 @@ export function generateTrack(circuit: CircuitInfo): GeneratedTrack {
     building.receiveShadow = true;
     group.add(building);
 
-    // Illuminated architectural glass window band
-    const windowStripGeom = new THREE.BoxGeometry(bWidth + 0.2, 1.4, bDepth + 0.2);
-    const windowMat = new THREE.MeshBasicMaterial({
-      color: circuit.timeOfDay === 'twilight' ? 0xfff2b2 : 0x8ec5fc,
-    });
-    const windowStrip = new THREE.Mesh(windowStripGeom, windowMat);
-    windowStrip.position.set(bPos.x, pt.y + bHeight * 0.68, bPos.z);
-    windowStrip.rotation.copy(building.rotation);
-    group.add(windowStrip);
+    // Multiple illuminated architectural glass window bands across multiple floors
+    const windowColors = [
+      circuit.timeOfDay === 'twilight' ? 0xfff2b2 : 0x8ec5fc,
+      0x38bdf8,
+      0xffffff,
+      0xfde047,
+    ];
+    const numFloors = Math.floor(bHeight / 7.5);
+    for (let fl = 1; fl < numFloors; fl++) {
+      const windowStripGeom = new THREE.BoxGeometry(bWidth + 0.25, 1.35, bDepth + 0.25);
+      const windowMat = new THREE.MeshBasicMaterial({
+        color: windowColors[(fl + Math.floor(t * 10)) % windowColors.length],
+      });
+      const windowStrip = new THREE.Mesh(windowStripGeom, windowMat);
+      windowStrip.position.set(bPos.x, pt.y + fl * 7.5, bPos.z);
+      windowStrip.rotation.copy(building.rotation);
+      group.add(windowStrip);
+    }
+
+    // Rooftop mechanical penthouse & HVAC chillers
+    const phWidth = bWidth * 0.55;
+    const phDepth = bDepth * 0.55;
+    const phHeight = 4.5;
+    const penthouse = new THREE.Mesh(new THREE.BoxGeometry(phWidth, phHeight, phDepth), rooftopMat);
+    penthouse.position.set(bPos.x, pt.y + bHeight + phHeight * 0.5, bPos.z);
+    penthouse.rotation.copy(building.rotation);
+    penthouse.castShadow = true;
+    group.add(penthouse);
+
+    // Rooftop Communications Antenna Mast with Aircraft Warning Beacon
+    const mastHeight = 10 + (Math.floor(t * 50) % 8);
+    const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.4, mastHeight, 6), antennaMat);
+    mast.position.set(bPos.x, pt.y + bHeight + phHeight + mastHeight * 0.5, bPos.z);
+    group.add(mast);
+
+    const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.55, 8, 8), beaconMat);
+    beacon.position.set(bPos.x, pt.y + bHeight + phHeight + mastHeight + 0.3, bPos.z);
+    group.add(beacon);
   }
 
   // Authentic Photorealistic Circuit Scenery & Landmarks (Yas Hotel, Marina Yachts, Palms, Ferris Wheel, Silverstone Wing, etc.)
