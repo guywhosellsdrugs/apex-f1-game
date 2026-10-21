@@ -265,9 +265,19 @@ export async function signInWithGoogle(): Promise<GoogleSignInResult> {
     const cred = await signInWithPopup(auth, googleProvider);
     return { user: cred.user };
   } catch (error: any) {
-    console.error('Failed to sign in with Google:', error);
     const code = error?.code || '';
     let message = error?.message || 'Google sign-in failed.';
+
+    // Non-fatal user actions (closing window, cancel) should not be logged as console.error
+    if (code === 'auth/popup-closed-by-user') {
+      message = 'Sign-in window was closed. You can retry or continue as Guest.';
+      console.info('[Firebase Auth] User closed the sign-in popup.');
+    } else if (code === 'auth/cancelled-popup-request') {
+      message = 'A sign-in request is already open. Please complete or close it first.';
+      console.info('[Firebase Auth] Sign-in popup request deduplicated.');
+    } else {
+      console.warn('[Firebase Auth] Google sign-in notice:', code, message);
+    }
 
     if (code === 'auth/unauthorized-domain') {
       const host = typeof window !== 'undefined' ? window.location.hostname : 'current domain';
@@ -276,10 +286,6 @@ export async function signInWithGoogle(): Promise<GoogleSignInResult> {
       message = 'Sign-in popup was blocked by your browser. Please allow popups for this site and try again.';
     } else if (code === 'auth/operation-not-allowed') {
       message = 'Google Sign-In is not enabled. Turn on Google provider in Firebase Console -> Authentication -> Sign-in method.';
-    } else if (code === 'auth/popup-closed-by-user') {
-      message = 'Sign-in window was closed before completion.';
-    } else if (code === 'auth/cancelled-popup-request') {
-      message = 'Sign-in request is already in progress.';
     }
 
     return { user: null, error: message, code };
@@ -291,7 +297,7 @@ export async function signInAsGuest(): Promise<FirebaseUser | null> {
     const cred = await signInAnonymously(auth);
     return cred.user;
   } catch (error) {
-    console.error('Guest login error:', error);
+    console.warn('Guest login fallback notice:', error);
     return null;
   }
 }

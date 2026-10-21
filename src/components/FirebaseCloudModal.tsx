@@ -108,9 +108,10 @@ export const FirebaseCloudModal: React.FC<FirebaseCloudModalProps> = ({
     if (res.user) {
       setStatusMessage({ text: `✓ Signed in as ${res.user.displayName || res.user.email}!`, type: 'success' });
     } else {
+      const isCancellation = res.code === 'auth/popup-closed-by-user' || res.code === 'auth/cancelled-popup-request';
       setStatusMessage({
         text: res.error || 'Google sign-in could not be completed. You can also click "Continue as Guest".',
-        type: 'error',
+        type: isCancellation ? 'info' : 'error',
       });
     }
   };
