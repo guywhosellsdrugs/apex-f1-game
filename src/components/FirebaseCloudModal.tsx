@@ -594,6 +594,9 @@ export const FirebaseCloudModal: React.FC<FirebaseCloudModalProps> = ({
                     <strong className="text-white">Firestore vs Realtime Database:</strong> Cloud saves and leaderboards support both Firestore and Realtime Database. If using Realtime Database in test mode, ensure <code className="text-amber-300">VITE_FIREBASE_DATABASE_URL</code> is set.
                   </li>
                   <li>
+                    <strong className="text-white">Google Sign-In on Netlify:</strong> In Firebase Console &rarr; <strong className="text-white">Authentication &rarr; Settings &rarr; Authorized Domains</strong>, click <strong className="text-amber-400">Add domain</strong> and enter <code className="text-amber-300">apexf1simulation.netlify.app</code>.
+                  </li>
+                  <li>
                     <strong className="text-white">Serverless Multiplayer:</strong> On Netlify static hosting, multiplayer automatically runs serverlessly via Firebase rooms and BroadcastChannel.
                   </li>
                 </ul>
