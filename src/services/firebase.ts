@@ -7,6 +7,7 @@ import {
   onAuthStateChanged,
   User as FirebaseUser,
   signInAnonymously,
+  signInWithCredential,
 } from 'firebase/auth';
 import {
   getFirestore,
@@ -72,6 +73,7 @@ export const resolvedFirebaseConfig: Record<string, any> = {
   storageBucket: envStorageBucket || (isCustomProject ? `${envProjectId}.firebasestorage.app` : fileConfig.storageBucket || ''),
   messagingSenderId: envMessagingSenderId || fileConfig.messagingSenderId || '',
   appId: envAppId || fileConfig.appId || '',
+  oAuthClientId: env.VITE_FIREBASE_OAUTH_CLIENT_ID || proc.FIREBASE_OAUTH_CLIENT_ID || fileConfig.oAuthClientId || '',
   // CRITICAL FIX FOR NETLIFY:
   // In user-created standard Firebase projects, Firestore database is always '(default)'.
   // Only use AI Studio's named database if still pointing to AI Studio's projectId.
@@ -244,16 +246,102 @@ export async function checkFirebaseDiagnostics(): Promise<FirebaseDiagnosticRepo
   return report;
 }
 
-// Google Auth Provider
+// Google Auth Provider with recommended OAuth scopes
 const googleProvider = new GoogleAuthProvider();
+googleProvider.setCustomParameters({
+  prompt: 'select_account',
+});
+googleProvider.addScope('email');
+googleProvider.addScope('profile');
 
-export async function signInWithGoogle(): Promise<FirebaseUser | null> {
+export interface GoogleSignInResult {
+  user: FirebaseUser | null;
+  error?: string;
+  code?: string;
+}
+
+export async function signInWithGoogle(): Promise<GoogleSignInResult> {
+  const oAuthClientId = resolvedFirebaseConfig.oAuthClientId || (localFirebaseConfig as any).oAuthClientId || '';
+
+  // 1. Try Google Identity Services (GIS) Token Client (handles iframes without third-party cookie blocks)
+  if (typeof window !== 'undefined' && (window as any).google?.accounts?.oauth2 && oAuthClientId) {
+    try {
+      const gisUser = await new Promise<FirebaseUser | null>((resolve) => {
+        let isDone = false;
+        try {
+          const client = (window as any).google.accounts.oauth2.initTokenClient({
+            client_id: oAuthClientId,
+            scope: 'email profile openid',
+            callback: async (tokenResponse: any) => {
+              if (tokenResponse && tokenResponse.access_token) {
+                try {
+                  const credential = GoogleAuthProvider.credential(null, tokenResponse.access_token);
+                  const cred = await signInWithCredential(auth, credential);
+                  isDone = true;
+                  resolve(cred.user);
+                } catch (credErr) {
+                  console.warn('[Firebase] GIS credential conversion failed, trying popup:', credErr);
+                  isDone = true;
+                  resolve(null);
+                }
+              } else {
+                isDone = true;
+                resolve(null);
+              }
+            },
+            error_callback: () => {
+              if (!isDone) {
+                isDone = true;
+                resolve(null);
+              }
+            },
+          });
+
+          client.requestAccessToken();
+        } catch {
+          resolve(null);
+        }
+
+        // 12s safety timeout for GIS popup
+        setTimeout(() => {
+          if (!isDone) {
+            isDone = true;
+            resolve(null);
+          }
+        }, 12000);
+      });
+
+      if (gisUser) {
+        return { user: gisUser };
+      }
+    } catch (gisErr) {
+      console.warn('[Firebase] GIS flow skipped, trying popup:', gisErr);
+    }
+  }
+
+  // 2. Standard Firebase signInWithPopup
   try {
     const cred = await signInWithPopup(auth, googleProvider);
-    return cred.user;
-  } catch (error) {
+    return { user: cred.user };
+  } catch (error: any) {
     console.error('Failed to sign in with Google:', error);
-    return null;
+    const code = error?.code || '';
+    let message = error?.message || 'Google sign-in failed.';
+
+    if (code === 'auth/unauthorized-domain') {
+      const host = typeof window !== 'undefined' ? window.location.hostname : 'current domain';
+      message = `Domain "${host}" is not in Firebase Authorized Domains. Add "${host}" in Firebase Console -> Authentication -> Settings -> Authorized Domains.`;
+    } else if (code === 'auth/popup-blocked') {
+      message = 'Sign-in popup was blocked by your browser. Please allow popups for this site and try again.';
+    } else if (code === 'auth/operation-not-allowed') {
+      message = 'Google Sign-In is not enabled. Turn on Google provider in Firebase Console -> Authentication -> Sign-in method.';
+    } else if (code === 'auth/popup-closed-by-user') {
+      message = 'Sign-in window was closed before completion.';
+    } else if (code === 'auth/cancelled-popup-request') {
+      message = 'Sign-in request is already in progress.';
+    }
+
+    return { user: null, error: message, code };
   }
 }
 

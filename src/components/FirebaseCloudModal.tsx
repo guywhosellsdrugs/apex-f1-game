@@ -103,12 +103,15 @@ export const FirebaseCloudModal: React.FC<FirebaseCloudModalProps> = ({
   };
 
   const handleSignInGoogle = async () => {
-    setStatusMessage({ text: 'Authenticating with Google...', type: 'info' });
-    const user = await signInWithGoogle();
-    if (user) {
-      setStatusMessage({ text: `Signed in as ${user.displayName || user.email}!`, type: 'success' });
+    setStatusMessage({ text: 'Opening Google Sign-In...', type: 'info' });
+    const res = await signInWithGoogle();
+    if (res.user) {
+      setStatusMessage({ text: `✓ Signed in as ${res.user.displayName || res.user.email}!`, type: 'success' });
     } else {
-      setStatusMessage({ text: 'Google sign-in canceled or blocked. Try Continue as Guest.', type: 'error' });
+      setStatusMessage({
+        text: res.error || 'Google sign-in could not be completed. You can also click "Continue as Guest".',
+        type: 'error',
+      });
     }
   };
 
