@@ -110,5 +110,14 @@ service cloud.firestore {
 
       allow update, delete: if false; // Race finishes are permanent race records
     }
+
+    // 4. Serverless Multiplayer Grand Prix Rooms & Telemetry
+    match /rooms/{roomCode} {
+      allow read, write: if true;
+
+      match /telemetry/{playerId} {
+        allow read, write: if true;
+      }
+    }
   }
 }
