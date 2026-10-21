@@ -261,65 +261,6 @@ export interface GoogleSignInResult {
 }
 
 export async function signInWithGoogle(): Promise<GoogleSignInResult> {
-  const oAuthClientId = resolvedFirebaseConfig.oAuthClientId || (localFirebaseConfig as any).oAuthClientId || '';
-
-  // 1. Try Google Identity Services (GIS) Token Client (handles iframes without third-party cookie blocks)
-  if (typeof window !== 'undefined' && (window as any).google?.accounts?.oauth2 && oAuthClientId) {
-    try {
-      const gisUser = await new Promise<FirebaseUser | null>((resolve) => {
-        let isDone = false;
-        try {
-          const client = (window as any).google.accounts.oauth2.initTokenClient({
-            client_id: oAuthClientId,
-            scope: 'email profile openid',
-            callback: async (tokenResponse: any) => {
-              if (tokenResponse && tokenResponse.access_token) {
-                try {
-                  const credential = GoogleAuthProvider.credential(null, tokenResponse.access_token);
-                  const cred = await signInWithCredential(auth, credential);
-                  isDone = true;
-                  resolve(cred.user);
-                } catch (credErr) {
-                  console.warn('[Firebase] GIS credential conversion failed, trying popup:', credErr);
-                  isDone = true;
-                  resolve(null);
-                }
-              } else {
-                isDone = true;
-                resolve(null);
-              }
-            },
-            error_callback: () => {
-              if (!isDone) {
-                isDone = true;
-                resolve(null);
-              }
-            },
-          });
-
-          client.requestAccessToken();
-        } catch {
-          resolve(null);
-        }
-
-        // 12s safety timeout for GIS popup
-        setTimeout(() => {
-          if (!isDone) {
-            isDone = true;
-            resolve(null);
-          }
-        }, 12000);
-      });
-
-      if (gisUser) {
-        return { user: gisUser };
-      }
-    } catch (gisErr) {
-      console.warn('[Firebase] GIS flow skipped, trying popup:', gisErr);
-    }
-  }
-
-  // 2. Standard Firebase signInWithPopup
   try {
     const cred = await signInWithPopup(auth, googleProvider);
     return { user: cred.user };
