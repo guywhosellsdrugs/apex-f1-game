@@ -494,11 +494,36 @@ function handleDisconnect(ws: WebSocket) {
   }
 }
 
+// Automatic room closure after 30 minutes of inactivity if no one else joined
+const ROOM_INACTIVITY_LIMIT_MS = 30 * 60 * 1000; // 30 minutes
+
+// Periodic check for expired single-player lobbies
+setInterval(() => {
+  const now = Date.now();
+  for (const [code, room] of rooms.entries()) {
+    // If room has only 1 player (or empty) and has been active for >= 30 minutes
+    if (room.players.size <= 1 && now - room.createdAt >= ROOM_INACTIVITY_LIMIT_MS) {
+      console.log(`[Multiplayer] Room ${code} auto-closed after 30 minutes with no other players joining.`);
+      broadcastToRoom(room, {
+        type: 'room_closed',
+        payload: { code, reason: 'Room automatically closed after 30 minutes of inactivity.' },
+      });
+      rooms.delete(code);
+    }
+  }
+}, 30000);
+
 // REST Endpoints for Fallback & Universal Compatibility
-// 1. Get all public active multiplayer rooms
+// 1. Get all public active multiplayer rooms (filtering out expired single-player lobbies)
 app.get('/api/rooms', (_req, res) => {
+  const now = Date.now();
   const activeRooms = Array.from(rooms.values())
-    .filter((r) => r.status === 'lobby' && r.players.size < 20)
+    .filter((r) => {
+      if (r.status !== 'lobby' || r.players.size >= 20) return false;
+      // Exclude rooms older than 30 minutes if nobody else joined
+      if (r.players.size <= 1 && now - r.createdAt >= ROOM_INACTIVITY_LIMIT_MS) return false;
+      return true;
+    })
     .map((r) => getPublicRoomState(r));
   res.json({ success: true, rooms: activeRooms });
 });
@@ -716,6 +741,19 @@ app.get('/api/rooms/:code/chat', (req, res) => {
   const room = rooms.get(code);
   if (!room) return res.status(404).json({ success: false, error: 'Room not found' });
   res.json({ success: true, messages: room.chatMessages });
+});
+
+app.post('/api/rooms/:code/close', (req, res) => {
+  const code = String(req.params.code).trim().toUpperCase();
+  const room = rooms.get(code);
+  if (room) {
+    broadcastToRoom(room, {
+      type: 'room_closed',
+      payload: { code, reason: 'Room closed by host.' },
+    });
+    rooms.delete(code);
+  }
+  res.json({ success: true });
 });
 
 app.post('/api/rooms/:code/leave', (req, res) => {

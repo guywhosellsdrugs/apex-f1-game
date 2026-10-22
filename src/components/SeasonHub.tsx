@@ -64,9 +64,13 @@ import {
   Volume2,
   Cloud,
   Pencil,
+  HelpCircle,
+  Timer,
+  Newspaper,
 } from 'lucide-react';
 import { soundEngine } from '../services/soundEngine';
 import { TrackLayoutPreview } from './TrackLayoutPreview';
+import { Newsfeed, BreakingNewsTicker } from './Newsfeed';
 import {
   UnitSystem,
   getStoredUnitSystem,
@@ -98,6 +102,9 @@ interface SeasonHubProps {
   onOpenMultiplayer?: () => void;
   onOpenControls?: () => void;
   onOpenCloud?: () => void;
+  onOpenTutorial?: () => void;
+  onStartQualifying?: () => void;
+  qualifyingGridSlot?: number | null;
 }
 
 export const SeasonHub: React.FC<SeasonHubProps> = ({
@@ -120,8 +127,11 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
   onOpenMultiplayer,
   onOpenControls,
   onOpenCloud,
+  onOpenTutorial,
+  onStartQualifying,
+  qualifyingGridSlot,
 }) => {
-  const [activeTab, setActiveTab] = useState<'weekend' | 'contracts' | 'myteam' | 'standings' | 'calendar' | 'records'>('weekend');
+  const [activeTab, setActiveTab] = useState<'weekend' | 'newsfeed' | 'contracts' | 'myteam' | 'standings' | 'calendar' | 'records'>('weekend');
   const [selectedLaps, setSelectedLaps] = useState<number>(season.lapCount || 5);
   const [unitSystem, setUnitSystem] = useState<UnitSystem>(getStoredUnitSystem());
 
@@ -929,9 +939,20 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
             </button>
           )}
 
+          {onOpenTutorial && (
+            <button
+              onClick={onOpenTutorial}
+              className="flex items-center gap-1.5 px-3 py-1 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 border border-neutral-700 rounded-md text-xs font-semibold transition-colors cursor-pointer"
+              title="FIA Academy & Gameplay Tutorial Guide"
+            >
+              <HelpCircle className="w-3.5 h-3.5 text-rose-400" />
+              <span className="hidden sm:inline">Tutorial</span>
+            </button>
+          )}
+
           <button
             onClick={onTestRumble}
-            className="px-2 py-1 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded text-xs border border-neutral-700 font-mono transition-colors"
+            className="px-2 py-1 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded text-xs border border-neutral-700 font-mono transition-colors cursor-pointer"
             title="Test Gamepad Rumble"
           >
             Haptics
@@ -952,6 +973,18 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
           >
             <Play className="w-3.5 h-3.5" />
             <span>Race Weekend</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('newsfeed')}
+            className={`px-4 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-2 ${
+              activeTab === 'newsfeed'
+                ? 'bg-red-600 text-white shadow-md'
+                : 'text-neutral-400 hover:text-white hover:bg-neutral-800'
+            }`}
+          >
+            <Newspaper className="w-3.5 h-3.5" />
+            <span>Paddock News</span>
           </button>
 
           <button
@@ -1099,7 +1132,9 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
       <main className="flex-1 overflow-y-auto p-6 max-w-7xl w-full mx-auto">
         {/* TAB 1: RACE WEEKEND */}
         {activeTab === 'weekend' && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="flex flex-col gap-5">
+            <BreakingNewsTicker season={season} onOpenNewsfeed={() => setActiveTab('newsfeed')} />
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Grand Prix Details Card */}
             <div className="lg:col-span-2 bg-neutral-900 border border-neutral-800 rounded-2xl p-6 shadow-xl flex flex-col justify-between gap-6">
               <div>
@@ -1227,6 +1262,40 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
                 </div>
               </div>
 
+              {/* Qualifying & Grid Position Indicator */}
+              <div className="p-3.5 rounded-xl bg-neutral-950/90 border border-neutral-800 flex flex-col sm:flex-row items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-black text-xs ${qualifyingGridSlot ? 'bg-purple-500/20 text-purple-300 border border-purple-500/40' : 'bg-neutral-800 text-neutral-400'}`}>
+                    {qualifyingGridSlot ? `P${qualifyingGridSlot}` : 'Q'}
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold text-white flex items-center gap-2">
+                      <span>Qualifying Session (1 Flying Lap)</span>
+                      {qualifyingGridSlot && (
+                        <span className="text-[10px] bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded font-mono font-bold border border-purple-400/30">
+                          {qualifyingGridSlot === 1 ? '👑 POLE POSITION' : `STARTING P${qualifyingGridSlot}`}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-neutral-400 mt-0.5">
+                      {qualifyingGridSlot
+                        ? `You qualified P${qualifyingGridSlot}. You can re-qualify or proceed directly to Grand Prix.`
+                        : 'Optional: Complete 1 fast flying lap to determine your Grand Prix starting grid slot!'}
+                    </p>
+                  </div>
+                </div>
+
+                {onStartQualifying && (
+                  <button
+                    onClick={onStartQualifying}
+                    className="w-full sm:w-auto px-4 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-black text-xs uppercase tracking-wider rounded-lg shadow-md shadow-purple-950/40 transition-all flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap"
+                  >
+                    <Timer className="w-4 h-4 text-purple-200" />
+                    <span>{qualifyingGridSlot ? 'RE-QUALIFY' : 'START QUALIFYING'}</span>
+                  </button>
+                )}
+              </div>
+
               {/* Launch Race & Practice Buttons */}
               <div className="flex flex-col sm:flex-row items-center gap-3">
                 <button
@@ -1234,7 +1303,9 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
                   className="flex-1 w-full py-4 bg-gradient-to-r from-red-600 to-red-500 hover:from-red-500 hover:to-red-400 text-white font-black text-base md:text-lg tracking-wider uppercase rounded-xl shadow-xl shadow-red-600/25 transition-all transform active:scale-[0.99] flex items-center justify-center gap-2 cursor-pointer"
                 >
                   <Play className="w-5 h-5 fill-white" />
-                  <span>START GRAND PRIX</span>
+                  <span>
+                    START GRAND PRIX {qualifyingGridSlot ? `(P${qualifyingGridSlot})` : ''}
+                  </span>
                 </button>
 
                 <button
@@ -1325,7 +1396,16 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
               </div>
             </div>
           </div>
-        )}
+        </div>
+      )}
+
+      {/* TAB: PADDOCK NEWSFEED */}
+      {activeTab === 'newsfeed' && (
+        <Newsfeed
+          season={season}
+          onNavigateToTab={(tab) => setActiveTab(tab)}
+        />
+      )}
 
         {/* TAB 2: DRIVER CONTRACTS & TEAM SWITCHING */}
         {activeTab === 'contracts' && (

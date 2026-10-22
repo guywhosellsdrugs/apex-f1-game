@@ -779,31 +779,82 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
             {/* TAB: Join Room */}
             {activeTab === 'join' && (
               <div className="max-w-2xl mx-auto w-full py-4 space-y-6">
-                {/* 1. Instant Quick Match */}
-                <div className="p-5 rounded-2xl bg-gradient-to-r from-red-950/40 via-neutral-900 to-amber-950/30 border border-red-500/30 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-xl">
+                {/* 1. Enter 4-Digit Room Code (Top Priority) */}
+                <div className="p-6 rounded-3xl bg-neutral-950 border-2 border-red-500/50 text-center space-y-4 shadow-2xl relative overflow-hidden">
+                  <div className="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-red-600 via-rose-500 to-amber-500" />
+                  <div>
+                    <span className="text-[10px] font-mono uppercase tracking-widest text-red-400 font-bold">
+                      Direct Join
+                    </span>
+                    <h4 className="text-lg font-black text-white uppercase tracking-wider mt-0.5">
+                      Type 4-Digit Room Code
+                    </h4>
+                    <p className="text-xs text-neutral-400 mt-1">
+                      Enter the 4-digit room code from the host or friend. Press Enter to join immediately!
+                    </p>
+                  </div>
+
+                  <div className="flex flex-col items-center gap-3">
+                    <input
+                      type="text"
+                      maxLength={4}
+                      value={joinCode}
+                      onChange={(e) => setJoinCode(e.target.value.toUpperCase().slice(0, 4))}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && joinCode.trim().length === 4 && !isConnecting) {
+                          handleJoinRoom();
+                        }
+                      }}
+                      placeholder="XXXX"
+                      autoFocus
+                      className="w-56 h-14 bg-neutral-900 border-2 border-neutral-700 focus:border-red-500 rounded-2xl text-center text-3xl font-mono font-black text-white tracking-[0.45em] uppercase focus:outline-none shadow-inner"
+                    />
+
+                    <button
+                      onClick={handleJoinRoom}
+                      disabled={isConnecting || joinCode.trim().length !== 4}
+                      className="w-56 py-3 rounded-xl bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 disabled:opacity-40 text-white font-black text-xs uppercase tracking-wider shadow-lg shadow-red-950/40 transition-all cursor-pointer flex items-center justify-center gap-2"
+                    >
+                      {isConnecting ? (
+                        <>
+                          <RotateCw className="w-4 h-4 animate-spin" />
+                          <span>Connecting...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Hash className="w-4 h-4" />
+                          <span>Join with 4-Digit Code</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                {/* 2. Instant Quick Match */}
+                <div className="p-5 rounded-2xl bg-gradient-to-r from-red-950/40 via-neutral-900 to-amber-950/30 border border-neutral-800 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-xl">
                   <div>
                     <div className="flex items-center gap-2">
-                      <span className="px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 font-mono text-[10px] uppercase font-bold border border-red-500/30">
-                        Zero Wait
+                      <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-mono text-[10px] uppercase font-bold border border-emerald-500/30">
+                        Auto Match
                       </span>
                       <h4 className="text-base font-black text-white">Instant Quick Match</h4>
                     </div>
                     <p className="text-xs text-neutral-400 mt-1">
-                      Instantly join an active public race room, or spin one up automatically. Always connects!
+                      Quickly match into any active public paddock room, or spin one up automatically.
                     </p>
                   </div>
 
                   <button
                     onClick={handleQuickMatch}
                     disabled={isConnecting}
-                    className="shrink-0 px-6 py-3 rounded-xl bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white font-black text-xs uppercase tracking-wider shadow-lg shadow-red-900/40 transition-all cursor-pointer flex items-center gap-2"
+                    className="shrink-0 px-6 py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs uppercase tracking-wider shadow-lg shadow-emerald-900/40 transition-all cursor-pointer flex items-center gap-2"
                   >
                     {isConnecting ? <RotateCw className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4 fill-white" />}
                     <span>⚡ Quick Match</span>
                   </button>
                 </div>
 
-                {/* 2. Live Public Lobbies List */}
+                {/* 3. Live Public Lobbies List */}
                 <div className="bg-neutral-950 border border-neutral-800 rounded-2xl p-5 flex flex-col gap-3">
                   <div className="flex items-center justify-between pb-2 border-b border-neutral-800/80">
                     <div className="flex items-center gap-2">
@@ -815,7 +866,7 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
                     <button
                       onClick={loadPublicRooms}
                       disabled={isLoadingRooms}
-                      className="text-xs text-neutral-400 hover:text-white flex items-center gap-1 font-mono transition-colors"
+                      className="text-xs text-neutral-400 hover:text-white flex items-center gap-1 font-mono transition-colors cursor-pointer"
                     >
                       <RotateCw className={`w-3.5 h-3.5 ${isLoadingRooms ? 'animate-spin' : ''}`} />
                       <span>Refresh</span>
@@ -824,8 +875,7 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
 
                   {publicRooms.length === 0 ? (
                     <div className="py-6 text-center text-xs text-neutral-500 flex flex-col items-center gap-1 font-mono">
-                      <span>No other open lobbies currently waiting.</span>
-                      <span className="text-[11px] text-neutral-600">Click Quick Match above or Host Room to begin!</span>
+                      <span>No open lobbies waiting. Type a 4-digit code above or Host a Room!</span>
                     </div>
                   ) : (
                     <div className="flex flex-col gap-2 max-h-52 overflow-y-auto pr-1">
@@ -838,13 +888,13 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
                             className="p-3 bg-neutral-900 border border-neutral-800 rounded-xl flex items-center justify-between hover:border-neutral-700 transition-all text-xs"
                           >
                             <div className="flex items-center gap-3">
-                              <span className="px-2 py-1 rounded-lg bg-neutral-950 font-mono font-black text-amber-400 border border-neutral-800 text-sm">
+                              <span className="px-2.5 py-1 rounded-lg bg-neutral-950 font-mono font-black text-amber-400 border border-neutral-800 text-sm">
                                 #{r.code}
                               </span>
                               <div>
                                 <span className="font-bold text-white block">{circuit.name}</span>
                                 <span className="text-[10px] text-neutral-400 font-mono">
-                                  {r.laps} Laps • Host: {hostPlayer?.name || 'Driver'} • {r.players.length}/20 Drivers
+                                  {r.laps} Laps • Host: {hostPlayer?.name || 'Driver'} • {r.players.length} Players {r.botCount === 0 ? '(0 Bots)' : `+ ${r.botCount} Bots`}
                                 </span>
                               </div>
                             </div>
@@ -861,35 +911,6 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
                       })}
                     </div>
                   )}
-                </div>
-
-                {/* 3. Manual 4-Digit Room Code */}
-                <div className="p-5 rounded-2xl bg-neutral-950 border border-neutral-800 text-center space-y-4">
-                  <div>
-                    <h4 className="text-sm font-bold text-white uppercase tracking-wider">Join Private Room via 4-Digit Code</h4>
-                    <p className="text-xs text-neutral-400 mt-0.5">
-                      Enter the 4-digit room code from a friend or league host.
-                    </p>
-                  </div>
-
-                  <div className="flex justify-center">
-                    <input
-                      type="text"
-                      maxLength={4}
-                      value={joinCode}
-                      onChange={(e) => setJoinCode(e.target.value.toUpperCase().slice(0, 4))}
-                      placeholder="e.g. 7492"
-                      className="w-48 h-12 bg-neutral-900 border-2 border-neutral-700 focus:border-red-500 rounded-xl text-center text-2xl font-mono font-black text-white tracking-[0.4em] uppercase focus:outline-none shadow-inner"
-                    />
-                  </div>
-
-                  <button
-                    onClick={handleJoinRoom}
-                    disabled={isConnecting || joinCode.trim().length !== 4}
-                    className="px-6 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 disabled:opacity-40 text-white font-black text-xs uppercase tracking-wider transition-all cursor-pointer"
-                  >
-                    {isConnecting ? 'Connecting...' : 'Join with Code'}
-                  </button>
                 </div>
               </div>
             )}

@@ -42,7 +42,8 @@ service cloud.firestore {
              (!('wins' in data) || data.wins is number) &&
              (!('podiums' in data) || data.podiums is number) &&
              (!('championshipPoints' in data) || data.championshipPoints is number) &&
-             (!('customTeamName' in data) || (data.customTeamName is string && data.customTeamName.size() <= 80));
+             (!('customTeamName' in data) || (data.customTeamName is string && data.customTeamName.size() <= 80)) &&
+             (!('seasonStateJson' in data) || data.seasonStateJson is string);
     }
 
     // Entity Validation: Leaderboard Record

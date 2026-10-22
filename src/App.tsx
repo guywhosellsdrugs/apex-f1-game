@@ -20,11 +20,12 @@ import { RaceView } from './components/RaceView';
 import { MultiplayerModal } from './components/MultiplayerModal';
 import { ButtonMappingModal } from './components/ButtonMappingModal';
 import { FirebaseCloudModal } from './components/FirebaseCloudModal';
-import { RoomPublicState } from './services/multiplayerService';
+import { TutorialModal } from './components/TutorialModal';
+import { multiplayerService, RoomPublicState } from './services/multiplayerService';
 import { inputManager } from './services/inputManager';
-import { auth, saveCareerToCloud, loadCareerFromCloud } from './services/firebase';
+import { auth, signInWithGoogle, saveCareerToCloud, loadCareerFromCloud } from './services/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
-import { Trophy, ArrowRight, DollarSign, Award, CheckCircle2, Shield, Flame, Gauge, Zap, Cloud } from 'lucide-react';
+import { Trophy, ArrowRight, DollarSign, Award, CheckCircle2, Shield, Flame, Gauge, Zap, Cloud, Timer } from 'lucide-react';
 
 const STORAGE_KEY = 'apex26_f1_career_v6';
 
@@ -128,34 +129,70 @@ export default function App() {
   const [isGamepadConnected, setIsGamepadConnected] = useState(false);
   const [gamepadName, setGamepadName] = useState<string | null>(null);
 
-  // Multiplayer & Custom Controls state
+  // Multiplayer, Custom Controls, & Tutorial state
   const [showMultiplayerModal, setShowMultiplayerModal] = useState(false);
   const [showButtonMappingModal, setShowButtonMappingModal] = useState(false);
   const [showCloudModal, setShowCloudModal] = useState(false);
+  const [showTutorial, setShowTutorial] = useState(() => {
+    try {
+      return !localStorage.getItem('apex26_tutorial_completed');
+    } catch {
+      return false;
+    }
+  });
   const [isMultiplayerRace, setIsMultiplayerRace] = useState(false);
   const [multiplayerRoom, setMultiplayerRoom] = useState<RoomPublicState | null>(null);
 
-  // Seamless Firebase Firestore cloud profile synchronization
+  // Qualifying session states
+  const [isQualifyingMode, setIsQualifyingMode] = useState(false);
+  const [qualifyingGridSlot, setQualifyingGridSlot] = useState<number | null>(null);
+  const [qualifyingResults, setQualifyingResults] = useState<Array<{ position: number; driver: Driver; team: any; lapTime: number; gap: number }> | null>(null);
+  const [showQualifyingModal, setShowQualifyingModal] = useState(false);
+
+  // Pre-career sign in state
+  const [isSigningIn, setIsSigningIn] = useState(false);
+  const [signInError, setSignInError] = useState<string | null>(null);
+
+  // Seamless Firebase Firestore cloud profile synchronization (Cross-Device restoration)
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
         try {
           const cloudData = await loadCareerFromCloud();
-          if (cloudData && cloudData.cashBalance !== undefined) {
-            setSeason((prev) => ({
-              ...prev,
-              selectedTeamId: cloudData.selectedTeamId || prev.selectedTeamId,
-              selectedDriverId: cloudData.selectedDriverId || prev.selectedDriverId,
-              difficulty: cloudData.difficulty || prev.difficulty,
-              career: {
-                ...prev.career,
-                driverName: cloudData.driverName || prev.career.driverName,
-                careerEarnings: Math.max(prev.career.careerEarnings, cloudData.cashBalance),
-                wins: Math.max(prev.career.wins, cloudData.wins || 0),
-                podiums: Math.max(prev.career.podiums, cloudData.podiums || 0),
-                racesDriven: Math.max(prev.career.racesDriven, cloudData.racesEntered || 0),
-              },
-            }));
+          if (cloudData) {
+            // Restore entire full SeasonState if available
+            if (cloudData.seasonStateJson) {
+              try {
+                const restoredSeason = JSON.parse(cloudData.seasonStateJson);
+                if (restoredSeason && restoredSeason.career && restoredSeason.selectedTeamId) {
+                  setSeason(restoredSeason);
+                  setHasChosenDifficulty(true);
+                  localStorage.setItem('apex26_diff_chosen', 'true');
+                  return;
+                }
+              } catch {}
+            }
+
+            if (cloudData.cashBalance !== undefined) {
+              setSeason((prev) => ({
+                ...prev,
+                selectedTeamId: cloudData.selectedTeamId || prev.selectedTeamId,
+                selectedDriverId: cloudData.selectedDriverId || prev.selectedDriverId,
+                difficulty: cloudData.difficulty || prev.difficulty,
+                career: {
+                  ...prev.career,
+                  driverName: cloudData.driverName || prev.career.driverName,
+                  careerEarnings: Math.max(prev.career.careerEarnings, cloudData.cashBalance),
+                  wins: Math.max(prev.career.wins, cloudData.wins || 0),
+                  podiums: Math.max(prev.career.podiums, cloudData.podiums || 0),
+                  racesDriven: Math.max(prev.career.racesDriven, cloudData.racesEntered || 0),
+                },
+              }));
+              if (cloudData.difficulty) {
+                setHasChosenDifficulty(true);
+                localStorage.setItem('apex26_diff_chosen', 'true');
+              }
+            }
           }
         } catch {
           // Cloud sync fallback
@@ -165,11 +202,63 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
+  // Pre-career Google Sign-In action for new devices
+  const handleGoogleSignInBeforeCareer = async () => {
+    setIsSigningIn(true);
+    setSignInError(null);
+    try {
+      const res = await signInWithGoogle();
+      if (res.error) {
+        setSignInError(res.error);
+        setIsSigningIn(false);
+        return;
+      }
+      const cloudData = await loadCareerFromCloud();
+      if (cloudData) {
+        if (cloudData.seasonStateJson) {
+          try {
+            const restored = JSON.parse(cloudData.seasonStateJson);
+            if (restored && restored.career && restored.selectedTeamId) {
+              setSeason(restored);
+              setHasChosenDifficulty(true);
+              localStorage.setItem('apex26_diff_chosen', 'true');
+              setIsSigningIn(false);
+              return;
+            }
+          } catch {}
+        }
+        if (cloudData.cashBalance !== undefined) {
+          setSeason((prev) => ({
+            ...prev,
+            selectedTeamId: cloudData.selectedTeamId || prev.selectedTeamId,
+            selectedDriverId: cloudData.selectedDriverId || prev.selectedDriverId,
+            difficulty: cloudData.difficulty || 'pro',
+            career: {
+              ...prev.career,
+              driverName: cloudData.driverName || prev.career.driverName,
+              careerEarnings: Math.max(prev.career.careerEarnings, cloudData.cashBalance),
+              wins: Math.max(prev.career.wins, cloudData.wins || 0),
+              podiums: Math.max(prev.career.podiums, cloudData.podiums || 0),
+              racesDriven: Math.max(prev.career.racesDriven, cloudData.racesEntered || 0),
+            },
+          }));
+          setHasChosenDifficulty(true);
+          localStorage.setItem('apex26_diff_chosen', 'true');
+        }
+      }
+    } catch (err: any) {
+      setSignInError(err?.message || 'Google sign-in error.');
+    } finally {
+      setIsSigningIn(false);
+    }
+  };
+
   const handleLaunchMultiplayerRace = (room: RoomPublicState) => {
     const selectedCircuit = CIRCUITS.find((c) => c.id === room.circuitId) || CIRCUITS[0];
     setPracticeCircuit(selectedCircuit);
     setRaceLaps(room.laps);
     setIsPracticeMode(false);
+    setIsQualifyingMode(false);
     setIsMultiplayerRace(true);
     setMultiplayerRoom(room);
     setShowMultiplayerModal(false);
@@ -181,6 +270,27 @@ export default function App() {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(season));
     } catch {
       // Storage error
+    }
+
+    // Debounced automatic cloud synchronization if user is authenticated
+    if (auth.currentUser) {
+      const timer = setTimeout(() => {
+        saveCareerToCloud({
+          driverName: season.career.driverName,
+          selectedTeamId: season.selectedTeamId,
+          selectedDriverId: season.selectedDriverId,
+          difficulty: season.difficulty,
+          cashBalance: season.career.careerEarnings,
+          wins: season.career.wins,
+          podiums: season.career.podiums,
+          racesEntered: season.career.racesDriven,
+          championshipPoints: season.career.championships,
+          customTeamName: season.career.customTeam?.name || '',
+          fullSeason: season,
+        }).catch(() => {});
+      }, 2500);
+
+      return () => clearTimeout(timer);
     }
   }, [season]);
 
@@ -196,8 +306,42 @@ export default function App() {
 
   const currentCircuit = CIRCUITS[season.currentRound] || CIRCUITS[0];
 
-  const handleStartRace = (laps: number) => {
+  // Optional Qualifying Session (1 Flying Lap shootout)
+  const handleStartQualifying = () => {
+    // When playing qualifying, auto-close any open multiplayer rooms
+    multiplayerService.closeRoom('Room closed because host started Qualifying shootout.');
+    setIsMultiplayerRace(false);
+    setMultiplayerRoom(null);
+    setShowMultiplayerModal(false);
+
     setIsPracticeMode(false);
+    setPracticeCircuit(null);
+    setIsQualifyingMode(true);
+    setRaceLaps(1);
+    setInRace(true);
+  };
+
+  const handleQualifyingComplete = (
+    gridSlot: number,
+    lapTime: number,
+    classification: Array<{ position: number; driver: Driver; team: any; lapTime: number; gap: number }>
+  ) => {
+    setQualifyingGridSlot(gridSlot);
+    setQualifyingResults(classification);
+    setIsQualifyingMode(false);
+    setInRace(false);
+    setShowQualifyingModal(true);
+  };
+
+  const handleStartRace = (laps: number) => {
+    // When playing a regular race, ensure any multiplayer room is cleanly closed and disbanded
+    multiplayerService.closeRoom('Room closed because host started Grand Prix.');
+    setIsMultiplayerRace(false);
+    setMultiplayerRoom(null);
+    setShowMultiplayerModal(false);
+
+    setIsPracticeMode(false);
+    setIsQualifyingMode(false);
     setPracticeCircuit(null);
     setRaceLaps(laps);
     setSeason((prev) => ({ ...prev, lapCount: laps }));
@@ -205,7 +349,14 @@ export default function App() {
   };
 
   const handleStartPractice = (circuit: CircuitInfo, laps: number, diff: 'rookie' | 'pro' | 'legend') => {
+    // When playing practice, ensure any multiplayer room is cleanly closed and disbanded
+    multiplayerService.closeRoom('Room closed because host started Free Practice.');
+    setIsMultiplayerRace(false);
+    setMultiplayerRoom(null);
+    setShowMultiplayerModal(false);
+
     setIsPracticeMode(true);
+    setIsQualifyingMode(false);
     setPracticeCircuit(circuit);
     setPracticeDifficulty(diff);
     setRaceLaps(laps);
@@ -669,6 +820,8 @@ export default function App() {
     }));
 
     setLastRaceResult(result);
+    setQualifyingGridSlot(null);
+    setQualifyingResults(null);
     setInRace(false);
     setShowPodiumModal(true);
   };
@@ -698,13 +851,18 @@ export default function App() {
     <div className="relative w-screen h-screen overflow-hidden bg-neutral-950 text-neutral-100 font-sans">
       {inRace ? (
         <RaceView
-          circuit={isPracticeMode && practiceCircuit ? practiceCircuit : currentCircuit}
+          circuit={
+            isMultiplayerRace && multiplayerRoom
+              ? (CIRCUITS.find((c) => c.id === multiplayerRoom.circuitId) || CIRCUITS[0])
+              : (isPracticeMode && practiceCircuit ? practiceCircuit : currentCircuit)
+          }
           laps={raceLaps}
           season={season}
           onRaceComplete={handleRaceComplete}
           onExitToPaddock={() => {
             setInRace(false);
             setIsPracticeMode(false);
+            setIsQualifyingMode(false);
             setPracticeCircuit(null);
             setIsMultiplayerRace(false);
             setMultiplayerRoom(null);
@@ -714,6 +872,9 @@ export default function App() {
           isMultiplayer={isMultiplayerRace}
           multiplayerRoom={multiplayerRoom}
           onOpenControls={() => setShowButtonMappingModal(true)}
+          isQualifyingMode={isQualifyingMode}
+          startingGridSlot={qualifyingGridSlot || undefined}
+          onQualifyingComplete={handleQualifyingComplete}
         />
       ) : (
         <SeasonHub
@@ -736,6 +897,9 @@ export default function App() {
           onOpenMultiplayer={() => setShowMultiplayerModal(true)}
           onOpenControls={() => setShowButtonMappingModal(true)}
           onOpenCloud={() => setShowCloudModal(true)}
+          onOpenTutorial={() => setShowTutorial(true)}
+          onStartQualifying={handleStartQualifying}
+          qualifyingGridSlot={qualifyingGridSlot}
         />
       )}
 
@@ -758,6 +922,38 @@ export default function App() {
                 Formula 1 driver career rules: you start with MoneyGram Haas F1 Team. Choose the CPU AI racing pace and collision penalty duration for your career.
               </p>
             </div>
+
+            {/* Pre-Career Cloud Sign-In for Cross-Device Restoration */}
+            <div className="p-4 rounded-2xl bg-neutral-950 border border-amber-500/30 flex flex-col sm:flex-row items-center justify-between gap-4 text-left">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 flex-shrink-0">
+                  <Cloud className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                    <span>Returning Driver on Another Device?</span>
+                    <span className="text-[10px] bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded font-mono font-bold">CROSS-DEVICE CLOUD</span>
+                  </h4>
+                  <p className="text-xs text-neutral-400 mt-0.5">
+                    Sign in with your Google account now to automatically restore your career, custom team, championship standings, and car upgrades.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleGoogleSignInBeforeCareer}
+                disabled={isSigningIn}
+                className="w-full sm:w-auto px-5 py-2.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 disabled:opacity-50 text-black font-black text-xs uppercase tracking-wider rounded-xl shadow-lg shadow-amber-950/40 transition-all flex items-center justify-center gap-2 cursor-pointer whitespace-nowrap flex-shrink-0"
+              >
+                <Cloud className="w-4 h-4" />
+                <span>{isSigningIn ? 'Restoring Save...' : 'Sign In with Google'}</span>
+              </button>
+            </div>
+            {signInError && (
+              <div className="text-xs text-red-400 bg-red-950/40 border border-red-500/30 p-2.5 rounded-xl text-left">
+                {signInError}
+              </div>
+            )}
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-left">
               {/* Rookie */}
@@ -1019,6 +1215,100 @@ export default function App() {
         onClose={() => setShowCloudModal(false)}
         season={season}
         onLoadSeason={(loaded) => setSeason(loaded)}
+      />
+
+      {/* Official FIA Qualifying Shootout Classification Modal */}
+      {showQualifyingModal && qualifyingResults && (
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-neutral-900 border border-neutral-700 max-w-xl w-full rounded-3xl p-6 shadow-2xl flex flex-col gap-5 text-center max-h-[90vh] overflow-hidden">
+            <div className="flex justify-center">
+              <div
+                className={`w-14 h-14 rounded-2xl flex items-center justify-center text-white shadow-lg ${
+                  qualifyingGridSlot === 1
+                    ? 'bg-gradient-to-tr from-yellow-500 to-amber-600 shadow-yellow-500/20'
+                    : 'bg-gradient-to-tr from-purple-600 to-indigo-600 shadow-purple-500/20'
+                }`}
+              >
+                <Timer className="w-7 h-7" />
+              </div>
+            </div>
+
+            <div>
+              <span className="text-xs uppercase font-black tracking-widest text-purple-400">
+                Official FIA Qualifying Classification
+              </span>
+              <h2 className="text-2xl font-black text-white mt-1">
+                {qualifyingGridSlot === 1 ? '👑 POLE POSITION SECURED!' : `QUALIFIED: P${qualifyingGridSlot} ON THE GRID`}
+              </h2>
+              <p className="text-xs text-neutral-400 mt-1">
+                {currentCircuit.name} • 1 Flying Lap Shootout
+              </p>
+            </div>
+
+            {/* Grid Classification List */}
+            <div className="flex-1 overflow-y-auto max-h-[320px] rounded-xl bg-neutral-950 border border-neutral-800 p-2 space-y-1 text-left text-xs">
+              {qualifyingResults.map((entry) => {
+                const isPlayer = entry.driver.id === season.selectedDriverId || entry.driver.id === 'custom_driver';
+                const mins = Math.floor(entry.lapTime / 60);
+                const secs = (entry.lapTime % 60).toFixed(3).padStart(6, '0');
+                const formattedTime = `${mins}:${secs}`;
+
+                return (
+                  <div
+                    key={entry.driver.id}
+                    className={`flex items-center justify-between p-2 rounded-lg transition-colors ${
+                      isPlayer
+                        ? 'bg-purple-500/25 border border-purple-400/50 text-white font-bold'
+                        : 'bg-neutral-900/60 text-neutral-300'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <span className={`w-6 text-center font-mono font-black ${entry.position === 1 ? 'text-amber-400' : 'text-neutral-400'}`}>
+                        P{entry.position}
+                      </span>
+                      <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: entry.team?.primaryColor || '#666' }} />
+                      <span className="font-bold truncate max-w-[150px]">{entry.driver.name}</span>
+                      <span className="text-[10px] text-neutral-400 font-mono">({entry.team?.shortName || 'F1'})</span>
+                    </div>
+
+                    <div className="flex items-center gap-3 font-mono">
+                      <span className="text-neutral-200">{formattedTime}</span>
+                      <span className="text-[11px] text-neutral-400 w-16 text-right">
+                        {entry.position === 1 ? 'POLE' : `+${entry.gap.toFixed(3)}s`}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2 border-t border-neutral-800">
+              <button
+                onClick={() => setShowQualifyingModal(false)}
+                className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-xs font-bold transition-all cursor-pointer"
+              >
+                Return to Paddock
+              </button>
+
+              <button
+                onClick={() => {
+                  setShowQualifyingModal(false);
+                  handleStartRace(season.lapCount || 5);
+                }}
+                className="w-full sm:flex-1 py-3 px-5 rounded-xl bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white font-black text-xs uppercase tracking-wider shadow-lg shadow-red-950/40 flex items-center justify-center gap-2 transition-all cursor-pointer"
+              >
+                <span>Launch Grand Prix (Grid P{qualifyingGridSlot})</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Official FIA Career & Gameplay Tutorial Modal */}
+      <TutorialModal
+        isOpen={showTutorial}
+        onClose={() => setShowTutorial(false)}
       />
     </div>
   );

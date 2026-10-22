@@ -18,6 +18,7 @@
         "podiums": { "type": "number" },
         "championshipPoints": { "type": "number" },
         "customTeamName": { "type": "string", "maxLength": 80 },
+        "seasonStateJson": { "type": "string" },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },

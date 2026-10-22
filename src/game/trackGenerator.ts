@@ -38,7 +38,8 @@ export function generateTrack(circuit: CircuitInfo): GeneratedTrack {
   const curve = new THREE.CatmullRomCurve3(points, true, 'catmullrom', 0.25);
   const trackLength = curve.getLength();
 
-  const segments = 450;
+  // 960 smooth curve subdivisions to eliminate angular polygonal corners
+  const segments = 960;
   const trackWidth = 22.0; // 22 meters wide
   const curbWidth = 1.8;
   const runoffWidth = 3.6;
@@ -312,6 +313,8 @@ export function generateTrack(circuit: CircuitInfo): GeneratedTrack {
     trackTexture.wrapS = THREE.RepeatWrapping;
     trackTexture.wrapT = THREE.RepeatWrapping;
     trackTexture.repeat.set(1, 48);
+    trackTexture.colorSpace = THREE.SRGBColorSpace;
+    trackTexture.anisotropy = 16;
 
     trackMat = new THREE.MeshStandardMaterial({
       map: trackTexture,
@@ -574,6 +577,7 @@ export function generateTrack(circuit: CircuitInfo): GeneratedTrack {
       bCtx.textBaseline = 'middle';
       bCtx.fillText(String(boardDist), 64, 42);
       const bTex = new THREE.CanvasTexture(bCanvas);
+      bTex.colorSpace = THREE.SRGBColorSpace;
       boardMat = new THREE.MeshBasicMaterial({ map: bTex, side: THREE.DoubleSide });
     } else {
       boardMat = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide });

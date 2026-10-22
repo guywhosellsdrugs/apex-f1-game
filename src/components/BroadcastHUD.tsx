@@ -21,6 +21,7 @@ interface BroadcastHUDProps {
   playerDriver: Driver;
   yellowFlagActive?: boolean;
   isPracticeMode?: boolean;
+  isQualifyingMode?: boolean;
   onIssueTeamOrder?: (order: 'block' | 'yield' | 'push' | 'neutral') => void;
   onOpenControls?: () => void;
 }
@@ -41,6 +42,7 @@ export const BroadcastHUD: React.FC<BroadcastHUDProps> = ({
   playerDriver,
   yellowFlagActive = false,
   isPracticeMode = false,
+  isQualifyingMode = false,
   onIssueTeamOrder,
   onOpenControls,
 }) => {
@@ -131,11 +133,16 @@ export const BroadcastHUD: React.FC<BroadcastHUDProps> = ({
       {/* 1. TOP BROADCAST BAR */}
       <div className="flex items-center justify-between w-full">
         {/* Left: Circuit & Grand Prix Title */}
-        <div className={`flex items-center gap-3 bg-black/60 backdrop-blur-md px-4 py-2 border-l-4 rounded-r-lg shadow-2xl ${isPracticeMode ? 'border-amber-400' : 'border-red-600'}`}>
+        <div className={`flex items-center gap-3 bg-black/60 backdrop-blur-md px-4 py-2 border-l-4 rounded-r-lg shadow-2xl ${isQualifyingMode ? 'border-purple-500' : isPracticeMode ? 'border-amber-400' : 'border-red-600'}`}>
           <div className="flex flex-col">
             <span className="text-xs uppercase tracking-widest text-neutral-400 font-semibold flex items-center gap-2">
-              <Flag className={`w-3.5 h-3.5 ${isPracticeMode ? 'text-amber-400' : 'text-red-500'}`} />
-              <span>{circuit.country.toUpperCase()} {isPracticeMode ? '• PRACTICE SESSION' : 'GP'}</span>
+              <Flag className={`w-3.5 h-3.5 ${isQualifyingMode ? 'text-purple-400' : isPracticeMode ? 'text-amber-400' : 'text-red-500'}`} />
+              <span>{circuit.country.toUpperCase()} {isQualifyingMode ? '• OFFICIAL QUALIFYING' : isPracticeMode ? '• PRACTICE SESSION' : 'GP'}</span>
+              {isQualifyingMode && (
+                <span className="text-[9px] bg-purple-500/20 text-purple-300 px-1.5 py-0.5 rounded font-black border border-purple-400/30 animate-pulse">
+                  1 FLYING LAP (POLE SHOOTOUT)
+                </span>
+              )}
               {isPracticeMode && (
                 <span className="text-[9px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded font-black border border-amber-400/30">
                   FREE PRACTICE
@@ -152,9 +159,13 @@ export const BroadcastHUD: React.FC<BroadcastHUDProps> = ({
         <div className="flex flex-col items-center gap-2">
           <div className="flex items-center gap-4 bg-black/70 backdrop-blur-md px-5 py-2 rounded-lg border border-white/10 shadow-2xl">
             <div className="flex flex-col items-center">
-              <span className="text-[10px] text-neutral-400 tracking-wider">LAP</span>
+              <span className="text-[10px] text-neutral-400 tracking-wider">{isQualifyingMode ? 'QUALIFYING' : 'LAP'}</span>
               <span className="text-lg md:text-xl font-black text-white tabular-nums">
-                {telemetry.currentLap} <span className="text-xs text-neutral-500">/ {telemetry.totalLaps}</span>
+                {isQualifyingMode ? (
+                  <span>HOT LAP <span className="text-xs text-purple-400">1 / 1</span></span>
+                ) : (
+                  <>{telemetry.currentLap} <span className="text-xs text-neutral-500">/ {telemetry.totalLaps}</span></>
+                )}
               </span>
             </div>
             <div className="w-[1px] h-7 bg-white/20" />

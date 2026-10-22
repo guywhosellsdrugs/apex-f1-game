@@ -110,13 +110,15 @@ export class MultiplayerService {
   private raceStartListeners: Set<(room: RoomPublicState) => void> = new Set();
   private chatListeners: Set<(msg: ChatMessage) => void> = new Set();
   private errorListeners: Set<(err: string) => void> = new Set();
-  private telemetryListeners: Set<(sync: { playerId: string; progress: number; lap: number; speedKmh: number; lateralOffset: number; position: number }) => void> = new Set();
+  private telemetryListeners: Set<(sync: { playerId: string; progress: number; lap: number; speedKmh: number; lateralOffset: number; position: number; x?: number; y?: number; z?: number; heading?: number }) => void> = new Set();
   private broadcastChannel: BroadcastChannel | null = null;
   private pollInterval: any = null;
   private isConnecting: boolean = false;
   private lastTelemetryPost: number = 0;
   private firestoreUnsub: Unsubscribe | null = null;
+  private telemetryUnsub: Unsubscribe | null = null;
   private activeMode: 'server' | 'firebase' = 'server';
+  private inactivityTimer: any = null;
 
   constructor() {
     if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
@@ -128,6 +130,19 @@ export class MultiplayerService {
       } catch (e) {
         console.warn('[Multiplayer] BroadcastChannel not supported:', e);
       }
+    }
+
+    // 30-minute inactivity auto-close timer check
+    if (typeof window !== 'undefined') {
+      this.inactivityTimer = setInterval(() => {
+        if (this.currentRoom && this.currentRoom.players.length <= 1) {
+          const elapsed = Date.now() - (this.currentRoom.createdAt || 0);
+          if (elapsed >= 30 * 60 * 1000) {
+            console.log('[Multiplayer] 30 minutes elapsed with no one else joining. Auto-closing room.');
+            this.closeRoom('Room closed automatically after 30 minutes with no other players joining.');
+          }
+        }
+      }, 30000);
     }
   }
 
@@ -705,6 +720,10 @@ export class MultiplayerService {
       this.firestoreUnsub();
       this.firestoreUnsub = null;
     }
+    if (this.telemetryUnsub) {
+      this.telemetryUnsub();
+      this.telemetryUnsub = null;
+    }
 
     try {
       const roomRef = doc(db, 'rooms', code);
@@ -719,6 +738,17 @@ export class MultiplayerService {
           this.raceStartListeners.forEach((cb) => cb(this.currentRoom!));
           this.postToBroadcast({ type: 'race_starting', room: this.currentRoom });
         }
+      });
+
+      // Realtime listener for peer telemetry in serverless cloud mode
+      const telemetryCol = collection(db, 'rooms', code, 'telemetry');
+      this.telemetryUnsub = onSnapshot(telemetryCol, (snapshot) => {
+        snapshot.docChanges().forEach((change) => {
+          const data = change.doc.data();
+          if (data && data.playerId && data.playerId !== this.localPlayerId) {
+            this.telemetryListeners.forEach((cb) => cb(data as any));
+          }
+        });
       });
     } catch {}
   }
@@ -854,6 +884,10 @@ export class MultiplayerService {
     speedKmh: number;
     lateralOffset: number;
     position: number;
+    x?: number;
+    y?: number;
+    z?: number;
+    heading?: number;
   }) {
     // 1. Send via WebSocket if server connected
     this.send({
@@ -867,12 +901,12 @@ export class MultiplayerService {
         ...telemetry,
       };
 
-      // 2. BroadcastChannel for 60fps local sync across tabs
+      // 2. BroadcastChannel for zero-latency 60fps local sync across tabs
       this.postToBroadcast({ type: 'peer_telemetry', payload });
 
-      // 3. Throttle network telemetry to 100ms
+      // 3. Network telemetry throttled to 75ms for high fluidity
       const now = Date.now();
-      if (now - this.lastTelemetryPost > 120) {
+      if (now - this.lastTelemetryPost > 75) {
         this.lastTelemetryPost = now;
 
         if (this.activeMode === 'server') {
@@ -951,18 +985,76 @@ export class MultiplayerService {
     }
   }
 
-  public leaveRoom() {
-    if (this.currentRoom && this.localPlayerId) {
-      fetch(`/api/rooms/${this.currentRoom.code}/leave`, {
+  public closeRoom(reason: string = 'Multiplayer room closed.') {
+    if (this.currentRoom) {
+      const code = this.currentRoom.code;
+      // Close on REST server
+      fetch(`/api/rooms/${code}/close`, { method: 'POST' }).catch(() => {});
+      fetch(`/api/rooms/${code}/leave`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ playerId: this.localPlayerId }),
       }).catch(() => {});
+
+      // Close on Firebase
+      if (this.activeMode === 'firebase') {
+        try {
+          updateDoc(doc(db, 'rooms', code), { status: 'finished' });
+        } catch {}
+      }
+
+      this.postToBroadcast({ type: 'room_closed', code, reason });
+      this.errorListeners.forEach((cb) => cb(reason));
     }
 
     if (this.firestoreUnsub) {
       this.firestoreUnsub();
       this.firestoreUnsub = null;
+    }
+    if (this.telemetryUnsub) {
+      this.telemetryUnsub();
+      this.telemetryUnsub = null;
+    }
+
+    this.send({ type: 'leave_room' });
+    if (this.pollInterval) clearInterval(this.pollInterval);
+    this.currentRoom = null;
+    this.localPlayerId = null;
+    this.notifyRoom();
+  }
+
+  public leaveRoom() {
+    if (this.currentRoom && this.localPlayerId) {
+      const code = this.currentRoom.code;
+      const isHost = this.isHost();
+
+      if (isHost) {
+        // If host leaves, close the room entirely
+        this.closeRoom('Room closed because the host left.');
+        return;
+      }
+
+      fetch(`/api/rooms/${code}/leave`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ playerId: this.localPlayerId }),
+      }).catch(() => {});
+
+      if (this.activeMode === 'firebase') {
+        try {
+          const remaining = (this.currentRoom.players || []).filter((p) => p.id !== this.localPlayerId);
+          updateDoc(doc(db, 'rooms', code), { players: remaining });
+        } catch {}
+      }
+    }
+
+    if (this.firestoreUnsub) {
+      this.firestoreUnsub();
+      this.firestoreUnsub = null;
+    }
+    if (this.telemetryUnsub) {
+      this.telemetryUnsub();
+      this.telemetryUnsub = null;
     }
 
     this.send({ type: 'leave_room' });
@@ -1005,7 +1097,7 @@ export class MultiplayerService {
     return () => this.errorListeners.delete(cb);
   }
 
-  public onTelemetry(cb: (sync: { playerId: string; progress: number; lap: number; speedKmh: number; lateralOffset: number; position: number }) => void) {
+  public onTelemetry(cb: (sync: { playerId: string; progress: number; lap: number; speedKmh: number; lateralOffset: number; position: number; x?: number; y?: number; z?: number; heading?: number }) => void) {
     this.telemetryListeners.add(cb);
     return () => this.telemetryListeners.delete(cb);
   }

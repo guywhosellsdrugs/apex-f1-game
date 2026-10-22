@@ -35,6 +35,13 @@ interface RaceViewProps {
   isMultiplayer?: boolean;
   multiplayerRoom?: RoomPublicState | null;
   onOpenControls?: () => void;
+  isQualifyingMode?: boolean;
+  startingGridSlot?: number;
+  onQualifyingComplete?: (
+    gridSlot: number,
+    lapTime: number,
+    classification: Array<{ position: number; driver: Driver; team: Team; lapTime: number; gap: number }>
+  ) => void;
 }
 
 export const RaceView: React.FC<RaceViewProps> = ({
@@ -48,6 +55,9 @@ export const RaceView: React.FC<RaceViewProps> = ({
   isMultiplayer = false,
   multiplayerRoom = null,
   onOpenControls,
+  isQualifyingMode = false,
+  startingGridSlot,
+  onQualifyingComplete,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const physicsRef = useRef<PhysicsEngine | null>(null);
@@ -273,7 +283,7 @@ export const RaceView: React.FC<RaceViewProps> = ({
     const playerCar = buildF1Car(playerTeam, playerDriver);
     scene.add(playerCar.root);
 
-    // 6. Initialize Physics & 19 AI Competitors
+    // 6. Initialize Physics & Competitors (Honoring zero bots when requested)
     const effectiveDifficulty = practiceDifficulty || season.difficulty || 'pro';
     const physics = new PhysicsEngine(
       playerCar,
@@ -284,74 +294,195 @@ export const RaceView: React.FC<RaceViewProps> = ({
       playerTeam,
       season.career.customTeam
     );
-    physics.initGrid(playerDriver.id, (team, driver) => {
-      const aiCar = buildF1Car(team, driver);
-      scene.add(aiCar.root);
-      return aiCar;
-    });
+
+    // If multiplayer specifies botCount, pass it directly (so 0 bots spawns exactly 0 AI cars)
+    const effectiveBotCount = (isMultiplayer && multiplayerRoom)
+      ? multiplayerRoom.botCount
+      : undefined;
+
+    physics.initGrid(
+      playerDriver.id,
+      (team, driver) => {
+        const aiCar = buildF1Car(team, driver);
+        scene.add(aiCar.root);
+        return aiCar;
+      },
+      {
+        botCount: isQualifyingMode ? 0 : effectiveBotCount,
+        hasTeammates: isQualifyingMode ? false : isMultiplayer && multiplayerRoom ? (effectiveBotCount === 0 ? false : multiplayerRoom.hasTeammates) : true,
+        playerGridSlot: isQualifyingMode ? 1 : startingGridSlot,
+      }
+    );
     physicsRef.current = physics;
 
-    // Multiplayer Human Rivals Visualization
+    // Helper: Build a prominent 3D hovering indicator & beacon over opponent's car
+    const createRemotePlayer3DBeacon = (name: string, carNum: number, teamColor: string) => {
+      const beaconGroup = new THREE.Group();
+
+      // 1. High-contrast billboard canvas with glow border, name, and downward chevron
+      const canvas = document.createElement('canvas');
+      canvas.width = 512;
+      canvas.height = 200;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        // Dark translucent carbon panel with bright colored neon border
+        ctx.fillStyle = 'rgba(8, 9, 14, 0.94)';
+        ctx.strokeStyle = teamColor || '#ff2222';
+        ctx.lineWidth = 12;
+        ctx.beginPath();
+        ctx.roundRect(14, 14, 484, 122, 22);
+        ctx.fill();
+        ctx.stroke();
+
+        // Inverted pointer triangle directly above car roof
+        ctx.fillStyle = teamColor || '#ff2222';
+        ctx.beginPath();
+        ctx.moveTo(256 - 38, 138);
+        ctx.lineTo(256 + 38, 138);
+        ctx.lineTo(256, 188);
+        ctx.closePath();
+        ctx.fill();
+
+        // Top Header: ONLINE RIVAL
+        ctx.fillStyle = '#fef08a';
+        ctx.font = '900 28px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('⚡ MULTIPLAYER RIVAL ⚡', 256, 56);
+
+        // Driver Name & Number
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '900 48px sans-serif';
+        ctx.fillText(`#${carNum} ${name.toUpperCase()}`, 256, 110);
+
+        const tex = new THREE.CanvasTexture(canvas);
+        tex.minFilter = THREE.LinearFilter;
+        const spriteMat = new THREE.SpriteMaterial({
+          map: tex,
+          transparent: true,
+          depthTest: false,
+        });
+        const sprite = new THREE.Sprite(spriteMat);
+        sprite.scale.set(4.4, 1.7, 1.0);
+        sprite.position.set(0, 3.2, 0);
+        beaconGroup.add(sprite);
+      }
+
+      // 2. Cockpit halo beacon ring
+      const haloGeom = new THREE.RingGeometry(1.25, 1.6, 32);
+      const haloMat = new THREE.MeshBasicMaterial({
+        color: new THREE.Color(teamColor || '#ff2222'),
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.85,
+      });
+      const haloMesh = new THREE.Mesh(haloGeom, haloMat);
+      haloMesh.rotation.x = Math.PI / 2;
+      haloMesh.position.set(0, 0.75, 0);
+      beaconGroup.add(haloMesh);
+
+      return { group: beaconGroup, halo: haloMesh };
+    };
+
+    // Multiplayer Human Rivals Visualization with Dead-Reckoning smoothing
     const humanRivalCars = new Map<string, {
       car: ReturnType<typeof buildF1Car>;
       targetPos: THREE.Vector3;
       currentPos: THREE.Vector3;
       heading: number;
+      targetHeading: number;
+      speedKmh: number;
+      lastPacketTime: number;
+      haloMesh: THREE.Mesh;
     }>();
+
+    const spawnRivalCar = (p: { id: string; name: string; carNumber: number; teamId?: string; teamColor?: string; accentColor?: string; gridSlot?: number }) => {
+      const rivalTeam: Team = {
+        id: p.teamId || 'rival',
+        name: p.name,
+        shortName: p.name.slice(0, 3).toUpperCase(),
+        engine: 'F1 Turbo Hybrid',
+        primaryColor: p.teamColor || '#ff4444',
+        secondaryColor: '#111111',
+        accentColor: p.accentColor || '#ffffff',
+        performanceTier: 1,
+        drivers: [p.id, p.id] as [string, string],
+        reputationRequired: 0,
+        baseSalary: 1000000,
+      };
+      const rivalDriver: Driver = {
+        id: p.id,
+        name: p.name,
+        shortName: p.name.slice(0, 3).toUpperCase(),
+        number: p.carNumber || 99,
+        teamId: rivalTeam.id,
+        country: 'World',
+        countryCode: 'UN',
+        rating: 88,
+        aggression: 0.85,
+        color: p.teamColor || '#ff4444',
+      };
+      const rivalCar = buildF1Car(rivalTeam, rivalDriver);
+      const beacon = createRemotePlayer3DBeacon(p.name, p.carNumber || 99, p.teamColor || '#ff4444');
+      rivalCar.root.add(beacon.group);
+      scene.add(rivalCar.root);
+
+      const startPt = track.getTrackPointAtProgress(0.002 * (p.gridSlot || 2));
+      rivalCar.root.position.copy(startPt.position);
+      const entry = {
+        car: rivalCar,
+        targetPos: startPt.position.clone(),
+        currentPos: startPt.position.clone(),
+        heading: 0,
+        targetHeading: 0,
+        speedKmh: 0,
+        lastPacketTime: performance.now(),
+        haloMesh: beacon.halo,
+      };
+      humanRivalCars.set(p.id, entry);
+      return entry;
+    };
 
     if (isMultiplayer && multiplayerRoom) {
       const localId = multiplayerService.getLocalPlayerId();
       multiplayerRoom.players.forEach((p) => {
         if (p.id !== localId) {
-          const rivalTeam: Team = {
-            id: p.teamId || 'rival',
-            name: p.name,
-            shortName: p.name.slice(0, 3).toUpperCase(),
-            engine: 'F1 Turbo Hybrid',
-            primaryColor: p.teamColor || '#ff4444',
-            secondaryColor: '#111111',
-            accentColor: p.accentColor || '#ffffff',
-            performanceTier: 1,
-            drivers: [p.id, p.id] as [string, string],
-            reputationRequired: 0,
-            baseSalary: 1000000,
-          };
-          const rivalDriver: Driver = {
-            id: p.id,
-            name: p.name,
-            shortName: p.name.slice(0, 3).toUpperCase(),
-            number: p.carNumber || 99,
-            teamId: rivalTeam.id,
-            country: 'World',
-            countryCode: 'UN',
-            rating: 88,
-            aggression: 0.85,
-            color: p.teamColor || '#ff4444',
-          };
-          const rivalCar = buildF1Car(rivalTeam, rivalDriver);
-          scene.add(rivalCar.root);
-
-          const startPt = track.getTrackPointAtProgress(0.002 * (p.gridSlot || 2));
-          rivalCar.root.position.copy(startPt.position);
-          humanRivalCars.set(p.id, {
-            car: rivalCar,
-            targetPos: startPt.position.clone(),
-            currentPos: startPt.position.clone(),
-            heading: 0,
-          });
+          spawnRivalCar(p);
         }
       });
     }
 
     const unsubTelemetry = isMultiplayer
       ? multiplayerService.onTelemetry((sync) => {
-          const rival = humanRivalCars.get(sync.playerId);
+          let rival = humanRivalCars.get(sync.playerId);
+          if (!rival) {
+            // Dynamically instantiate rival if telemetry arrives from late-joining peer
+            const peerPlayer = multiplayerRoom?.players.find((p) => p.id === sync.playerId);
+            rival = spawnRivalCar({
+              id: sync.playerId,
+              name: peerPlayer?.name || 'Rival Driver',
+              carNumber: peerPlayer?.carNumber || 99,
+              teamColor: peerPlayer?.teamColor || '#ff3b30',
+              accentColor: peerPlayer?.accentColor || '#ffffff',
+            });
+          }
+
           if (rival) {
-            const trackPt = track.getTrackPointAtProgress(sync.progress);
-            rival.targetPos.copy(trackPt.position).addScaledVector(trackPt.normal, sync.lateralOffset);
-            rival.targetPos.y = trackPt.position.y + 0.08;
-            const fwd = trackPt.tangent;
-            rival.heading = Math.atan2(-fwd.x, -fwd.z);
+            const now = performance.now();
+            rival.speedKmh = sync.speedKmh || 0;
+            rival.lastPacketTime = now;
+
+            if (sync.x !== undefined && sync.z !== undefined) {
+              rival.targetPos.set(sync.x, (sync.y ?? 0) + 0.08, sync.z);
+              if (sync.heading !== undefined) {
+                rival.targetHeading = sync.heading;
+              }
+            } else {
+              const trackPt = track.getTrackPointAtProgress(sync.progress);
+              rival.targetPos.copy(trackPt.position).addScaledVector(trackPt.normal, sync.lateralOffset);
+              rival.targetPos.y = trackPt.position.y + 0.08;
+              const fwd = trackPt.tangent;
+              rival.targetHeading = Math.atan2(-fwd.x, -fwd.z);
+            }
           }
         })
       : () => {};
@@ -359,7 +490,7 @@ export const RaceView: React.FC<RaceViewProps> = ({
     const currentCamPos = new THREE.Vector3();
     const currentLookAt = new THREE.Vector3();
 
-    // 7. Render Loop with throttled UI state dispatches
+    // 7. Render Loop with dead-reckoning lag reduction and throttled UI updates
     let lastTime = performance.now();
     let animFrameId: number;
     let lastUiUpdateTime = 0;
@@ -372,15 +503,39 @@ export const RaceView: React.FC<RaceViewProps> = ({
       const delta = (time - lastTime) / 1000;
       lastTime = time;
 
-      // Update multiplayer rival positions
+      // Update multiplayer rival positions with high-framerate dead-reckoning extrapolation
       if (isMultiplayer) {
         humanRivalCars.forEach((rival) => {
-          rival.currentPos.lerp(rival.targetPos, 0.25);
+          const timeSincePacket = Math.max(0, (time - rival.lastPacketTime) / 1000);
+          const extrapolated = rival.targetPos.clone();
+
+          // Dead reckoning forward projection (prevents stutter between network packets)
+          if (timeSincePacket > 0.005 && timeSincePacket < 0.6 && Math.abs(rival.speedKmh) > 5) {
+            const fwdX = -Math.sin(rival.targetHeading);
+            const fwdZ = -Math.cos(rival.targetHeading);
+            const speedMs = rival.speedKmh / 3.6;
+            extrapolated.x += fwdX * speedMs * timeSincePacket;
+            extrapolated.z += fwdZ * speedMs * timeSincePacket;
+          }
+
+          // Smooth exponential lerp
+          const lerpFactor = Math.min(1.0, delta * 18.0);
+          rival.currentPos.lerp(extrapolated, lerpFactor);
           rival.car.root.position.copy(rival.currentPos);
+
+          // Smooth angular interpolation
+          let diffHeading = rival.targetHeading - rival.heading;
+          while (diffHeading > Math.PI) diffHeading -= Math.PI * 2;
+          while (diffHeading < -Math.PI) diffHeading += Math.PI * 2;
+          rival.heading += diffHeading * Math.min(1.0, delta * 15.0);
           rival.car.root.rotation.y = rival.heading;
+
+          // Wheel spin & halo rotation
+          rival.car.setWheelSpin(rival.speedKmh, delta);
+          rival.haloMesh.rotation.z += delta * 2.5;
         });
 
-        // Send local player telemetry every 50ms
+        // Send local player telemetry every 50ms with pinpoint 3D coordinates & heading
         if (time - lastTelemetrySendTime > 50) {
           lastTelemetrySendTime = time;
           multiplayerService.sendTelemetry({
@@ -389,6 +544,10 @@ export const RaceView: React.FC<RaceViewProps> = ({
             speedKmh: physics.playerSpeedKmh,
             lateralOffset: physics.track.checkSurfaceType(physics.playerPos, physics.playerProgress).lateralOffset || 0,
             position: physics.telemetry?.position || 1,
+            x: physics.playerPos.x,
+            y: physics.playerPos.y,
+            z: physics.playerPos.z,
+            heading: physics.playerHeading,
           });
         }
       }
@@ -513,6 +672,47 @@ export const RaceView: React.FC<RaceViewProps> = ({
           });
         }
 
+        if (isQualifyingMode && onQualifyingComplete) {
+          const playerLap = physics.telemetry.lapTimeBest && physics.telemetry.lapTimeBest > 20
+            ? physics.telemetry.lapTimeBest
+            : (physics.telemetry.lapTimeCurrent && physics.telemetry.lapTimeCurrent > 20 ? physics.telemetry.lapTimeCurrent : 89.2);
+
+          // Calculate authentic qualifying simulation times for all 19 other F1 drivers based on official circuit lap record
+          const diffPace = (season.difficulty || 'pro') === 'rookie' ? 1.035 : (season.difficulty || 'pro') === 'legend' ? 0.985 : 1.008;
+          const [mStr, sStr] = (circuit.lapRecord || '1:30.000').split(':');
+          const recordSec = (parseFloat(mStr) || 1) * 60 + (parseFloat(sStr) || 30);
+          const baseCircTime = recordSec * diffPace;
+
+          const simulatedGrid = DRIVERS.filter((d) => d.id !== playerDriver.id).map((d) => {
+            const driverTeam = TEAMS.find((t) => t.id === d.teamId) || TEAMS[0];
+            const ratingBonus = ((d.rating || 85) - 80) * 0.085;
+            const jitter = (Math.random() * 0.44 - 0.22);
+            const lap = Math.max(50, Number((baseCircTime - ratingBonus + jitter).toFixed(3)));
+            return { driver: d, team: driverTeam, lapTime: lap };
+          });
+
+          const fullGrid = [
+            ...simulatedGrid,
+            { driver: playerDriver, team: playerTeam, lapTime: Number(playerLap.toFixed(3)) },
+          ].sort((a, b) => a.lapTime - b.lapTime);
+
+          const poleTime = fullGrid[0].lapTime;
+          const classification = fullGrid.map((entry, idx) => ({
+            position: idx + 1,
+            driver: entry.driver,
+            team: entry.team,
+            lapTime: entry.lapTime,
+            gap: Number((entry.lapTime - poleTime).toFixed(3)),
+          }));
+
+          const playerPos = classification.find((c) => c.driver.id === playerDriver.id)?.position || 1;
+
+          setTimeout(() => {
+            onQualifyingComplete(playerPos, playerLap, classification);
+          }, 2000);
+          return;
+        }
+
         setTimeout(() => {
           const finalStandings = physics.getFinalStandings(playerDriver);
           const playerRank =
@@ -628,6 +828,7 @@ export const RaceView: React.FC<RaceViewProps> = ({
           playerDriver={playerDriver}
           yellowFlagActive={yellowFlagActive}
           isPracticeMode={isPracticeMode}
+          isQualifyingMode={isQualifyingMode}
           onIssueTeamOrder={handleIssueTeamOrder}
           onOpenControls={onOpenControls}
         />

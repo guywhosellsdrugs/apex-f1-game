@@ -321,6 +321,7 @@ export interface CloudCareerData {
   podiums?: number;
   championshipPoints?: number;
   customTeamName?: string;
+  seasonStateJson?: string;
   createdAt?: any;
   updatedAt?: any;
 }
@@ -344,7 +345,9 @@ export interface CloudSaveResult {
   error?: string;
 }
 
-export async function saveCareerToCloud(data: Partial<CloudCareerData>): Promise<CloudSaveResult> {
+export async function saveCareerToCloud(
+  data: Partial<CloudCareerData> & { fullSeason?: any }
+): Promise<CloudSaveResult> {
   let user = auth.currentUser;
   let uid = user?.uid;
 
@@ -359,7 +362,9 @@ export async function saveCareerToCloud(data: Partial<CloudCareerData>): Promise
   }
 
   const effectiveUid = uid || getPersistentClientUid();
-  const payload = {
+  const serializedSeason = data.seasonStateJson || (data.fullSeason ? JSON.stringify(data.fullSeason) : undefined);
+
+  const payload: Record<string, any> = {
     ...data,
     uid: effectiveUid,
     displayName: data.displayName || user?.displayName || 'Formula Driver',
@@ -376,6 +381,11 @@ export async function saveCareerToCloud(data: Partial<CloudCareerData>): Promise
     customTeamName: data.customTeamName || '',
     updatedAt: new Date().toISOString(),
   };
+
+  if (serializedSeason) {
+    payload.seasonStateJson = serializedSeason;
+  }
+  delete payload.fullSeason;
 
   const result: CloudSaveResult = {
     success: false,
