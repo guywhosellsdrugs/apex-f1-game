@@ -108,71 +108,154 @@ export function buildF1Car(team: Team, driver?: Driver): BuiltCar {
     clearcoat: 1.0,
   });
 
-  // 2. Main Monocoque & Sleek 2026 Aerodynamic Nose
-  // Tapered Nose Cone (front extends in -Z)
-  const noseGeom = new THREE.CylinderGeometry(0.18, 0.52, 2.45, 18);
+  // 2. Main Monocoque & Sleek 2026 Aerodynamic Nose (High-Segment Smooth Sculpted Geometry)
+  // Tapered Nose Cone (front extends in -Z) - 36 radial segments for smooth curvature
+  const noseGeom = new THREE.CylinderGeometry(0.18, 0.52, 2.45, 36, 8);
   noseGeom.rotateX(Math.PI / 2);
+  noseGeom.computeVertexNormals();
   const noseMesh = new THREE.Mesh(noseGeom, carPaintMat);
   noseMesh.position.set(0, 0.33, -1.35);
   noseMesh.scale.set(0.92, 0.82, 1.0);
   noseMesh.castShadow = true;
   root.add(noseMesh);
 
-  // Aerodynamic nose tip cone
-  const noseTip = new THREE.Mesh(new THREE.ConeGeometry(0.17, 0.35, 16), secondaryPaintMat);
+  // Aerodynamic nose tip cone - 32 segments
+  const noseTipGeom = new THREE.ConeGeometry(0.17, 0.35, 32);
+  noseTipGeom.computeVertexNormals();
+  const noseTip = new THREE.Mesh(noseTipGeom, secondaryPaintMat);
   noseTip.rotateX(-Math.PI / 2);
   noseTip.position.set(0, 0.32, -2.62);
   noseTip.castShadow = true;
   root.add(noseTip);
 
-  // Cockpit area & Engine cover
-  const cockpitGeom = new THREE.BoxGeometry(0.82, 0.54, 1.95);
+  // Smooth Sculpted Cockpit Monocoque & Engine Cover (Subdivided with rounded shoulders & tapered front)
+  const cockpitGeom = new THREE.BoxGeometry(0.84, 0.56, 1.98, 10, 8, 14);
+  {
+    const pos = cockpitGeom.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      let x = pos.getX(i);
+      let y = pos.getY(i);
+      const z = pos.getZ(i);
+      const normZ = z / 0.99; // -1 (front) to +1 (rear)
+      // Smooth aerodynamic taper toward front nose bulkhead
+      if (normZ < 0) {
+        const taper = 1.0 - Math.abs(normZ) * 0.25;
+        x *= taper;
+        if (y > 0) y *= taper;
+      } else if (normZ > 0.3) {
+        // Coke-bottle rear engine cover taper
+        const rearTaper = 1.0 - (normZ - 0.3) * 0.38;
+        x *= rearTaper;
+      }
+      // Smooth rounded top crest & shoulders
+      if (y > 0) {
+        const shoulderCurve = 1.0 - Math.pow(Math.abs(x) / 0.42, 2) * 0.26;
+        y *= shoulderCurve;
+      }
+      pos.setXYZ(i, x, y, z);
+    }
+    cockpitGeom.computeVertexNormals();
+  }
   const cockpitMesh = new THREE.Mesh(cockpitGeom, carPaintMat);
   cockpitMesh.position.set(0, 0.44, 0.1);
   cockpitMesh.castShadow = true;
   root.add(cockpitMesh);
 
-  // Overhead Airbox / Engine Intake with realistic triangular duct
-  const airboxGeom = new THREE.BoxGeometry(0.42, 0.34, 0.85);
+  // Overhead Airbox / Engine Intake with smooth rounded roll-hoop and rear spine taper
+  const airboxGeom = new THREE.BoxGeometry(0.42, 0.35, 0.92, 8, 8, 10);
+  {
+    const pos = airboxGeom.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      let x = pos.getX(i);
+      let y = pos.getY(i);
+      const z = pos.getZ(i);
+      const normZ = z / 0.46;
+      if (normZ > -0.2) {
+        const spineTaper = 1.0 - ((normZ + 0.2) / 1.2) * 0.52;
+        x *= spineTaper;
+        if (y > 0) y *= (1.0 - ((normZ + 0.2) / 1.2) * 0.35);
+      }
+      if (y > 0) {
+        const arch = 1.0 - Math.pow(Math.abs(x) / 0.21, 2) * 0.35;
+        y *= arch;
+      }
+      pos.setXYZ(i, x, y, z);
+    }
+    airboxGeom.computeVertexNormals();
+  }
   const airbox = new THREE.Mesh(airboxGeom, carPaintMat);
   airbox.position.set(0, 0.78, 0.25);
   airbox.castShadow = true;
   root.add(airbox);
 
-  const intakeHole = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.16, 0.08), matteBlackMat);
-  intakeHole.position.set(0, 0.82, -0.18);
+  const intakeHole = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 0.08, 24), matteBlackMat);
+  intakeHole.rotateX(Math.PI / 2);
+  intakeHole.scale.set(1.1, 0.85, 1.0);
+  intakeHole.position.set(0, 0.81, -0.21);
   root.add(intakeHole);
 
   // FIA T-Cam on top of roll-hoop
-  const tCamBar = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.05, 0.06), secondaryPaintMat);
+  const tCamBar = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.045, 0.06, 4, 2, 2), secondaryPaintMat);
   tCamBar.position.set(0, 0.98, 0.08);
   root.add(tCamBar);
 
   // Shark Fin along engine spine
-  const finGeom = new THREE.BoxGeometry(0.04, 0.48, 1.55);
+  const finGeom = new THREE.BoxGeometry(0.035, 0.48, 1.55, 2, 4, 8);
+  finGeom.computeVertexNormals();
   const finMesh = new THREE.Mesh(finGeom, secondaryPaintMat);
   finMesh.position.set(0, 0.82, 0.65);
   finMesh.castShadow = true;
   root.add(finMesh);
 
-  // Sculpted Sidepods with Ground-Effect Undercut
-  const sidepodGeom = new THREE.BoxGeometry(0.48, 0.40, 1.65);
-  const podLeft = new THREE.Mesh(sidepodGeom, carPaintMat);
+  // Sculpted Sidepods with Smooth Ground-Effect Undercut & Coke-Bottle Contour
+  const buildSmoothSidepod = (isRight: boolean) => {
+    const podGeom = new THREE.BoxGeometry(0.50, 0.42, 1.72, 10, 8, 14);
+    const pos = podGeom.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      let x = pos.getX(i);
+      let y = pos.getY(i);
+      const z = pos.getZ(i);
+      const normZ = z / 0.86; // -1 front to +1 rear
+      const isOuter = isRight ? x > 0 : x < 0;
+
+      // Swept-back downwash ramp and rear Coke-bottle taper
+      if (normZ > 0.05) {
+        const t = (normZ - 0.05) / 0.95;
+        x *= 1.0 - t * 0.46;
+        if (y > 0) y -= t * 0.14;
+      }
+      // Deep aerodynamic undercut on lower outer flank
+      if (isOuter && y < 0) {
+        const undercut = 1.0 - Math.abs(y / 0.21) * 0.34;
+        x *= undercut;
+      }
+      // Smooth rounded top shoulder
+      if (y > 0) {
+        const curve = 1.0 - Math.pow(Math.abs(x) / 0.25, 2) * 0.28;
+        y *= curve;
+      }
+      pos.setXYZ(i, x, y, z);
+    }
+    podGeom.computeVertexNormals();
+    return podGeom;
+  };
+
+  const podLeft = new THREE.Mesh(buildSmoothSidepod(false), carPaintMat);
   podLeft.position.set(-0.64, 0.33, 0.12);
   podLeft.castShadow = true;
   root.add(podLeft);
 
-  const podRight = new THREE.Mesh(sidepodGeom, carPaintMat);
+  const podRight = new THREE.Mesh(buildSmoothSidepod(true), carPaintMat);
   podRight.position.set(0.64, 0.33, 0.12);
   podRight.castShadow = true;
   root.add(podRight);
 
   // Sidepod radiator intake ducts
-  const intakeL = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.24, 0.05), matteBlackMat);
-  intakeL.position.set(-0.64, 0.36, -0.71);
+  const intakeL = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.22, 0.05), matteBlackMat);
+  intakeL.position.set(-0.64, 0.36, -0.74);
   root.add(intakeL);
-  const intakeR = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.24, 0.05), matteBlackMat);
-  intakeR.position.set(0.64, 0.36, -0.71);
+  const intakeR = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.22, 0.05), matteBlackMat);
+  intakeR.position.set(0.64, 0.36, -0.74);
   root.add(intakeR);
 
   // Rear view mirrors
@@ -337,15 +420,16 @@ export function buildF1Car(team: Team, driver?: Driver): BuiltCar {
   rearEndR.castShadow = true;
   root.add(rearEndR);
 
-  // 5. Halo Titanium Safety Structure
-  const haloBarGeom = new THREE.TorusGeometry(0.38, 0.045, 8, 24, Math.PI);
+  // 5. Halo Titanium Safety Structure (Smooth high-segment Torus & Pillar)
+  const haloBarGeom = new THREE.TorusGeometry(0.38, 0.042, 24, 48, Math.PI);
   haloBarGeom.rotateX(Math.PI / 2);
+  haloBarGeom.computeVertexNormals();
   const haloRing = new THREE.Mesh(haloBarGeom, haloMat);
   haloRing.position.set(0, 0.78, -0.15);
   haloRing.castShadow = true;
   root.add(haloRing);
 
-  const haloCenterPillar = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.42, 10), haloMat);
+  const haloCenterPillar = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.42, 24), haloMat);
   haloCenterPillar.position.set(0, 0.62, -0.52);
   haloCenterPillar.rotation.x = 0.35;
   haloCenterPillar.castShadow = true;
@@ -355,7 +439,8 @@ export function buildF1Car(team: Team, driver?: Driver): BuiltCar {
   const driverGroup = new THREE.Group();
   driverGroup.position.set(0, 0.44, -0.05);
 
-  const helmetGeom = new THREE.SphereGeometry(0.18, 18, 18);
+  const helmetGeom = new THREE.SphereGeometry(0.18, 32, 24);
+  helmetGeom.computeVertexNormals();
   const helmetMesh = new THREE.Mesh(helmetGeom, helmetMat);
   helmetMesh.position.set(0, 0.26, 0);
   helmetMesh.scale.set(0.9, 1.05, 1.15);
@@ -363,13 +448,13 @@ export function buildF1Car(team: Team, driver?: Driver): BuiltCar {
   driverGroup.add(helmetMesh);
 
   // Visor
-  const visorGeom = new THREE.BoxGeometry(0.24, 0.08, 0.12);
+  const visorGeom = new THREE.BoxGeometry(0.24, 0.08, 0.12, 4, 2, 2);
   const visorMesh = new THREE.Mesh(visorGeom, visorMat);
   visorMesh.position.set(0, 0.26, -0.16);
   driverGroup.add(visorMesh);
 
   // Cockpit headrest safety foam & Shoulder Harness Belts
-  const headrest = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.22, 0.32), matteBlackMat);
+  const headrest = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.22, 0.32, 4, 2, 4), matteBlackMat);
   headrest.position.set(0, 0.22, 0.18);
   driverGroup.add(headrest);
 
@@ -415,7 +500,7 @@ export function buildF1Car(team: Team, driver?: Driver): BuiltCar {
   // Rotary dials on steering wheel
   [-0.08, 0.08].forEach((rx) => {
     const dial = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.014, 0.014, 0.015, 8),
+      new THREE.CylinderGeometry(0.014, 0.014, 0.015, 16),
       new THREE.MeshBasicMaterial({ color: 0xffaa00 })
     );
     dial.rotateX(Math.PI / 2);
@@ -434,16 +519,16 @@ export function buildF1Car(team: Team, driver?: Driver): BuiltCar {
   tailLight.position.set(0, 0.32, 2.05);
   root.add(tailLight);
 
-  // Central Titanium Exhaust Pipe
+  // Central Titanium Exhaust Pipe - 24 segments
   const exhaustPipe = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.065, 0.065, 0.18, 12),
+    new THREE.CylinderGeometry(0.065, 0.065, 0.18, 24),
     new THREE.MeshStandardMaterial({ color: 0x444450, metalness: 0.95, roughness: 0.2 })
   );
   exhaustPipe.rotateX(Math.PI / 2);
   exhaustPipe.position.set(0, 0.54, 1.88);
   root.add(exhaustPipe);
 
-  // 8. 18-Inch Pirelli Wheels, BBS Wheel Covers & Glowing Brake Discs
+  // 8. 18-Inch Pirelli Wheels, Smooth Rounded Shoulders, BBS Wheel Covers & Glowing Brake Discs
   const brakeDiscs: THREE.Mesh[] = [];
 
   function createWheel(isFront: boolean): { wheelGroup: THREE.Group; brakeDisc: THREE.Mesh } {
@@ -452,42 +537,55 @@ export function buildF1Car(team: Team, driver?: Driver): BuiltCar {
     const tireRadius = 0.36;
     const tireWidth = isFront ? 0.32 : 0.42;
 
-    // Tire Rubber
-    const tireGeom = new THREE.CylinderGeometry(tireRadius, tireRadius, tireWidth, 24);
+    // Tire Rubber - 48 radial segments for a silky round tire silhouette
+    const tireGeom = new THREE.CylinderGeometry(tireRadius, tireRadius, tireWidth - 0.03, 48);
     tireGeom.rotateZ(Math.PI / 2);
+    tireGeom.computeVertexNormals();
     const tireMesh = new THREE.Mesh(tireGeom, tireRubberMat);
     tireMesh.castShadow = true;
     wheelGroup.add(tireMesh);
 
-    // Pirelli Colored Sidewall Ring (Soft Red)
-    const ringGeom = new THREE.RingGeometry(tireRadius * 0.72, tireRadius * 0.82, 24);
+    // Rounded Tire Shoulders (Torus bevels on inner & outer tread edges)
+    const shoulderRadius = 0.024;
+    [-(tireWidth / 2 - 0.02), tireWidth / 2 - 0.02].forEach((sx) => {
+      const shoulderGeom = new THREE.TorusGeometry(tireRadius - shoulderRadius, shoulderRadius, 16, 48);
+      shoulderGeom.rotateY(Math.PI / 2);
+      shoulderGeom.computeVertexNormals();
+      const shoulderMesh = new THREE.Mesh(shoulderGeom, tireRubberMat);
+      shoulderMesh.position.x = sx;
+      wheelGroup.add(shoulderMesh);
+    });
+
+    // Pirelli Colored Sidewall Ring (Soft Red) - 48 segments
+    const ringGeom = new THREE.RingGeometry(tireRadius * 0.72, tireRadius * 0.83, 48);
     ringGeom.rotateY(Math.PI / 2);
     const ringMat = new THREE.MeshBasicMaterial({ color: 0xe10600 });
     const ringOut = new THREE.Mesh(ringGeom, ringMat);
     ringOut.position.x = isFront ? 0.165 : 0.215;
     wheelGroup.add(ringOut);
 
-    // 18-inch Aerodynamic Wheel Rim Cover
-    const rimGeom = new THREE.CylinderGeometry(tireRadius * 0.66, tireRadius * 0.66, tireWidth * 0.88, 16);
+    // 18-inch Aerodynamic Wheel Rim Cover - 36 segments
+    const rimGeom = new THREE.CylinderGeometry(tireRadius * 0.66, tireRadius * 0.66, tireWidth * 0.88, 36);
     rimGeom.rotateZ(Math.PI / 2);
+    rimGeom.computeVertexNormals();
     const rimMesh = new THREE.Mesh(rimGeom, wheelRimMat);
     wheelGroup.add(rimMesh);
 
-    // BBS Spoke design ring
-    const spokeGeom = new THREE.RingGeometry(0.08, tireRadius * 0.64, 12);
+    // BBS Spoke design ring - 32 segments
+    const spokeGeom = new THREE.RingGeometry(0.08, tireRadius * 0.64, 32);
     spokeGeom.rotateY(Math.PI / 2);
     const spokeMesh = new THREE.Mesh(spokeGeom, carbonMat);
     spokeMesh.position.x = isFront ? 0.162 : 0.212;
     wheelGroup.add(spokeMesh);
 
-    // Central Wheel Lock Nut (Team colored)
-    const nutGeom = new THREE.CylinderGeometry(0.05, 0.05, tireWidth + 0.04, 12);
+    // Central Wheel Lock Nut (Team colored) - 24 segments
+    const nutGeom = new THREE.CylinderGeometry(0.05, 0.05, tireWidth + 0.04, 24);
     nutGeom.rotateZ(Math.PI / 2);
     const nutMesh = new THREE.Mesh(nutGeom, new THREE.MeshStandardMaterial({ color: 0xcc1111, metalness: 0.9 }));
     wheelGroup.add(nutMesh);
 
-    // Glowing Brake Disc behind the rim
-    const discGeom = new THREE.CylinderGeometry(0.24, 0.24, 0.06, 16);
+    // Glowing Brake Disc behind the rim - 32 segments
+    const discGeom = new THREE.CylinderGeometry(0.24, 0.24, 0.06, 32);
     discGeom.rotateZ(Math.PI / 2);
     const discMat = brakeDiscMat.clone();
     const brakeDisc = new THREE.Mesh(discGeom, discMat);

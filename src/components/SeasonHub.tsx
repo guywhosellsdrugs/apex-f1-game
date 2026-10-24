@@ -86,7 +86,7 @@ interface SeasonHubProps {
   season: SeasonState;
   currentCircuit: CircuitInfo;
   onStartRace: (laps: number) => void;
-  onStartPractice?: (circuit: CircuitInfo, laps: number, difficulty: 'rookie' | 'pro' | 'legend') => void;
+  onStartPractice?: (circuit: CircuitInfo, laps: number, difficulty: 'rookie' | 'pro' | 'legend', botCount?: number) => void;
   onChangeDifficulty?: (difficulty: 'rookie' | 'pro' | 'legend') => void;
   onSelectTeam: (teamId: string, driverId: string, buyoutFee: number, signingBonus: number, salary: number) => void;
   onResetSeason: () => void;
@@ -215,6 +215,7 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
   const [practiceSelectedCircuit, setPracticeSelectedCircuit] = useState<CircuitInfo>(currentCircuit);
   const [practiceLaps, setPracticeLaps] = useState<number>(5);
   const [practiceDifficulty, setPracticeDifficulty] = useState<'rookie' | 'pro' | 'legend'>(season.difficulty || 'pro');
+  const [practiceBotCount, setPracticeBotCount] = useState<number>(19);
 
   const playerTeam = season.career.customTeam && season.selectedTeamId === season.career.customTeam.id
     ? {
@@ -3951,6 +3952,51 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
               </div>
             </div>
 
+            {/* Practice AI Traffic / Bot Count Selector ("make it so in practice mode i can remove all bots or some bots") */}
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold uppercase tracking-wider text-neutral-300">
+                  AI Rival Bots on Track: <span className="text-amber-400 font-mono">{practiceBotCount === 0 ? '0 (Solo Track — No Bots)' : `${practiceBotCount} AI Cars`}</span>
+                </label>
+                <span className="text-[10px] font-mono text-emerald-400 bg-emerald-500/15 px-2 py-0.5 rounded border border-emerald-500/30">
+                  3D Racing Line Assist Included [Key L]
+                </span>
+              </div>
+              <div className="grid grid-cols-4 gap-2">
+                {[
+                  { count: 0, label: '0 Bots (Solo)' },
+                  { count: 5, label: '5 Bots (Light)' },
+                  { count: 10, label: '10 Bots (Half)' },
+                  { count: 19, label: '19 Bots (Full)' },
+                ].map((preset) => (
+                  <button
+                    key={preset.count}
+                    type="button"
+                    onClick={() => setPracticeBotCount(preset.count)}
+                    className={`py-2 rounded-lg font-bold text-xs transition-all cursor-pointer ${
+                      practiceBotCount === preset.count
+                        ? 'bg-amber-500 text-black font-black ring-2 ring-amber-300 shadow-md'
+                        : 'bg-neutral-800 text-neutral-400 hover:text-white'
+                    }`}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+              <div className="flex items-center gap-3 pt-1">
+                <span className="text-[10px] font-mono text-neutral-500">0</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={19}
+                  value={practiceBotCount}
+                  onChange={(e) => setPracticeBotCount(Number(e.target.value))}
+                  className="flex-1 accent-amber-500 cursor-pointer"
+                />
+                <span className="text-[10px] font-mono text-neutral-500">19</span>
+              </div>
+            </div>
+
             {/* Modal Actions */}
             <div className="flex items-center gap-3 pt-2 border-t border-neutral-800">
               <button
@@ -3965,7 +4011,7 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
                 onClick={() => {
                   setShowPracticeModal(false);
                   if (onStartPractice) {
-                    onStartPractice(practiceSelectedCircuit, practiceLaps, practiceDifficulty);
+                    onStartPractice(practiceSelectedCircuit, practiceLaps, practiceDifficulty, practiceBotCount);
                   }
                 }}
                 className="flex-1 py-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 text-black font-black rounded-xl text-xs uppercase tracking-wider transition-all cursor-pointer shadow-lg shadow-amber-500/25 flex items-center justify-center gap-2"

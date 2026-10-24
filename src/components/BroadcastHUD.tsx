@@ -3,6 +3,7 @@ import { TelemetryData, CircuitInfo, CameraView, Driver } from '../types/racing'
 import { DRIVERS, TEAMS } from '../constants/f1Data';
 import { Gamepad, Keyboard, Camera, RotateCcw, Volume2, VolumeX, Flag, AlertTriangle, Shield, Wind, Users, Radio, Zap, Gauge } from 'lucide-react';
 import { TrackMiniMap } from './TrackMiniMap';
+import { PracticeLineCoachData } from '../game/racingLineBuilder';
 import { UnitSystem, getStoredUnitSystem, setStoredUnitSystem, convertSpeed, getSpeedUnitLabel, formatTemp, onUnitSystemChange } from '../utils/units';
 
 interface BroadcastHUDProps {
@@ -24,6 +25,11 @@ interface BroadcastHUDProps {
   isQualifyingMode?: boolean;
   onIssueTeamOrder?: (order: 'block' | 'yield' | 'push' | 'neutral') => void;
   onOpenControls?: () => void;
+  showPracticeRacingLine?: boolean;
+  onTogglePracticeRacingLine?: () => void;
+  practiceLineCoach?: PracticeLineCoachData | null;
+  practiceBotCount?: number;
+  onSetPracticeBotCount?: (count: number) => void;
 }
 
 export const BroadcastHUD: React.FC<BroadcastHUDProps> = ({
@@ -45,6 +51,11 @@ export const BroadcastHUD: React.FC<BroadcastHUDProps> = ({
   isQualifyingMode = false,
   onIssueTeamOrder,
   onOpenControls,
+  showPracticeRacingLine = false,
+  onTogglePracticeRacingLine,
+  practiceLineCoach = null,
+  practiceBotCount = 19,
+  onSetPracticeBotCount,
 }) => {
   const [unitSystem, setUnitSystem] = useState<UnitSystem>(getStoredUnitSystem());
 
@@ -347,6 +358,48 @@ export const BroadcastHUD: React.FC<BroadcastHUDProps> = ({
 
         {/* Right: Quick Controls & Camera */}
         <div className="flex items-center gap-2 pointer-events-auto">
+          {/* PRACTICE MODE ONLY: AI Bots Selector (Remove All Bots or Some Bots) */}
+          {isPracticeMode && !isQualifyingMode && onSetPracticeBotCount && (
+            <div className="flex items-center gap-1 bg-neutral-900/90 px-2 py-1 rounded border border-amber-500/30">
+              <span className="text-[10px] font-black uppercase text-amber-400 mr-1">BOTS:</span>
+              {[
+                { count: 0, label: '0 (NONE)' },
+                { count: 5, label: '5' },
+                { count: 10, label: '10' },
+                { count: 19, label: '19' },
+              ].map((opt) => (
+                <button
+                  key={opt.count}
+                  onClick={() => onSetPracticeBotCount(opt.count)}
+                  className={`px-1.5 py-0.5 rounded text-[10px] font-black transition-all cursor-pointer ${
+                    practiceBotCount === opt.count
+                      ? 'bg-amber-500 text-black shadow-sm'
+                      : 'bg-neutral-800 hover:bg-neutral-700 text-neutral-300'
+                  }`}
+                  title={opt.count === 0 ? 'Remove all AI bots (Solo Track)' : `Set ${opt.count} AI bots on track`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* PRACTICE MODE ONLY: Optimal Racing Line & Braking Assist Toggle */}
+          {isPracticeMode && !isQualifyingMode && onTogglePracticeRacingLine && (
+            <button
+              onClick={onTogglePracticeRacingLine}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border transition-all cursor-pointer font-black tracking-wide ${
+                showPracticeRacingLine
+                  ? 'bg-emerald-600/90 hover:bg-emerald-500 text-black border-emerald-300 shadow-[0_0_15px_rgba(16,185,129,0.5)]'
+                  : 'bg-neutral-900/80 hover:bg-neutral-800 text-neutral-300 border-white/15'
+              }`}
+              title="Toggle 3D Optimal Racing Line & Braking/Acceleration Indicators (Practice Mode Only • Key L)"
+            >
+              <span className="text-[11px]">
+                {showPracticeRacingLine ? '🟢 RACING LINE: ON [L]' : '⚪ RACING LINE: OFF [L]'}
+              </span>
+            </button>
+          )}
           <button
             onClick={onCycleCamera}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-neutral-900/80 hover:bg-neutral-800 text-neutral-200 text-xs rounded border border-white/10 backdrop-blur transition-colors"
@@ -712,8 +765,71 @@ export const BroadcastHUD: React.FC<BroadcastHUDProps> = ({
           </div>
         </div>
 
-        {/* Center: Central Cockpit Cluster & Dedicated Speedometer */}
-        <div className="flex items-center gap-4 bg-black/85 backdrop-blur-md px-6 py-3 rounded-2xl border border-white/15 shadow-2xl">
+        {/* Center: Central Cockpit Cluster & Dedicated Speedometer (+ Practice Mode Racing Line Coach) */}
+        <div className="flex flex-col items-center gap-2">
+          {/* STRICTLY PRACTICE MODE ONLY: Live Braking / Acceleration & Optimal Line Coach */}
+          {isPracticeMode && !isQualifyingMode && showPracticeRacingLine && practiceLineCoach && (
+            <div
+              className={`flex items-center gap-3 px-4 py-2 rounded-xl border-2 shadow-2xl transition-all duration-100 ${
+                practiceLineCoach.zone === 'brake'
+                  ? 'bg-red-950/95 border-red-500 text-white shadow-[0_0_24px_rgba(239,68,68,0.55)]'
+                  : practiceLineCoach.zone === 'coast'
+                  ? 'bg-amber-950/95 border-amber-400 text-white shadow-[0_0_20px_rgba(251,191,36,0.45)]'
+                  : 'bg-emerald-950/95 border-emerald-400 text-white shadow-[0_0_20px_rgba(16,185,129,0.4)]'
+              }`}
+            >
+              {/* Action Badge */}
+              <div className="flex items-center gap-2">
+                <span
+                  className={`px-2.5 py-1 rounded-lg font-black text-xs uppercase tracking-wider ${
+                    practiceLineCoach.zone === 'brake'
+                      ? 'bg-red-500 text-white'
+                      : practiceLineCoach.zone === 'coast'
+                      ? 'bg-amber-400 text-black'
+                      : 'bg-emerald-400 text-black'
+                  }`}
+                >
+                  {practiceLineCoach.zone === 'brake'
+                    ? '🔴 BRAKE HARD NOW!'
+                    : practiceLineCoach.zone === 'coast'
+                    ? '🟡 LIFT & TURN IN (APEX)'
+                    : '🟢 FULL THROTTLE / ACCELERATE'}
+                </span>
+              </div>
+
+              <div className="w-[1px] h-6 bg-white/20" />
+
+              {/* Target Corner Speed */}
+              <div className="flex flex-col items-center leading-tight font-mono">
+                <span className="text-[9px] uppercase text-neutral-300 font-bold">TARGET SPEED</span>
+                <span className="text-sm font-black text-white">
+                  {Math.round(convertSpeed(practiceLineCoach.targetSpeedKmh, unitSystem))} {speedUnitLabel}
+                </span>
+              </div>
+
+              <div className="w-[1px] h-6 bg-white/20 hidden sm:block" />
+
+              {/* Optimal Racing Line Alignment Indicator */}
+              <div className="hidden sm:flex flex-col items-center leading-tight">
+                <span className="text-[9px] uppercase text-neutral-300 font-bold">RACING LINE POSITION</span>
+                <span
+                  className={`text-xs font-black uppercase ${
+                    Math.abs(practiceLineCoach.lineOffsetErrorMeters) <= 1.6
+                      ? 'text-emerald-300'
+                      : 'text-amber-300'
+                  }`}
+                >
+                  {Math.abs(practiceLineCoach.lineOffsetErrorMeters) <= 1.6
+                    ? '✓ ON OPTIMAL LINE'
+                    : practiceLineCoach.lineOffsetErrorMeters < 0
+                    ? `◄ DRIFT LEFT (${Math.abs(practiceLineCoach.lineOffsetErrorMeters).toFixed(1)}m)`
+                    : `DRIFT RIGHT (${Math.abs(practiceLineCoach.lineOffsetErrorMeters).toFixed(1)}m) ►`}
+                </span>
+              </div>
+            </div>
+          )}
+
+          <div className="flex items-center gap-4 bg-black/85 backdrop-blur-md px-6 py-3 rounded-2xl border border-white/15 shadow-2xl">
           {/* Radial Speedometer Gauge (Analog dial + digital readout) */}
           <div className="relative w-20 h-20 sm:w-28 sm:h-28 flex items-center justify-center shrink-0">
             <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
@@ -838,6 +954,7 @@ export const BroadcastHUD: React.FC<BroadcastHUDProps> = ({
               </span>
             </div>
           </div>
+          </div>
         </div>
 
         {/* Right: Track Radar Mini-Map & Controller Status */}
@@ -862,6 +979,9 @@ export const BroadcastHUD: React.FC<BroadcastHUDProps> = ({
             </div>
             <div className="text-[10px] text-neutral-400 flex flex-col items-end font-mono leading-tight">
               <span className="text-emerald-400/90 font-bold">[1] BLOCK • [2] YIELD • [3] PUSH</span>
+              {isPracticeMode && !isQualifyingMode && (
+                <span className="text-amber-300 font-bold">[L] TOGGLE RACING LINE</span>
+              )}
               <span>[E / A] BOOST / DRS</span>
               <span>[W / RT] THROTTLE</span>
               <span>[S / LT] BRAKE</span>

@@ -1,9 +1,11 @@
 import React, { useEffect, useRef, useMemo, useState } from 'react';
 import * as THREE from 'three';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { CircuitInfo, CameraView, SeasonState, Driver, Team } from '../types/racing';
 import { DRIVERS, TEAMS } from '../constants/f1Data';
 import { buildF1Car } from '../game/carBuilder';
 import { generateTrack } from '../game/trackGenerator';
+import { buildPracticeRacingLine, PracticeLineCoachData, BuiltRacingLine } from '../game/racingLineBuilder';
 import { PhysicsEngine } from '../game/physicsEngine';
 import { inputManager } from '../services/inputManager';
 import { soundEngine } from '../services/soundEngine';
@@ -32,6 +34,7 @@ interface RaceViewProps {
   onExitToPaddock: () => void;
   isPracticeMode?: boolean;
   practiceDifficulty?: 'rookie' | 'pro' | 'legend';
+  practiceBotCount?: number;
   isMultiplayer?: boolean;
   multiplayerRoom?: RoomPublicState | null;
   onOpenControls?: () => void;
@@ -52,6 +55,7 @@ export const RaceView: React.FC<RaceViewProps> = ({
   onExitToPaddock,
   isPracticeMode = false,
   practiceDifficulty,
+  practiceBotCount = 19,
   isMultiplayer = false,
   multiplayerRoom = null,
   onOpenControls,
@@ -70,6 +74,23 @@ export const RaceView: React.FC<RaceViewProps> = ({
   const [isMuted, setIsMuted] = useState(false);
   const [controllerState, setControllerState] = useState({ connected: false, id: '' });
   const [yellowFlagActive, setYellowFlagActive] = useState(false);
+
+  // Strictly Practice Mode Only: Optimal Racing Line & Braking/Acceleration Assist + Live Bot Removal
+  const isStrictPracticeMode = Boolean(isPracticeMode && !isQualifyingMode && !isMultiplayer);
+  const [showPracticeRacingLine, setShowPracticeRacingLine] = useState<boolean>(isStrictPracticeMode);
+  const [practiceLineCoach, setPracticeLineCoach] = useState<PracticeLineCoachData | null>(null);
+  const [activePracticeBots, setActivePracticeBots] = useState<number>(practiceBotCount ?? 19);
+  const showPracticeRacingLineRef = useRef<boolean>(isStrictPracticeMode);
+  useEffect(() => {
+    showPracticeRacingLineRef.current = isStrictPracticeMode && showPracticeRacingLine;
+  }, [isStrictPracticeMode, showPracticeRacingLine]);
+
+  const handleSetPracticeBotCount = (count: number) => {
+    setActivePracticeBots(count);
+    if (isStrictPracticeMode && physicsRef.current) {
+      physicsRef.current.setPracticeBotCount(count);
+    }
+  };
 
   // Stably memoize Player Team & Driver
   const playerTeam: Team = useMemo(() => {
@@ -149,10 +170,17 @@ export const RaceView: React.FC<RaceViewProps> = ({
     const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     renderer.setSize(width, height);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = circuit.id === 'abudhabi' ? 1.25 : 1.15;
+
+    // Studio & Sky Environment Reflection Probe for smooth metallic bodywork & clearcoat
+    const pmremGenerator = new THREE.PMREMGenerator(renderer);
+    const envTexture = pmremGenerator.fromScene(new RoomEnvironment(), 0.04).texture;
+    scene.environment = envTexture;
+    pmremGenerator.dispose();
 
     containerRef.current.appendChild(renderer.domElement);
 
@@ -215,7 +243,8 @@ export const RaceView: React.FC<RaceViewProps> = ({
       }
 
       const skyTex = new THREE.CanvasTexture(skyCanvas);
-      const skyGeom = new THREE.SphereGeometry(skyRadius, 32, 24);
+      skyTex.colorSpace = THREE.SRGBColorSpace;
+      const skyGeom = new THREE.SphereGeometry(skyRadius, 48, 32);
       const skyMat = new THREE.MeshBasicMaterial({ map: skyTex, side: THREE.BackSide });
       const skyMesh = new THREE.Mesh(skyGeom, skyMat);
       scene.add(skyMesh);
@@ -265,6 +294,8 @@ export const RaceView: React.FC<RaceViewProps> = ({
     sunLight.shadow.mapSize.width = 2048;
     sunLight.shadow.mapSize.height = 2048;
     sunLight.shadow.bias = -0.0003;
+    sunLight.shadow.normalBias = 0.02;
+    sunLight.shadow.radius = 1.5;
     const shadowSpan = 38;
     sunLight.shadow.camera.left = -shadowSpan;
     sunLight.shadow.camera.right = shadowSpan;
@@ -278,6 +309,14 @@ export const RaceView: React.FC<RaceViewProps> = ({
     // 4. Generate Circuit Mesh
     const track = generateTrack(circuit);
     scene.add(track.group);
+
+    // 4b. Practice Mode ONLY: 3D Optimal Racing Line & Braking/Acceleration Indicators
+    let practiceRacingLine: BuiltRacingLine | null = null;
+    if (isStrictPracticeMode) {
+      practiceRacingLine = buildPracticeRacingLine(track);
+      practiceRacingLine.group.visible = showPracticeRacingLineRef.current;
+      scene.add(practiceRacingLine.group);
+    }
 
     // 5. Build Player F1 Car
     const playerCar = buildF1Car(playerTeam, playerDriver);
@@ -308,11 +347,15 @@ export const RaceView: React.FC<RaceViewProps> = ({
         return aiCar;
       },
       {
-        botCount: isQualifyingMode ? 0 : effectiveBotCount,
-        hasTeammates: isQualifyingMode ? false : isMultiplayer && multiplayerRoom ? (effectiveBotCount === 0 ? false : multiplayerRoom.hasTeammates) : true,
+        botCount: effectiveBotCount,
+        hasTeammates: isMultiplayer && multiplayerRoom ? (effectiveBotCount === 0 ? false : multiplayerRoom.hasTeammates) : true,
         playerGridSlot: isQualifyingMode ? 1 : startingGridSlot,
+        isQualifyingMode: Boolean(isQualifyingMode),
       }
     );
+    if (isStrictPracticeMode) {
+      physics.setPracticeBotCount(practiceBotCount ?? 19);
+    }
     physicsRef.current = physics;
 
     // Helper: Build a prominent 3D hovering indicator & beacon over opponent's car
@@ -579,6 +622,20 @@ export const RaceView: React.FC<RaceViewProps> = ({
       // Update Physics Simulation
       physics.update(delta, input);
 
+      // Update Practice Mode 3D Optimal Racing Line & Braking/Acceleration Chevrons (ONLY in Practice Mode)
+      let latestCoachCue: PracticeLineCoachData | null = null;
+      if (practiceRacingLine && isStrictPracticeMode) {
+        practiceRacingLine.group.visible = showPracticeRacingLineRef.current;
+        if (showPracticeRacingLineRef.current) {
+          const playerSurf = track.checkSurfaceType(physics.playerPos, physics.playerProgress);
+          latestCoachCue = practiceRacingLine.update(
+            physics.playerProgress,
+            physics.playerSpeedKmh,
+            playerSurf.lateralOffset
+          );
+        }
+      }
+
       // Tail light flashing
       playerCar.flashTailLight(time / 1000);
 
@@ -649,6 +706,9 @@ export const RaceView: React.FC<RaceViewProps> = ({
         setLightsLit(physics.lightsLit);
         setLightsExtinguished(physics.lightsExtinguished);
         setYellowFlagActive(physics.yellowFlagActive);
+        if (isStrictPracticeMode) {
+          setPracticeLineCoach(showPracticeRacingLineRef.current ? latestCoachCue : null);
+        }
 
         const padStatus = inputManager.getControllerStatus();
         setControllerState({ connected: padStatus.connected, id: padStatus.id });
@@ -677,35 +737,58 @@ export const RaceView: React.FC<RaceViewProps> = ({
             ? physics.telemetry.lapTimeBest
             : (physics.telemetry.lapTimeCurrent && physics.telemetry.lapTimeCurrent > 20 ? physics.telemetry.lapTimeCurrent : 89.2);
 
-          // Calculate authentic qualifying simulation times for all 19 other F1 drivers based on official circuit lap record
-          const diffPace = (season.difficulty || 'pro') === 'rookie' ? 1.035 : (season.difficulty || 'pro') === 'legend' ? 0.985 : 1.008;
-          const [mStr, sStr] = (circuit.lapRecord || '1:30.000').split(':');
-          const recordSec = (parseFloat(mStr) || 1) * 60 + (parseFloat(sStr) || 30);
-          const baseCircTime = recordSec * diffPace;
+          const finalStandings = physics.getFinalStandings(playerDriver);
+          const playerStanding = finalStandings.find((s) => s.driver.id === playerDriver.id);
+          const playerPos = playerStanding?.position || physics.telemetry.position || 1;
 
-          const simulatedGrid = DRIVERS.filter((d) => d.id !== playerDriver.id).map((d) => {
-            const driverTeam = TEAMS.find((t) => t.id === d.teamId) || TEAMS[0];
-            const ratingBonus = ((d.rating || 85) - 80) * 0.085;
-            const jitter = (Math.random() * 0.44 - 0.22);
-            const lap = Math.max(50, Number((baseCircTime - ratingBonus + jitter).toFixed(3)));
-            return { driver: d, team: driverTeam, lapTime: lap };
+          // Build classification directly from actual on-track qualifying race against the 19 ghost rivals
+          const rawTimes: number[] = [];
+          finalStandings.forEach((entry, idx) => {
+            const rank = idx + 1;
+            if (entry.driver.id === playerDriver.id) {
+              rawTimes.push(Number(playerLap.toFixed(3)));
+            } else if (rank < playerPos) {
+              const aheadDelta = Math.max(
+                0.06 * (playerPos - rank),
+                entry.bestLapTime > 20 && entry.bestLapTime < playerLap
+                  ? playerLap - entry.bestLapTime
+                  : Math.abs(entry.gapToPlayerSeconds || (playerPos - rank) * 0.24)
+              );
+              rawTimes.push(Number(Math.max(35, playerLap - aheadDelta).toFixed(3)));
+            } else {
+              const behindDelta = Math.max(
+                0.06 * (rank - playerPos),
+                Math.abs(entry.gapToPlayerSeconds || (rank - playerPos) * 0.24)
+              );
+              rawTimes.push(Number((playerLap + behindDelta).toFixed(3)));
+            }
           });
 
-          const fullGrid = [
-            ...simulatedGrid,
-            { driver: playerDriver, team: playerTeam, lapTime: Number(playerLap.toFixed(3)) },
-          ].sort((a, b) => a.lapTime - b.lapTime);
+          for (let i = playerPos - 2; i >= 0; i--) {
+            if (rawTimes[i] >= rawTimes[i + 1]) {
+              rawTimes[i] = Number(Math.max(30, rawTimes[i + 1] - 0.065).toFixed(3));
+            }
+          }
+          for (let i = playerPos; i < rawTimes.length; i++) {
+            if (rawTimes[i] <= rawTimes[i - 1]) {
+              rawTimes[i] = Number((rawTimes[i - 1] + 0.065).toFixed(3));
+            }
+          }
 
-          const poleTime = fullGrid[0].lapTime;
-          const classification = fullGrid.map((entry, idx) => ({
-            position: idx + 1,
-            driver: entry.driver,
-            team: entry.team,
-            lapTime: entry.lapTime,
-            gap: Number((entry.lapTime - poleTime).toFixed(3)),
-          }));
-
-          const playerPos = classification.find((c) => c.driver.id === playerDriver.id)?.position || 1;
+          const poleTime = rawTimes[0] || playerLap;
+          const classification = finalStandings.map((entry, idx) => {
+            const dTeam = entry.driver.id === playerDriver.id
+              ? playerTeam
+              : (TEAMS.find((t) => t.id === entry.driver.teamId) || TEAMS[0]);
+            const lapTime = rawTimes[idx];
+            return {
+              position: idx + 1,
+              driver: entry.driver,
+              team: dTeam,
+              lapTime,
+              gap: Number((lapTime - poleTime).toFixed(3)),
+            };
+          });
 
           setTimeout(() => {
             onQualifyingComplete(playerPos, playerLap, classification);
@@ -754,6 +837,8 @@ export const RaceView: React.FC<RaceViewProps> = ({
         physicsRef.current?.issueTeamOrder('push');
       } else if (e.key === '4' || e.code === 'Digit4' || e.code === 'Numpad4') {
         physicsRef.current?.issueTeamOrder('neutral');
+      } else if (isStrictPracticeMode && (e.key === 'l' || e.key === 'L' || e.code === 'KeyL')) {
+        setShowPracticeRacingLine((prev) => !prev);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -831,6 +916,13 @@ export const RaceView: React.FC<RaceViewProps> = ({
           isQualifyingMode={isQualifyingMode}
           onIssueTeamOrder={handleIssueTeamOrder}
           onOpenControls={onOpenControls}
+          showPracticeRacingLine={isStrictPracticeMode ? showPracticeRacingLine : false}
+          onTogglePracticeRacingLine={
+            isStrictPracticeMode ? () => setShowPracticeRacingLine((prev) => !prev) : undefined
+          }
+          practiceLineCoach={isStrictPracticeMode && showPracticeRacingLine ? practiceLineCoach : null}
+          practiceBotCount={isStrictPracticeMode ? activePracticeBots : undefined}
+          onSetPracticeBotCount={isStrictPracticeMode ? handleSetPracticeBotCount : undefined}
         />
       )}
 

@@ -35,6 +35,11 @@ export interface AICarState {
   crashTimer: number;
   waitTimer: number; // Duration CPU car must wait after heavy crash
   protectionShieldTimer: number; // 3-second protection shield after recovery
+  lineBias?: number;
+  apexAmplitude?: number;
+  apexFreq?: number;
+  apexPhase?: number;
+  isHiddenByPracticeFilter?: boolean;
 }
 
 /**
@@ -125,6 +130,7 @@ export interface GridOptions {
   botCount?: number;
   hasTeammates?: boolean;
   playerGridSlot?: number;
+  isQualifyingMode?: boolean;
   peerPlayers?: {
     id: string;
     name: string;
@@ -232,6 +238,7 @@ export class PhysicsEngine {
   public playerDriver: Driver;
   public peerCars: Map<string, PeerCar> = new Map();
   public multiplayerMode: boolean = false;
+  public isQualifyingMode: boolean = false;
 
   constructor(
     public playerCar: BuiltCar,
@@ -354,7 +361,10 @@ export class PhysicsEngine {
     }
 
     // Grid placement
-    const playerStartingGrid = options?.playerGridSlot || (playerDriver.teamId === 'haas' ? 17 : Math.max(1, 21 - Math.floor(playerDriver.rating / 5)));
+    this.isQualifyingMode = Boolean(options?.isQualifyingMode);
+    const playerStartingGrid = this.isQualifyingMode
+      ? 1
+      : (options?.playerGridSlot || (playerDriver.teamId === 'haas' ? 17 : Math.max(1, 21 - Math.floor(playerDriver.rating / 5))));
 
     // Track slots occupied by remote peer players
     const peerSlotMap = new Map<number, NonNullable<GridOptions['peerPlayers']>[0]>();
@@ -366,10 +376,11 @@ export class PhysicsEngine {
 
     let aiIndex = 0;
     for (let gridPos = 1; gridPos <= 20; gridPos++) {
-      const slotDistBehind = 16 + gridPos * 9.0;
+      // In Qualifying Mode, all 20 cars start in the exact same spot (25m behind start line, centerline)
+      const slotDistBehind = this.isQualifyingMode ? 25.0 : 16 + gridPos * 9.0;
       const gridT = ((1.0 - slotDistBehind / this.track.trackLength) % 1.0 + 1.0) % 1.0;
       const { position, tangent, normal } = this.track.getTrackPointAtProgress(gridT);
-      const sideOffset = gridPos % 2 === 1 ? -2.4 : 2.4;
+      const sideOffset = this.isQualifyingMode ? 0 : (gridPos % 2 === 1 ? -2.4 : 2.4);
       const carPos = position.clone().addScaledVector(normal, sideOffset);
       carPos.y = position.y + 0.08;
       const heading = Math.atan2(-tangent.x, -tangent.z);
@@ -407,8 +418,39 @@ export class PhysicsEngine {
         builtCar.root.add(teammateBeacon);
       }
 
+      // In Qualifying Mode, render AI cars as pass-through ghost cars and hide them for the first few seconds
+      if (this.isQualifyingMode) {
+        builtCar.root.visible = false;
+        builtCar.root.traverse((obj) => {
+          if ((obj as THREE.Mesh).isMesh) {
+            const mesh = obj as THREE.Mesh;
+            if (Array.isArray(mesh.material)) {
+              mesh.material = mesh.material.map((m) => {
+                const clone = m.clone();
+                clone.transparent = true;
+                clone.opacity = 0.52;
+                clone.depthWrite = false;
+                return clone;
+              });
+            } else if (mesh.material) {
+              const clone = mesh.material.clone();
+              clone.transparent = true;
+              clone.opacity = 0.52;
+              clone.depthWrite = false;
+              mesh.material = clone;
+            }
+          }
+        });
+      }
+
       builtCar.root.position.copy(carPos);
       builtCar.root.rotation.y = heading;
+
+      // Give every AI driver a distinct racing line preference so not all drivers take the same line
+      const distinctLineBias = ((aiIndex % 9) - 4) * 1.45 + (aiIndex >= 9 ? 0.65 : -0.65);
+      const distinctApexAmp = 1.8 + (aiIndex % 5) * 0.6;
+      const distinctApexFreq = [4.0, 6.0, 8.0, 10.0][aiIndex % 4];
+      const distinctApexPhase = aiIndex * 1.15 + (driver.number % 7) * 0.55;
 
       this.aiCars.push({
         driver,
@@ -417,7 +459,12 @@ export class PhysicsEngine {
         progress: gridT,
         speedKmh: 0,
         lateralOffset: sideOffset,
-        targetOffset: sideOffset,
+        targetOffset: distinctLineBias,
+        lineBias: distinctLineBias,
+        apexAmplitude: distinctApexAmp,
+        apexFreq: distinctApexFreq,
+        apexPhase: distinctApexPhase,
+        isHiddenByPracticeFilter: false,
         smoothLateralVel: 0,
         steerAngle: 0,
         raceFormPace: (Math.random() - 0.5) * 16.0,
@@ -440,6 +487,15 @@ export class PhysicsEngine {
 
       aiIndex++;
     }
+  }
+
+  public setPracticeBotCount(count: number) {
+    const clamped = Math.max(0, Math.min(this.aiCars.length, count));
+    this.aiCars.forEach((ai, idx) => {
+      const hidden = idx >= clamped;
+      ai.isHiddenByPracticeFilter = hidden;
+      ai.builtCar.root.visible = !hidden;
+    });
   }
 
   public addPeerCar(
@@ -903,7 +959,7 @@ export class PhysicsEngine {
       this.slipstreamFactor = 0;
       if (this.playerSpeedKmh > 110 && this.raceState === 'racing') {
         for (const ai of this.aiCars) {
-          if (ai.finished || ai.isCrashed) continue;
+          if (ai.finished || ai.isCrashed || ai.isHiddenByPracticeFilter) continue;
           let deltaProgress = ai.progress - this.playerProgress;
           if (deltaProgress < -0.5) deltaProgress += 1.0;
           if (deltaProgress > 0.5) deltaProgress -= 1.0;
@@ -1125,8 +1181,8 @@ export class PhysicsEngine {
       this.playerPos.y = finalSurface.trackPoint.y + 0.08;
     }
 
-    // 4. Car-to-Car Collisions
-    if (this.raceState === 'racing') {
+    // 4. Car-to-Car Collisions (Disabled in Qualifying Mode so player can drive right through all ghost cars)
+    if (this.raceState === 'racing' && !this.isQualifyingMode) {
       this.handleCarCollisions(forwardVec, dt);
     }
 
@@ -1176,6 +1232,7 @@ export class PhysicsEngine {
     });
 
     for (const ai of this.aiCars) {
+      if (ai.isHiddenByPracticeFilter) continue;
       const isTeammate = Boolean(this.teammateDriverId && ai.driver.id === this.teammateDriverId);
       const aiPos = this.currentPositionsMap.get(ai.driver.id) || 20;
       radar.push({
@@ -1280,7 +1337,7 @@ export class PhysicsEngine {
     const collisionThreshold = 2.55; // Firm 2.55m vehicle hull threshold
 
     for (const ai of this.aiCars) {
-      if (ai.finished) continue;
+      if (ai.finished || ai.isHiddenByPracticeFilter) continue;
 
       // 3-SECOND PROTECTION SHIELD: If player or CPU recently recovered, protect against getting re-stuck!
       if (this.playerProtectionShieldTimer > 0 || ai.protectionShieldTimer > 0) {
@@ -1395,7 +1452,18 @@ export class PhysicsEngine {
       this.difficulty === 'rookie' ? 0.80 : this.difficulty === 'legend' ? 1.22 : 0.89;
 
     for (const ai of this.aiCars) {
+      if (ai.isHiddenByPracticeFilter) {
+        ai.builtCar.root.visible = false;
+        continue;
+      }
       if (ai.finished) continue;
+
+      // In Qualifying Mode: hide ghost cars during countdown and for the first 3.5 seconds of the lap, then reveal them
+      if (this.isQualifyingMode) {
+        ai.builtCar.root.visible = this.raceState === 'racing' && this.raceTimer >= 3.5;
+      } else {
+        ai.builtCar.root.visible = true;
+      }
 
       // Tick AI 3-second protection shield
       if (ai.protectionShieldTimer > 0) {
@@ -1555,84 +1623,86 @@ export class PhysicsEngine {
       }
 
       // FLUID RACING AI & ENHANCED CRASH AVOIDANCE:
-      // "make the cpu movements more fluid also make them try to avoid crashes a bit more"
+      // In Qualifying Ghost Mode, cars pass right through each other without obstacle braking or spin-outs
       let activeEvasiveSteer = 0;
       let directlyBlockedCarSpeed: number | null = null;
       let minDistanceToCarAhead = Infinity;
       const trackBarrierLimit = (this.track.barrierLimit || 18.4) - 2.0;
 
-      // 1. Proactively avoid Player Car (Lookahead up to 68 meters, early deceleration & fluid evasion)
-      let playerDeltaProg = this.playerProgress - ai.progress;
-      if (playerDeltaProg < -0.5) playerDeltaProg += 1.0;
-      if (playerDeltaProg > 0.5) playerDeltaProg -= 1.0;
-      const playerForwardM = playerDeltaProg * this.track.trackLength;
-      const playerLatOffset = this.track.checkSurfaceType(this.playerPos, this.playerProgress).lateralOffset;
-      const playerLatDiff = playerLatOffset - ai.lateralOffset;
-      const playerRealSpeed = Math.abs(this.playerSpeedKmh);
-      const isPlayerHazard = this.playerCrashWaitTimer > 0 || playerRealSpeed < 50;
-      const isPlayerTeammate = Boolean(this.teammateDriverId && ai.driver.id === this.teammateDriverId);
+      if (!this.isQualifyingMode) {
+        // 1. Proactively avoid Player Car (Lookahead up to 68 meters, early deceleration & fluid evasion)
+        let playerDeltaProg = this.playerProgress - ai.progress;
+        if (playerDeltaProg < -0.5) playerDeltaProg += 1.0;
+        if (playerDeltaProg > 0.5) playerDeltaProg -= 1.0;
+        const playerForwardM = playerDeltaProg * this.track.trackLength;
+        const playerLatOffset = this.track.checkSurfaceType(this.playerPos, this.playerProgress).lateralOffset;
+        const playerLatDiff = playerLatOffset - ai.lateralOffset;
+        const playerRealSpeed = Math.abs(this.playerSpeedKmh);
+        const isPlayerHazard = this.playerCrashWaitTimer > 0 || playerRealSpeed < 50;
+        const isPlayerTeammate = Boolean(this.teammateDriverId && ai.driver.id === this.teammateDriverId);
 
-      // Scan up to 68 meters ahead for player car (extra lookahead for high-speed safety)
-      if (playerForwardM > 0.3 && playerForwardM < 68.0 && Math.abs(playerLatDiff) < 4.2) {
-        // Optimal evasion lane (favor open track side away from barriers)
-        let evadeDir = playerLatDiff >= 0 ? -1 : 1;
-        if (ai.lateralOffset < -trackBarrierLimit + 3.0) evadeDir = 1;
-        if (ai.lateralOffset > trackBarrierLimit - 3.0) evadeDir = -1;
-
-        const proximity = Math.max(0.25, 1.0 - playerForwardM / 68.0);
-        // Extra respectful clearance for teammate so player and teammate never collide
-        const steerStrength = isPlayerTeammate ? 16.0 : 13.0;
-        activeEvasiveSteer += evadeDir * (steerStrength * proximity);
-        minDistanceToCarAhead = Math.min(minDistanceToCarAhead, playerForwardM);
-
-        // Proactive, progressive deceleration curve (no abrupt spikes, early speed matching)
-        if (ai.speedKmh > playerRealSpeed) {
-          const safeSpeed = Math.max(isPlayerHazard ? 25 : 55, playerRealSpeed + Math.max(0, playerForwardM - 7.0) * 3.8);
-          directlyBlockedCarSpeed = Math.min(directlyBlockedCarSpeed ?? Infinity, safeSpeed);
-        }
-      } else if (Math.abs(playerForwardM) <= 5.5 && Math.abs(playerLatDiff) < 3.2) {
-        // Side-by-side room courtesy
-        const sideDir = playerLatDiff >= 0 ? -1 : 1;
-        activeEvasiveSteer += sideDir * (isPlayerTeammate ? 9.0 : 6.5);
-      }
-
-      // 2. Proactively avoid & smoothly weave around other CPU cars
-      for (const otherAi of this.aiCars) {
-        if (otherAi.driver.id === ai.driver.id || otherAi.finished) continue;
-        let aiDeltaProg = otherAi.progress - ai.progress;
-        if (aiDeltaProg < -0.5) aiDeltaProg += 1.0;
-        if (aiDeltaProg > 0.5) aiDeltaProg -= 1.0;
-        const aiForwardM = aiDeltaProg * this.track.trackLength;
-        const aiLatDiff = otherAi.lateralOffset - ai.lateralOffset;
-        const otherIsHazard = otherAi.isSpinning || otherAi.isCrashed || otherAi.speedKmh < 50;
-
-        if (aiForwardM > 0.3 && aiForwardM < 62.0 && Math.abs(aiLatDiff) < 4.0) {
-          let evadeDir = aiLatDiff >= 0 ? -1 : 1;
+        // Scan up to 68 meters ahead for player car (extra lookahead for high-speed safety)
+        if (playerForwardM > 0.3 && playerForwardM < 68.0 && Math.abs(playerLatDiff) < 4.2) {
+          // Optimal evasion lane (favor open track side away from barriers)
+          let evadeDir = playerLatDiff >= 0 ? -1 : 1;
           if (ai.lateralOffset < -trackBarrierLimit + 3.0) evadeDir = 1;
           if (ai.lateralOffset > trackBarrierLimit - 3.0) evadeDir = -1;
 
-          const proximity = Math.max(0.25, 1.0 - aiForwardM / 62.0);
-          activeEvasiveSteer += evadeDir * (12.0 * proximity);
-          minDistanceToCarAhead = Math.min(minDistanceToCarAhead, aiForwardM);
+          const proximity = Math.max(0.25, 1.0 - playerForwardM / 68.0);
+          // Extra respectful clearance for teammate so player and teammate never collide
+          const steerStrength = isPlayerTeammate ? 16.0 : 13.0;
+          activeEvasiveSteer += evadeDir * (steerStrength * proximity);
+          minDistanceToCarAhead = Math.min(minDistanceToCarAhead, playerForwardM);
 
-          // If the car ahead is the player's teammate executing a team BLOCK order, hold up the rival!
-          const isOtherBlockingTeammate = Boolean(
-            this.teammateDriverId &&
-            otherAi.driver.id === this.teammateDriverId &&
-            this.teammateStrategy === 'block'
-          );
-
-          if (isOtherBlockingTeammate) {
-            // Rival cannot easily blast past the defensive line: forced to check up and brake!
-            const blockedSpeed = Math.min(otherAi.speedKmh * 0.94, Math.max(45, ai.speedKmh * 0.88));
-            directlyBlockedCarSpeed = Math.min(directlyBlockedCarSpeed ?? Infinity, blockedSpeed);
-          } else if (ai.speedKmh > otherAi.speedKmh) {
-            const safeSpeed = Math.max(otherIsHazard ? 25 : 55, otherAi.speedKmh + Math.max(0, aiForwardM - 6.0) * 3.8);
+          // Proactive, progressive deceleration curve (no abrupt spikes, early speed matching)
+          if (ai.speedKmh > playerRealSpeed) {
+            const safeSpeed = Math.max(isPlayerHazard ? 25 : 55, playerRealSpeed + Math.max(0, playerForwardM - 7.0) * 3.8);
             directlyBlockedCarSpeed = Math.min(directlyBlockedCarSpeed ?? Infinity, safeSpeed);
           }
-        } else if (Math.abs(aiForwardM) <= 5.2 && Math.abs(aiLatDiff) < 2.8) {
-          const sideDir = aiLatDiff >= 0 ? -1 : 1;
-          activeEvasiveSteer += sideDir * 6.0;
+        } else if (Math.abs(playerForwardM) <= 5.5 && Math.abs(playerLatDiff) < 3.2) {
+          // Side-by-side room courtesy
+          const sideDir = playerLatDiff >= 0 ? -1 : 1;
+          activeEvasiveSteer += sideDir * (isPlayerTeammate ? 9.0 : 6.5);
+        }
+
+        // 2. Proactively avoid & smoothly weave around other CPU cars
+        for (const otherAi of this.aiCars) {
+          if (otherAi.driver.id === ai.driver.id || otherAi.finished) continue;
+          let aiDeltaProg = otherAi.progress - ai.progress;
+          if (aiDeltaProg < -0.5) aiDeltaProg += 1.0;
+          if (aiDeltaProg > 0.5) aiDeltaProg -= 1.0;
+          const aiForwardM = aiDeltaProg * this.track.trackLength;
+          const aiLatDiff = otherAi.lateralOffset - ai.lateralOffset;
+          const otherIsHazard = otherAi.isSpinning || otherAi.isCrashed || otherAi.speedKmh < 50;
+
+          if (aiForwardM > 0.3 && aiForwardM < 62.0 && Math.abs(aiLatDiff) < 4.0) {
+            let evadeDir = aiLatDiff >= 0 ? -1 : 1;
+            if (ai.lateralOffset < -trackBarrierLimit + 3.0) evadeDir = 1;
+            if (ai.lateralOffset > trackBarrierLimit - 3.0) evadeDir = -1;
+
+            const proximity = Math.max(0.25, 1.0 - aiForwardM / 62.0);
+            activeEvasiveSteer += evadeDir * (12.0 * proximity);
+            minDistanceToCarAhead = Math.min(minDistanceToCarAhead, aiForwardM);
+
+            // If the car ahead is the player's teammate executing a team BLOCK order, hold up the rival!
+            const isOtherBlockingTeammate = Boolean(
+              this.teammateDriverId &&
+              otherAi.driver.id === this.teammateDriverId &&
+              this.teammateStrategy === 'block'
+            );
+
+            if (isOtherBlockingTeammate) {
+              // Rival cannot easily blast past the defensive line: forced to check up and brake!
+              const blockedSpeed = Math.min(otherAi.speedKmh * 0.94, Math.max(45, ai.speedKmh * 0.88));
+              directlyBlockedCarSpeed = Math.min(directlyBlockedCarSpeed ?? Infinity, blockedSpeed);
+            } else if (ai.speedKmh > otherAi.speedKmh) {
+              const safeSpeed = Math.max(otherIsHazard ? 25 : 55, otherAi.speedKmh + Math.max(0, aiForwardM - 6.0) * 3.8);
+              directlyBlockedCarSpeed = Math.min(directlyBlockedCarSpeed ?? Infinity, safeSpeed);
+            }
+          } else if (Math.abs(aiForwardM) <= 5.2 && Math.abs(aiLatDiff) < 2.8) {
+            const sideDir = aiLatDiff >= 0 ? -1 : 1;
+            activeEvasiveSteer += sideDir * 6.0;
+          }
         }
       }
 
@@ -1660,9 +1730,9 @@ export class PhysicsEngine {
         }
       }
 
-      // AI Crash / Mistake / Lock-up Simulation
+      // AI Crash / Mistake / Lock-up Simulation (Disabled in Qualifying Ghost Mode)
       const isHardCorner = cornerBaseKmh < 150;
-      if (isHardCorner && !ai.isSpinning && !ai.isCrashed && (this.raceTimer > 1.5 || this.countdownTimer > 2.0)) {
+      if (!this.isQualifyingMode && isHardCorner && !ai.isSpinning && !ai.isCrashed && (this.raceTimer > 1.5 || this.countdownTimer > 2.0)) {
         const difficultyMistakeDamp = this.difficulty === 'legend' ? 0.20 : this.difficulty === 'pro' ? 0.75 : 1.25;
         const mistakeChance = ((100 - ai.driver.rating) * 0.00025 + ai.driver.aggression * 0.0014) * difficultyMistakeDamp * dt;
         if (Math.random() < mistakeChance) {
@@ -1679,15 +1749,16 @@ export class PhysicsEngine {
         }
       }
 
-      // ULTRA-FLUID RACING LINE & PURE PURSUIT CORNERING:
-      // "make the cpu movements more fluid"
+      // ULTRA-FLUID RACING LINE & DISTINCT PER-DRIVER TRAJECTORIES:
       // Smoothly blend evasive offsets over time instead of single-frame step jumps
       const desiredEvasive = activeEvasiveSteer !== 0 ? Math.max(-4.0, Math.min(4.0, activeEvasiveSteer * 0.22)) : 0;
       ai.smoothEvasiveOffset = THREE.MathUtils.lerp(ai.smoothEvasiveOffset || 0, desiredEvasive, Math.min(1.0, dt * 5.0));
 
-      // Continuous harmonic racing line (smooth apex hugging, zero twitching)
-      const harmonicApexFlow = Math.sin(ai.progress * Math.PI * 6.0 + (ai.driver.number % 5)) * 1.5;
-      let targetLateral = ai.targetOffset * 0.5 + harmonicApexFlow + (ai.smoothEvasiveOffset || 0);
+      // Each driver follows their own distinct racing line (unique baseline bias, apex swing amplitude, frequency, and phase)
+      const driverLineBias = ai.lineBias ?? ai.targetOffset;
+      const primaryApexWave = Math.sin(ai.progress * Math.PI * (ai.apexFreq || 6.0) + (ai.apexPhase || 0)) * (ai.apexAmplitude || 2.5);
+      const secondaryCornerWave = Math.cos(ai.progress * Math.PI * 10.0 + (ai.driver.number * 1.3)) * 1.35;
+      let targetLateral = driverLineBias + primaryApexWave + secondaryCornerWave + (ai.smoothEvasiveOffset || 0);
       targetLateral = Math.max(-trackBarrierLimit, Math.min(trackBarrierLimit, targetLateral));
 
       // Silky-smooth critically damped spring transition (ultra-fluid, zero jerk or stepping)
@@ -1850,6 +1921,7 @@ export class PhysicsEngine {
     }
 
     for (const ai of this.aiCars) {
+      if (ai.isHiddenByPracticeFilter) continue;
       if (!this.finishedDriversOrder.includes(ai.driver.id)) {
         const aiLapProg = (ai.lap - 1) + ai.progress;
         entries.push({ id: ai.driver.id, isPlayer: false, score: aiLapProg });

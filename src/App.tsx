@@ -123,6 +123,7 @@ export default function App() {
   const [isPracticeMode, setIsPracticeMode] = useState(false);
   const [practiceCircuit, setPracticeCircuit] = useState<CircuitInfo | null>(null);
   const [practiceDifficulty, setPracticeDifficulty] = useState<'rookie' | 'pro' | 'legend'>('pro');
+  const [practiceBotCount, setPracticeBotCount] = useState<number>(19);
   const [lastRaceResult, setLastRaceResult] = useState<RaceResult | null>(null);
   const [showPodiumModal, setShowPodiumModal] = useState(false);
   const [championNotice, setChampionNotice] = useState<string | null>(null);
@@ -348,7 +349,7 @@ export default function App() {
     setInRace(true);
   };
 
-  const handleStartPractice = (circuit: CircuitInfo, laps: number, diff: 'rookie' | 'pro' | 'legend') => {
+  const handleStartPractice = (circuit: CircuitInfo, laps: number, diff: 'rookie' | 'pro' | 'legend', botCount: number = 19) => {
     // When playing practice, ensure any multiplayer room is cleanly closed and disbanded
     multiplayerService.closeRoom('Room closed because host started Free Practice.');
     setIsMultiplayerRace(false);
@@ -359,6 +360,7 @@ export default function App() {
     setIsQualifyingMode(false);
     setPracticeCircuit(circuit);
     setPracticeDifficulty(diff);
+    setPracticeBotCount(botCount);
     setRaceLaps(laps);
     setInRace(true);
   };
@@ -869,6 +871,7 @@ export default function App() {
           }}
           isPracticeMode={isPracticeMode}
           practiceDifficulty={isPracticeMode ? practiceDifficulty : undefined}
+          practiceBotCount={isPracticeMode ? practiceBotCount : undefined}
           isMultiplayer={isMultiplayerRace}
           multiplayerRoom={multiplayerRoom}
           onOpenControls={() => setShowButtonMappingModal(true)}
