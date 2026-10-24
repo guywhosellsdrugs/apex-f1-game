@@ -231,6 +231,38 @@ export interface SeasonHistoryEntry {
   totalEarnings: number;
 }
 
+export interface PublishedNewsReport {
+  id: string;
+  title: string;
+  content: string;
+  category: 'race_result' | 'championship' | 'transfer' | 'technical';
+  roundPublished: number;
+  timestamp: number;
+  accuracyScore: number; // 0 - 100
+  qualityScore: number; // 0 - 100
+  overallScore: number; // 0 - 100
+  verdict: 'verified_scoop' | 'solid_report' | 'mediocre' | 'inaccurate_flop';
+  verdictLabel: string;
+  factCheckNotes: string[];
+  readerReaction: string;
+  views: number;
+  revenueEarned: number;
+  subscriberDelta: number;
+  credibilityDelta: number;
+}
+
+export interface NewsCompanyConfig {
+  id: string;
+  name: string;
+  badgeCode: string;
+  editorialFocus: 'investigative' | 'technical' | 'insider';
+  foundedRound: number;
+  credibility: number; // 0 - 100%
+  subscribers: number;
+  totalRevenue: number;
+  publishedReports: PublishedNewsReport[];
+}
+
 export interface CareerProfile {
   driverName: string;
   driverNumber: number;
@@ -247,6 +279,7 @@ export interface CareerProfile {
   championships: number;
   constructorsChampionships?: number;
   customTeam: CustomTeamConfig | null;
+  newsCompany?: NewsCompanyConfig | null;
   seasonTransfersCount: number; // count of mid-season seat changes
   seasonNumber: number; // Season 1, Season 2, etc.
   seasonHistory: SeasonHistoryEntry[];
@@ -282,6 +315,7 @@ export interface RaceResult {
   fastestLapDriverId: string;
   fastestLapTime: number;
   driverPointsAwarded: Record<string, number>;
+  constructorPointsSnapshot?: Record<string, number>;
   prizeMoneyAwarded: number;
   lapsCompleted: number;
 }

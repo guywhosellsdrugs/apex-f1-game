@@ -4,7 +4,15 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { SeasonState, RaceResult, CustomTeamConfig, Driver, CircuitInfo } from './types/racing';
+import {
+  SeasonState,
+  RaceResult,
+  CustomTeamConfig,
+  Driver,
+  CircuitInfo,
+  NewsCompanyConfig,
+  PublishedNewsReport,
+} from './types/racing';
 import {
   CIRCUITS,
   TEAMS,
@@ -528,6 +536,46 @@ export default function App() {
     }));
   };
 
+  const handleFoundNewsCompany = (company: NewsCompanyConfig, startupFee: number) => {
+    setSeason((prev) => ({
+      ...prev,
+      career: {
+        ...prev.career,
+        careerEarnings: Math.max(0, prev.career.careerEarnings - startupFee),
+        newsCompany: company,
+      },
+    }));
+  };
+
+  const handlePublishNewsReport = (report: PublishedNewsReport) => {
+    setSeason((prev) => {
+      const currentCompany = prev.career.newsCompany;
+      if (!currentCompany) return prev;
+      const updatedCredibility = Math.max(
+        5,
+        Math.min(100, currentCompany.credibility + report.credibilityDelta)
+      );
+      const updatedSubscribers = Math.max(
+        500,
+        currentCompany.subscribers + report.subscriberDelta
+      );
+      return {
+        ...prev,
+        career: {
+          ...prev.career,
+          careerEarnings: prev.career.careerEarnings + report.revenueEarned,
+          newsCompany: {
+            ...currentCompany,
+            credibility: updatedCredibility,
+            subscribers: updatedSubscribers,
+            totalRevenue: currentCompany.totalRevenue + report.revenueEarned,
+            publishedReports: [report, ...currentCompany.publishedReports],
+          },
+        },
+      };
+    });
+  };
+
   const handleResetSeason = () => {
     setSeason((prev) => ({
       ...prev,
@@ -798,6 +846,7 @@ export default function App() {
       fastestLapDriverId: winnerDriver.id,
       fastestLapTime: bestLapTime,
       driverPointsAwarded: pointsAwarded,
+      constructorPointsSnapshot: { ...updatedConstructorPoints },
       prizeMoneyAwarded: totalPayout,
       lapsCompleted: raceLaps,
     };
@@ -903,6 +952,8 @@ export default function App() {
           onOpenTutorial={() => setShowTutorial(true)}
           onStartQualifying={handleStartQualifying}
           qualifyingGridSlot={qualifyingGridSlot}
+          onFoundNewsCompany={handleFoundNewsCompany}
+          onPublishNewsReport={handlePublishNewsReport}
         />
       )}
 

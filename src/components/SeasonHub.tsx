@@ -15,6 +15,8 @@ import {
   SponsorOption,
   SeasonHistoryEntry,
   CustomerTeamPUOffer,
+  NewsCompanyConfig,
+  PublishedNewsReport,
 } from '../types/racing';
 import {
   CIRCUITS,
@@ -67,10 +69,12 @@ import {
   HelpCircle,
   Timer,
   Newspaper,
+  BarChart3,
 } from 'lucide-react';
 import { soundEngine } from '../services/soundEngine';
 import { TrackLayoutPreview } from './TrackLayoutPreview';
 import { Newsfeed, BreakingNewsTicker } from './Newsfeed';
+import { PerformanceAnalytics } from './PerformanceAnalytics';
 import {
   UnitSystem,
   getStoredUnitSystem,
@@ -105,6 +109,8 @@ interface SeasonHubProps {
   onOpenTutorial?: () => void;
   onStartQualifying?: () => void;
   qualifyingGridSlot?: number | null;
+  onFoundNewsCompany?: (company: NewsCompanyConfig, startupFee: number) => void;
+  onPublishNewsReport?: (report: PublishedNewsReport) => void;
 }
 
 export const SeasonHub: React.FC<SeasonHubProps> = ({
@@ -130,8 +136,10 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
   onOpenTutorial,
   onStartQualifying,
   qualifyingGridSlot,
+  onFoundNewsCompany,
+  onPublishNewsReport,
 }) => {
-  const [activeTab, setActiveTab] = useState<'weekend' | 'newsfeed' | 'contracts' | 'myteam' | 'standings' | 'calendar' | 'records'>('weekend');
+  const [activeTab, setActiveTab] = useState<'weekend' | 'newsfeed' | 'analytics' | 'contracts' | 'myteam' | 'standings' | 'calendar' | 'records'>('weekend');
   const [selectedLaps, setSelectedLaps] = useState<number>(season.lapCount || 5);
   const [unitSystem, setUnitSystem] = useState<UnitSystem>(getStoredUnitSystem());
 
@@ -1021,7 +1029,19 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
             }`}
           >
             <Trophy className="w-3.5 h-3.5" />
-            <span>Championship Standings</span>
+            <span>Standings</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('analytics')}
+            className={`px-4 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-2 ${
+              activeTab === 'analytics'
+                ? 'bg-red-600 text-white shadow-md'
+                : 'text-neutral-400 hover:text-white hover:bg-neutral-800'
+            }`}
+          >
+            <BarChart3 className="w-3.5 h-3.5" />
+            <span>Performance Analytics</span>
           </button>
 
           <button
@@ -1400,11 +1420,37 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
         </div>
       )}
 
-      {/* TAB: PADDOCK NEWSFEED */}
+      {/* TAB: PADDOCK NEWSFEED & NEWS COMPANY */}
       {activeTab === 'newsfeed' && (
         <Newsfeed
           season={season}
           onNavigateToTab={(tab) => setActiveTab(tab)}
+          onFoundNewsCompany={(company, startupFee) => {
+            if (onFoundNewsCompany) {
+              onFoundNewsCompany(company, startupFee);
+              setNotificationMsg(
+                `OFFICIAL FIA MEDIA PRESS CREDENTIAL: Founded "${company.name}" [${company.badgeCode}]! Write accurate, high-quality paddock reports to earn subscriber & ad revenue.`
+              );
+            }
+          }}
+          onPublishNewsReport={(report) => {
+            if (onPublishNewsReport) {
+              onPublishNewsReport(report);
+              setNotificationMsg(
+                report.revenueEarned >= 10000
+                  ? `REPORT PUBLISHED (${report.verdictLabel}): Earned +${formatMoney(report.revenueEarned)} and +${report.subscriberDelta.toLocaleString()} subscribers!`
+                  : `REPORT DEMONETIZED (${report.verdictLabel}): Inaccurate or low-effort reporting earned only ${formatMoney(report.revenueEarned)} and lost ${Math.abs(report.subscriberDelta).toLocaleString()} subscribers.`
+              );
+            }
+          }}
+        />
+      )}
+
+      {/* TAB: PERFORMANCE ANALYTICS DASHBOARD */}
+      {activeTab === 'analytics' && (
+        <PerformanceAnalytics
+          season={season}
+          onStartRaceClick={() => setActiveTab('weekend')}
         />
       )}
 
