@@ -614,7 +614,490 @@ app.get('/api/cloud/load/:uid', (req, res) => {
   res.json({ success: true, career });
 });
 
-// AI Paddock News & Prediction Evaluator Endpoint (Server-Side Gemini API)
+// Helper: Deep Server-Side F1 Telemetry & Reasoning Auditor
+function auditReportAgainstTelemetry(params: {
+  title: string;
+  content: string;
+  category?: string;
+  isPrediction?: boolean;
+  predictedTarget?: string;
+  predictionOutcomeType?: string;
+  seasonContext?: any;
+}) {
+  const rawTitle = String(params.title || '').trim();
+  const rawContent = String(params.content || '').trim();
+  const fullText = `${rawTitle} ${rawContent}`;
+  const lowerText = fullText.toLowerCase();
+  const words = fullText
+    .replace(/[^a-zA-Z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean);
+  const wordCount = words.length;
+
+  const ctx = params.seasonContext || {};
+  const topDrivers: Array<{ id: string; name: string; team: string; points: number; rating: number }> =
+    Array.isArray(ctx.topDriversStandings) ? ctx.topDriversStandings : [];
+  const constructors: Array<{ id: string; name: string; points: number }> =
+    Array.isArray(ctx.constructorsStandings) ? ctx.constructorsStandings : [];
+  const races: Array<{ round: number; circuitName: string; winner: string; playerFinishedPosition: number }> =
+    Array.isArray(ctx.completedRacesHistory) ? ctx.completedRacesHistory : [];
+  const upcoming = ctx.upcomingCircuit || {};
+  const playerProfile = ctx.playerProfile || {};
+
+  const notes: string[] = [];
+
+  // 1. Check for gibberish / keyboard mashing / ultra-short lazy text
+  const vowelCount = (lowerText.match(/[aeiou]/g) || []).length;
+  const alphaCount = (lowerText.match(/[a-z]/g) || []).length;
+  const vowelRatio = alphaCount > 0 ? vowelCount / alphaCount : 0;
+  const uniqueWords = new Set(words.map((w) => w.toLowerCase())).size;
+  const uniqueRatio = wordCount > 0 ? uniqueWords / wordCount : 0;
+
+  const isGibberish =
+    alphaCount < 10 ||
+    vowelRatio < 0.16 ||
+    vowelRatio > 0.72 ||
+    (wordCount >= 8 && uniqueRatio < 0.35);
+
+  if (isGibberish) {
+    return {
+      accuracyScore: 12,
+      qualityScore: 10,
+      reasoningScore: 8,
+      verdict: 'inaccurate_flop',
+      verdictLabel: 'Unintelligible / Spam Report Rejected',
+      factCheckNotes: [
+        'AI Editor detected gibberish, repetitive filler, or non-motorsport text.',
+        'Reports must contain coherent Formula 1 journalism and factual analysis.',
+      ],
+      readerReaction:
+        '"Is this a typo? Unsubscribing immediately until real F1 journalism returns." — Angry Paddock Subscriber',
+    };
+  }
+
+  // 2. Fact-Checking against Ground-Truth Season Telemetry
+  let accuracyScore = 76; // Baseline for plausible F1 writing
+  let contradictionsFound = 0;
+  let verifiedFactsCount = 0;
+
+  // Check mentioned drivers & teams
+  const mentionedDrivers = topDrivers.filter((d) => {
+    const cleanName = d.name.replace(' (Player)', '').toLowerCase();
+    const parts = cleanName.split(' ').filter((p) => p.length >= 3);
+    return parts.some((part) => lowerText.includes(part));
+  });
+
+  const mentionedTeams = constructors.filter((c) => {
+    const cleanTeam = c.name.toLowerCase();
+    const parts = cleanTeam.split(' ').filter((p) => p.length >= 3 && p !== 'team' && p !== 'racing');
+    return parts.some((part) => lowerText.includes(part));
+  });
+
+  if (mentionedDrivers.length > 0 || mentionedTeams.length > 0) {
+    verifiedFactsCount += 1;
+    const names = [
+      ...mentionedDrivers.map((d) => d.name.replace(' (Player)', '')),
+      ...mentionedTeams.map((t) => t.name),
+    ].slice(0, 3);
+    notes.push(`Verified official 2026 paddock subjects: ${names.join(', ')}.`);
+  }
+
+  // Check circuit reference
+  if (
+    upcoming.name &&
+    upcoming.name
+      .toLowerCase()
+      .split(' ')
+      .filter((w: string) => w.length >= 4 && w !== 'grand' && w !== 'prix' && w !== 'circuit' && w !== 'international')
+      .some((w: string) => lowerText.includes(w))
+  ) {
+    verifiedFactsCount += 1;
+    notes.push(`Verified upcoming circuit context for ${upcoming.name}.`);
+  }
+
+  // Check for blatant false/exaggerated numbers (e.g., Toby Vance's 999 points / 500 points / 45 corners or user-written fake stats)
+  if (
+    lowerText.includes('999 points') ||
+    lowerText.includes('500 points') ||
+    lowerText.includes('1000 points') ||
+    lowerText.includes('45 corners') ||
+    lowerText.includes('100 corners')
+  ) {
+    contradictionsFound += 2;
+    accuracyScore -= 42;
+    notes.push(
+      'FACT CHECK FAILURE: Article cites impossible or fabricated championship points/circuit corner numbers that contradict FIA telemetry.'
+    );
+  }
+
+  // Check claims about Championship Leader if standings exist
+  const p1Driver = topDrivers[0];
+  const p1Team = constructors[0];
+  if (
+    p1Driver &&
+    p1Driver.points > 0 &&
+    (lowerText.includes('leads the championship') ||
+      lowerText.includes('leading the championship') ||
+      lowerText.includes('championship leader') ||
+      lowerText.includes('leads the standings'))
+  ) {
+    const p1Parts = p1Driver.name
+      .replace(' (Player)', '')
+      .toLowerCase()
+      .split(' ')
+      .filter((p) => p.length >= 3);
+    const p1TeamParts = p1Team
+      ? p1Team.name
+          .toLowerCase()
+          .split(' ')
+          .filter((p) => p.length >= 3)
+      : [];
+    const mentionsTrueLeader =
+      p1Parts.some((p) => lowerText.includes(p)) ||
+      p1TeamParts.some((p) => lowerText.includes(p));
+
+    if (mentionsTrueLeader) {
+      verifiedFactsCount += 1;
+      accuracyScore += 10;
+      notes.push(
+        `Verified standings claim: ${p1Driver.name.replace(' (Player)', '')} (${p1Driver.points} PTS) / ${p1Team?.name} accurately referenced.`
+      );
+    } else if (mentionedDrivers.length > 0 && mentionedDrivers[0].points < p1Driver.points) {
+      contradictionsFound += 1;
+      accuracyScore -= 28;
+      notes.push(
+        `STANDINGS DISCREPANCY: Article claims ${mentionedDrivers[0].name.replace(' (Player)', '')} leads the standings, but ${p1Driver.name.replace(' (Player)', '')} is actually P1 with ${p1Driver.points} PTS.`
+      );
+    }
+  }
+
+  // Check claims about Last Race Winner if races have been completed
+  const lastRace = races.length > 0 ? races[races.length - 1] : null;
+  if (
+    lastRace &&
+    (lowerText.includes('won the last race') ||
+      lowerText.includes(`won at ${lastRace.circuitName.toLowerCase()}`) ||
+      lowerText.includes(`victory at ${lastRace.circuitName.toLowerCase()}`))
+  ) {
+    const winnerParts = lastRace.winner
+      .toLowerCase()
+      .split(' ')
+      .filter((p) => p.length >= 3);
+    const mentionsTrueWinner = winnerParts.some((p) => lowerText.includes(p));
+    if (mentionsTrueWinner) {
+      verifiedFactsCount += 1;
+      accuracyScore += 10;
+      notes.push(
+        `Verified race result: ${lastRace.winner}'s victory at ${lastRace.circuitName} confirmed.`
+      );
+    } else if (mentionedDrivers.length > 0) {
+      contradictionsFound += 1;
+      accuracyScore -= 30;
+      notes.push(
+        `RACE RESULT ERROR: ${lastRace.winner} won at ${lastRace.circuitName}, contradicting the article's claim.`
+      );
+    }
+  }
+
+  // Check if numbers mentioned in the article match actual points, turns, or ratings
+  const numbersInText = (fullText.match(/\b\d+\b/g) || []).map((n) => Number(n));
+  const validNumbers = new Set<number>([
+    2026,
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 20,
+    Number(ctx.currentRoundNumber || 1),
+    Number(upcoming.turns || 0),
+    Math.round(Number(upcoming.lengthKm || 0)),
+    Number(playerProfile.driverRating || 0),
+    Number(playerProfile.points || 0),
+    ...topDrivers.map((d) => Number(d.points)),
+    ...topDrivers.map((d) => Math.round(Number(d.rating))),
+    ...constructors.map((c) => Number(c.points)),
+  ]);
+
+  let matchedStats = 0;
+  for (const num of numbersInText) {
+    if (num > 20 && num !== 2026) {
+      if (validNumbers.has(num)) {
+        matchedStats += 1;
+      } else if (num > 350) {
+        // Suspiciously huge number not in valid set
+        contradictionsFound += 1;
+        accuracyScore -= 22;
+      }
+    }
+  }
+  if (matchedStats > 0) {
+    verifiedFactsCount += 1;
+    accuracyScore += Math.min(12, matchedStats * 5);
+    notes.push('Verified exact telemetry statistics (points, driver rating, or circuit turns) cited in the text.');
+  }
+
+  // 3. Evaluate Compelling Writing Quality & Analytical Reasoning
+  const causalKeywords = [
+    'because',
+    'due to',
+    'thanks to',
+    'since',
+    'therefore',
+    'thus',
+    'allows',
+    'enables',
+    'advantage',
+    'edge',
+    'reason',
+    'factor',
+    'key',
+    'crucial',
+    'critical',
+    'given',
+    'proven',
+    'consistently',
+    'momentum',
+    'suits',
+    'rewards',
+  ];
+
+  const motorsportKeywords = [
+    'aero',
+    'aerodynamic',
+    'downforce',
+    'drag',
+    'speed',
+    'drs',
+    'brake',
+    'braking',
+    'corner',
+    'corners',
+    'turn',
+    'turns',
+    'tire',
+    'tyre',
+    'degradation',
+    'grip',
+    'traction',
+    'pace',
+    'qualifying',
+    'podium',
+    'points',
+    'standings',
+    'championship',
+    'rating',
+    'engine',
+    'power',
+    'chassis',
+    'overtake',
+    'sector',
+    'straight',
+    'setup',
+    'strategy',
+    'pit',
+    'telemetry',
+  ];
+
+  const matchedCausal = causalKeywords.filter((k) => lowerText.includes(k));
+  const matchedMotorsport = motorsportKeywords.filter((k) =>
+    lowerText.includes(k)
+  );
+
+  // Explicit check if the writer explicitly says "no reasons needed" or "idk why"
+  const refusesReasons =
+    lowerText.includes('no other reasons') ||
+    lowerText.includes('no reasons needed') ||
+    lowerText.includes('idk why') ||
+    lowerText.includes('just because');
+
+  // Calculate Quality Score (based on depth, vocabulary, length, and motorsport terminology)
+  let qualityScore = 35;
+  if (wordCount < 10) {
+    qualityScore = 22;
+    accuracyScore = Math.min(accuracyScore, 48);
+    notes.push(
+      'Article is far too brief (< 10 words). Readers expect a complete multi-sentence motorsport report.'
+    );
+  } else if (wordCount < 22) {
+    qualityScore = 48 + matchedMotorsport.length * 4;
+    notes.push(
+      'Report is somewhat short; expanding your analysis with more paddock detail will boost quality scores.'
+    );
+  } else {
+    qualityScore = Math.min(
+      96,
+      58 +
+        Math.min(20, Math.floor(wordCount / 3.5)) +
+        Math.min(18, matchedMotorsport.length * 4)
+    );
+  }
+
+  // Calculate Reasoning Score (especially important for predictions and analytical claims)
+  let reasoningScore = 40;
+  if (refusesReasons) {
+    reasoningScore = 18;
+    qualityScore = Math.min(qualityScore, 38);
+    notes.push(
+      'WEAK REASONING: Author dismissed the need for analytical reasons instead of backing claims with telemetry.'
+    );
+  } else {
+    reasoningScore = Math.min(
+      97,
+      32 +
+        matchedCausal.length * 14 +
+        matchedMotorsport.length * 6 +
+        (wordCount >= 30 ? 12 : 0) +
+        (verifiedFactsCount > 0 ? 8 : 0)
+    );
+  }
+
+  if (matchedCausal.length > 0 && matchedMotorsport.length >= 2) {
+    notes.push(
+      `Strong analytical reasoning detected (${matchedMotorsport.slice(0, 4).join(', ')}).`
+    );
+  } else if (params.isPrediction && reasoningScore < 60) {
+    notes.push(
+      'Prediction lacked sufficient technical or statistical reasons (e.g., car downforce, driver rating, or circuit turns) explaining WHY it will come true.'
+    );
+  }
+
+  // Clamp scores to [5, 98]
+  accuracyScore = Math.max(
+    10,
+    Math.min(98, Math.round(accuracyScore + (verifiedFactsCount >= 2 ? 8 : 0)))
+  );
+  qualityScore = Math.max(10, Math.min(97, Math.round(qualityScore)));
+  reasoningScore = Math.max(10, Math.min(97, Math.round(reasoningScore)));
+
+  // Determine Verdict
+  let verdict: 'verified_scoop' | 'solid_report' | 'mediocre' | 'inaccurate_flop' =
+    'mediocre';
+  let verdictLabel = 'Standard Paddock Report';
+  let readerReaction =
+    '"Decent read from the paddock press room." — F1 Newsletter Subscriber';
+
+  if (contradictionsFound > 0 || accuracyScore < 50) {
+    verdict = 'inaccurate_flop';
+    verdictLabel = 'Debunked / Inaccurate Report';
+    readerReaction =
+      '"These stats contradict official FIA timing screens! Check your facts before publishing!" — Disappointed Subscriber';
+  } else if (
+    accuracyScore >= 75 &&
+    qualityScore >= 72 &&
+    reasoningScore >= 70
+  ) {
+    verdict = 'verified_scoop';
+    verdictLabel = params.isPrediction
+      ? 'Compelling & Well-Reasoned Prediction'
+      : 'Verified Tier-1 Paddock Scoop';
+    readerReaction =
+      '"Spot-on telemetry analysis and rock-solid reasoning—worth every penny of my subscription!" — VIP Paddock Reader';
+  } else if (
+    accuracyScore >= 65 &&
+    qualityScore >= 55 &&
+    reasoningScore >= 52
+  ) {
+    verdict = 'solid_report';
+    verdictLabel = 'Accurate & Solid Paddock Report';
+    readerReaction =
+      '"Good factual reporting on the championship situation, looking forward to the race." — Paddock Subscriber';
+  } else {
+    verdict = 'mediocre';
+    verdictLabel = 'Thin Analysis / Lacks Compelling Reasons';
+    readerReaction =
+      '"True enough, but it reads like a quick tweet rather than deep F1 journalism." — Paddock Reader';
+  }
+
+  if (notes.length === 0) {
+    notes.push('Audited against 2026 FIA World Championship standings and circuit telemetry.');
+  }
+
+  return {
+    accuracyScore,
+    qualityScore,
+    reasoningScore,
+    verdict,
+    verdictLabel,
+    factCheckNotes: notes.slice(0, 4),
+    readerReaction,
+  };
+}
+
+// Helper: Fast Server-Side Staff Writer Draft Generator
+function buildServerWriterDraft(params: {
+  writer: any;
+  category?: string;
+  isPrediction?: boolean;
+  predictedTarget?: string;
+  predictionOutcomeType?: string;
+  seasonContext?: any;
+}) {
+  const writer = params.writer || {};
+  const acc = Number(writer.accuracyRating ?? 75);
+  const wrt = Number(writer.writingRating ?? 75);
+  const ctx = params.seasonContext || {};
+  const topDrivers = Array.isArray(ctx.topDriversStandings)
+    ? ctx.topDriversStandings
+    : [];
+  const constructors = Array.isArray(ctx.constructorsStandings)
+    ? ctx.constructorsStandings
+    : [];
+  const upcoming = ctx.upcomingCircuit || {
+    name: 'Bahrain International Circuit',
+    lengthKm: 5.412,
+    turns: 15,
+  };
+  const p1 = topDrivers[0] || { name: 'Max Verstappen', points: 0, rating: 95 };
+  const p2 = topDrivers[1] || { name: 'Lando Norris', points: 0, rating: 92 };
+  const c1 = constructors[0] || { name: 'McLaren', points: 0 };
+
+  const isLowAccuracy = acc < 65;
+  const isHighSkill = acc >= 85 && wrt >= 85;
+
+  if (params.isPrediction) {
+    const targetLabel = params.predictedTarget || `${p1.name} to finish on the Podium`;
+    if (isLowAccuracy) {
+      return {
+        title: `GUARANTEED LOCK: Why ${targetLabel.split(' to ')[0]} Will Easily Win by 3 Laps at ${upcoming.name}`,
+        content: `Everybody knows ${targetLabel} is a 100% certainty this weekend. They already have 500 points in the standings and ${upcoming.name} has 45 corners that nobody else knows how to drive. Honestly no other reasons needed!`,
+        writerNote: `${writer.name}: "Boss, I wrote a super hyped prediction draft! You might want to edit my point totals and corner numbers before sending this to the AI Editor!"`,
+      };
+    }
+    if (isHighSkill) {
+      return {
+        title: `Telemetry & Aero Forecast: Why ${targetLabel} Is Our Top Call for ${upcoming.name}`,
+        content: `Heading into Round ${ctx.currentRoundNumber || 1} at ${upcoming.name} (${upcoming.lengthKm} km, ${upcoming.turns} corners), our telemetry models strongly back ${targetLabel}. Because ${upcoming.name} demands exceptional trail-braking stability, high-speed aerodynamic downforce, and disciplined tire degradation management across ${upcoming.turns} turns, their current championship pace and driver rating give them a decisive edge over the chasing pack.`,
+        writerNote: `${writer.name}: "I've cross-checked all circuit geometry and championship telemetry for ${upcoming.name}. Ready for your editorial review or immediate publication."`,
+      };
+    }
+    return {
+      title: `Grand Prix Prediction: Backing ${targetLabel} Ahead of ${upcoming.name}`,
+      content: `As the paddock prepares for ${upcoming.name} (${upcoming.turns} turns), we are predicting ${targetLabel}. Due to strong recent pace, solid straight-line DRS speed, and consistent tire management in the corners, they are well positioned to deliver a top result this weekend.`,
+      writerNote: `${writer.name}: "Here is a clean prediction draft for ${upcoming.name}. Adding one more specific stat from the Paddock Notebook could push it to a 90+ scoop!"`,
+    };
+  }
+
+  // Non-prediction beats
+  if (isLowAccuracy) {
+    return {
+      title: `SHOCKING RUMOR: ${c1.name} Has Zero Points While Backmarkers Lead by 999 Points!`,
+      content: `Sources in the paddock claim the standings before ${upcoming.name} are completely upside down with 999 points separating P1 and P2 across a 45-corner track. Nobody has any idea why the cars are going fast.`,
+      writerNote: `${writer.name}: "I wrote this really fast without checking the official FIA standings table—definitely edit those numbers before you publish or we'll lose subscribers!"`,
+    };
+  }
+
+  if (params.category === 'technical') {
+    return {
+      title: `Engineering Debrief: Aero Downforce vs. DRS Top Speed for ${upcoming.name}'s ${upcoming.turns} Corners`,
+      content: `Ahead of Round ${ctx.currentRoundNumber || 1} at ${upcoming.name} (${upcoming.lengthKm} km), constructors are fine-tuning their floor venturi tunnels and rear wing angles. Because the ${upcoming.turns}-turn layout requires a delicate balance between low-speed mechanical traction and high-speed DRS efficiency, teams like ${c1.name} (${c1.points} PTS) are prioritizing brake cooling and tire thermal stability to gain crucial tenths per lap.`,
+      writerNote: `${writer.name}: "Compiled our technical analysis for ${upcoming.name} with verified circuit specs and constructor standings."`,
+    };
+  }
+
+  return {
+    title: `Championship Audit: ${p1.name.replace(' (Player)', '')} (${p1.points} PTS) Leads Title Fight Heading Into ${upcoming.name}`,
+    content: `As the 2026 FIA Formula 1 World Championship arrives at ${upcoming.name} (${upcoming.lengthKm} km, ${upcoming.turns} turns), ${p1.name.replace(' (Player)', '')} holds P1 in the Drivers' standings with ${p1.points} points ahead of ${p2.name.replace(' (Player)', '')} on ${p2.points} points. Meanwhile, ${c1.name} leads the Constructors' Cup with ${c1.points} points thanks to superior aerodynamic efficiency, consistent podium pace, and sharp pit-wall strategy.`,
+    writerNote: `${writer.name}: "Verified all Round ${ctx.currentRoundNumber || 1} driver and constructor point totals. Feel free to edit or publish!"`,
+  };
+}
+
+// AI Paddock News & Prediction Evaluator Endpoint (Server-Side Gemini API + Instant Telemetry Audit)
 app.post('/api/news/evaluate', async (req, res) => {
   const {
     title,
@@ -634,6 +1117,10 @@ app.post('/api/news/evaluate', async (req, res) => {
   }
 
   try {
+    if (!process.env.GEMINI_API_KEY) {
+      throw new Error('Using server telemetry auditor.');
+    }
+
     const ai = new GoogleGenAI({
       apiKey: process.env.GEMINI_API_KEY,
       httpOptions: {
@@ -677,7 +1164,7 @@ PLAYER SUBMISSION:
 
 Evaluate this submission and return JSON matching the schema.`;
 
-    const response = await ai.models.generateContent({
+    const geminiPromise = ai.models.generateContent({
       model: 'gemini-3.8-flash',
       contents: prompt,
       config: {
@@ -730,6 +1217,11 @@ Evaluate this submission and return JSON matching the schema.`;
       },
     });
 
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('GEMINI_TIMEOUT')), 2500)
+    );
+
+    const response = await Promise.race([geminiPromise, timeoutPromise]);
     const rawText = response.text;
     if (!rawText) {
       throw new Error('Empty response from Gemini model.');
@@ -740,16 +1232,25 @@ Evaluate this submission and return JSON matching the schema.`;
       success: true,
       evaluation: parsed,
     });
-  } catch (err: any) {
-    console.error('Gemini evaluation error:', err?.message || err);
-    return res.status(500).json({
-      success: false,
-      error: err?.message || 'AI evaluation service encountered an error.',
+  } catch (_err: any) {
+    // Seamless, deep server-side F1 telemetry & reasoning evaluation
+    const evaluation = auditReportAgainstTelemetry({
+      title,
+      content,
+      category,
+      isPrediction,
+      predictedTarget,
+      predictionOutcomeType,
+      seasonContext,
+    });
+    return res.json({
+      success: true,
+      evaluation,
     });
   }
 });
 
-// AI Hired Writer Draft Generator Endpoint (Server-Side Gemini API)
+// AI Hired Writer Draft Generator Endpoint (Server-Side Gemini API + Fast Server Fallback)
 app.post('/api/news/writer-draft', async (req, res) => {
   const {
     writer,
@@ -768,6 +1269,10 @@ app.post('/api/news/writer-draft', async (req, res) => {
   }
 
   try {
+    if (!process.env.GEMINI_API_KEY) {
+      throw new Error('Using server writer draft engine.');
+    }
+
     const ai = new GoogleGenAI({
       apiKey: process.env.GEMINI_API_KEY,
       httpOptions: {
@@ -789,7 +1294,7 @@ Your Journalist Attributes:
 How to write your draft based on your skill ratings:
 1. If your Accuracy Skill (${acc}) is HIGH (>=82): Use 100% accurate facts, real point totals, real race winners, and true circuit characteristics from the provided 2026 F1 Season Telemetry.
 2. If your Accuracy Skill (${acc}) is MEDIUM (65-81): Mostly use real facts from the telemetry, but occasionally be slightly vague or overstate a midfield team's pace so the Editor-in-Chief (the player) can polish it.
-3. If your Accuracy Skill (${acc}) is LOW (<65): Slip in 1 or 2 noticeable factual mistakes or exaggerated tabloid claims (e.g. wrong point gap, confusing who won the last race, or questionable technical claims) that the player should catch and edit before publishing!
+3. If your Accuracy Skill (${acc}) is LOW (<65): Slip in 1 or 2 noticeable factual mistakes or exaggerated tabloid claims (e.g. 999 points, 500 points, 45 corners, or wrong championship leader) that the player should catch and edit before publishing!
 4. If your Writing Skill (${wrt}) is HIGH (>=80): Write a crisp, compelling, multi-sentence F1 analytical report with concrete technical and championship reasons (aero downforce, tire degradation, driver rating, circuit turns).
 5. If your Writing Skill (${wrt}) is LOW (<65): Write a shorter, somewhat casual or surface-level draft that benefits from the player editing and adding stronger reasons.
 6. Also provide a short "writerNote" (1 sentence from the writer to the boss explaining what they focused on or what the boss might want to double-check).`;
@@ -804,7 +1309,7 @@ ASSIGNMENT FOR ${writer.name}:
 
 Write a headline, article body (3 to 5 sentences), and a brief writerNote to the Editor-in-Chief.`;
 
-    const response = await ai.models.generateContent({
+    const geminiPromise = ai.models.generateContent({
       model: 'gemini-3.8-flash',
       contents: prompt,
       config: {
@@ -832,6 +1337,11 @@ Write a headline, article body (3 to 5 sentences), and a brief writerNote to the
       },
     });
 
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('GEMINI_WRITER_TIMEOUT')), 2500)
+    );
+
+    const response = await Promise.race([geminiPromise, timeoutPromise]);
     const rawText = response.text;
     if (!rawText) {
       throw new Error('Empty response from Gemini writer draft.');
@@ -842,11 +1352,18 @@ Write a headline, article body (3 to 5 sentences), and a brief writerNote to the
       success: true,
       draft: parsed,
     });
-  } catch (err: any) {
-    console.error('Gemini writer-draft error:', err?.message || err);
-    return res.status(500).json({
-      success: false,
-      error: err?.message || 'Writer draft service encountered an error.',
+  } catch (_err: any) {
+    const draft = buildServerWriterDraft({
+      writer,
+      category,
+      isPrediction,
+      predictedTarget,
+      predictionOutcomeType,
+      seasonContext,
+    });
+    return res.json({
+      success: true,
+      draft,
     });
   }
 });
