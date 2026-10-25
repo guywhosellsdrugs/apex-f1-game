@@ -987,37 +987,39 @@ export const CIRCUITS: CircuitInfo[] = [
     turns: 19,
     lapRecord: '1:12.909',
     recordHolder: 'Lewis Hamilton',
-    description: 'The crown jewel of motorsport. Glamour through Casino Square, the iconic Fairmont Hairpin, the dark tunnel, and the harbor chicane.',
+    description: 'The crown jewel of motorsport. Glamour through Casino Square, the iconic Fairmont Hairpin, the fast seafront tunnel, and the harbor chicane with wide-open apex sightlines.',
     skyColor: 0x3b82f6,
     fogColor: 0x60a5fa,
     ambientLight: 0.92,
     timeOfDay: 'day',
     trackPoints: createTrackSpline([
-      [0, 0.25, 0],
-      [0, 0.25, -110],
-      [0, 0.25, -200],
-      [45, 0.4, -260], // Sainte Devote
-      [85, 0.75, -245],
-      [115, 1.85, -165], // Beau Rivage uphill
-      [145, 2.7, -85],
-      [165, 3.25, -5], // Massenet
-      [140, 2.9, 55], // Casino Square crest
-      [175, 2.2, 115], // Mirabeau Haute
-      [215, 1.55, 125], // Fairmont Hairpin
-      [235, 1.35, 155],
-      [195, 1.05, 165],
-      [155, 0.55, 215], // Portier
-      [185, 0.28, 265],
-      [225, 0.25, 345], // Tunnel flat out blast
-      [205, 0.25, 435],
-      [155, 0.25, 495],
-      [95, 0.25, 465], // Nouvelle Chicane
-      [65, 0.25, 405],
-      [45, 0.25, 325], // Tabac
-      [15, 0.25, 245], // Swimming Pool
-      [30, 0.25, 165],
-      [-15, 0.25, 105], // Rascasse
-      [-40, 0.25, 55],
+      [0, 0.25, 0], // Start/Finish on Boulevard Albert 1er
+      [0, 0.25, -115], // Main straight
+      [0, 0.25, -225], // Sainte Devote braking zone
+      [35, 0.32, -305], // Sainte Devote Turn 1 wide entry
+      [105, 0.45, -335], // Sainte Devote open apex
+      [175, 0.65, -295], // Sainte Devote exit onto Beau Rivage
+      [220, 0.90, -205], // Beau Rivage gradual climb (unobstructed sightline)
+      [255, 1.15, -105], // Massenet approach
+      [275, 1.25, 0], // Massenet sweeping right
+      [265, 1.20, 95], // Casino Square smooth flow (zero blind crest)
+      [295, 1.05, 185], // Mirabeau Haute entry
+      [355, 0.90, 235], // Fairmont Hairpin wide entry
+      [395, 0.75, 310], // Fairmont Hairpin outer sweep
+      [365, 0.60, 390], // Fairmont Hairpin open apex
+      [295, 0.45, 430], // Fairmont Hairpin exit toward Portier
+      [245, 0.32, 505], // Portier smooth sweep onto seafront
+      [225, 0.25, 600], // Tunnel high-speed sweep
+      [175, 0.25, 685], // Tunnel exit braking zone
+      [105, 0.25, 725], // Nouvelle Harbor Chicane wide entry
+      [30, 0.25, 705], // Nouvelle Harbor Chicane apex
+      [-25, 0.25, 635], // Tabac approach along Port Hercule
+      [-55, 0.25, 535], // Tabac fast sweeper
+      [-75, 0.25, 425], // Swimming Pool (Piscine) entry
+      [-85, 0.25, 310], // Swimming Pool exit
+      [-75, 0.25, 200], // La Rascasse wide entry
+      [-40, 0.25, 105], // Anthony Noghès smooth exit
+      [-10, 0.25, 45], // Aligning onto Boulevard Albert 1er straight
     ]),
   },
 

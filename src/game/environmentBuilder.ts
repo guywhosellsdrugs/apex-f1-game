@@ -593,37 +593,11 @@ function buildMonzaEnvironment(
 // SILVERSTONE: THE WING PADDOCK & AIRFIELD
 // ==========================================
 function buildSilverstoneEnvironment(
-  curve: THREE.CatmullRomCurve3,
-  isClearOfTrack: (pos: THREE.Vector3, minSafeRadius?: number) => boolean,
-  group: THREE.Group
+  _curve: THREE.CatmullRomCurve3,
+  _isClearOfTrack: (pos: THREE.Vector3, minSafeRadius?: number) => boolean,
+  _group: THREE.Group
 ) {
-  const up = new THREE.Vector3(0, 1, 0);
-  const sPt = curve.getPointAt(0.01);
-  const sTan = curve.getTangentAt(0.01).normalize();
-  const sR = new THREE.Vector3().crossVectors(sTan, up).normalize();
-  const wingPos = sPt.clone().addScaledVector(sR, -45);
-
-  if (isClearOfTrack(wingPos, 38.0)) {
-    const wingBuilding = new THREE.Group();
-    const base = new THREE.Mesh(
-      new THREE.BoxGeometry(95, 15, 24),
-      new THREE.MeshStandardMaterial({ color: 0x1f242d, metalness: 0.75, roughness: 0.25 })
-    );
-    base.position.set(0, 7.5, 0);
-    wingBuilding.add(base);
-
-    const roof = new THREE.Mesh(
-      new THREE.BoxGeometry(105, 2.0, 32),
-      new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: 0.85, roughness: 0.2 })
-    );
-    roof.position.set(0, 16.5, 0);
-    roof.rotation.x = 0.14;
-    wingBuilding.add(roof);
-
-    wingBuilding.position.set(wingPos.x, sPt.y, wingPos.z);
-    wingBuilding.lookAt(wingPos.clone().add(sTan));
-    group.add(wingBuilding);
-  }
+  // Building removed to keep the British GP track completely clear
 }
 
 // ==========================================

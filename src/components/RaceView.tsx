@@ -652,31 +652,54 @@ export const RaceView: React.FC<RaceViewProps> = ({
       camera.fov = 65 + (Math.abs(speed) / 360) * 12;
       camera.updateProjectionMatrix();
 
-      // Camera Positioning
+      // Camera Positioning with dynamic corner-apex look-to-steer & crest sightline compensation
       const forward = new THREE.Vector3(-Math.sin(heading), 0, -Math.cos(heading));
       const up = new THREE.Vector3(0, 1, 0);
 
-      // Dynamic lookahead along track curve to give wide, open sightlines around every corner (No Blind Corners!)
-      const lookaheadT = (physics.playerProgress + 0.024) % 1.0;
-      const trackAhead = physics.track.getTrackPointAtProgress(lookaheadT).position;
+      // Multi-point lookahead along track curve so tight corners & crests are 100% visible (Zero Blind Corners!)
+      const nowSample = physics.track.getTrackPointAtProgress(physics.playerProgress);
+      const nearAheadSample = physics.track.getTrackPointAtProgress((physics.playerProgress + 0.015) % 1.0);
+      const farAheadSample = physics.track.getTrackPointAtProgress((physics.playerProgress + 0.028) % 1.0);
+      const trackAhead = nearAheadSample.position.clone().lerp(farAheadSample.position, 0.45);
+
+      // Measure upcoming corner curvature to dynamically increase apex look-in
+      const cornerDot = THREE.MathUtils.clamp(nowSample.tangent.dot(farAheadSample.tangent), -1, 1);
+      const cornerIntensity = Math.min(1.0, Math.acos(cornerDot) / 0.55);
 
       let targetCamPos = new THREE.Vector3();
       let targetLook = new THREE.Vector3();
 
       const activeView = cameraViewRef.current;
       if (activeView === 'chase') {
-        targetCamPos = carPos.clone().addScaledVector(forward, -7.2).addScaledVector(up, 2.6);
-        // Blend forward projection with track curvature lookahead to see clearly through the apex
-        targetLook = carPos.clone().addScaledVector(forward, 16.0).lerp(trackAhead, 0.4).addScaledVector(up, 0.95);
+        const camLift = 2.65 + cornerIntensity * 0.35;
+        targetCamPos = carPos.clone().addScaledVector(forward, -7.2).addScaledVector(up, camLift);
+        targetLook = carPos
+          .clone()
+          .addScaledVector(forward, 16.0)
+          .lerp(trackAhead, 0.48 + cornerIntensity * 0.24)
+          .addScaledVector(up, 0.9);
       } else if (activeView === 'close') {
-        targetCamPos = carPos.clone().addScaledVector(forward, -4.5).addScaledVector(up, 1.8);
-        targetLook = carPos.clone().addScaledVector(forward, 20.0).lerp(trackAhead, 0.35).addScaledVector(up, 0.8);
+        const camLift = 1.85 + cornerIntensity * 0.25;
+        targetCamPos = carPos.clone().addScaledVector(forward, -4.5).addScaledVector(up, camLift);
+        targetLook = carPos
+          .clone()
+          .addScaledVector(forward, 20.0)
+          .lerp(trackAhead, 0.42 + cornerIntensity * 0.24)
+          .addScaledVector(up, 0.78);
       } else if (activeView === 'cockpit') {
-        targetCamPos = carPos.clone().addScaledVector(up, 0.78).addScaledVector(forward, -0.05);
-        targetLook = carPos.clone().addScaledVector(forward, 28.0).lerp(trackAhead, 0.25).addScaledVector(up, 0.72);
+        targetCamPos = carPos.clone().addScaledVector(up, 0.84).addScaledVector(forward, -0.05);
+        targetLook = carPos
+          .clone()
+          .addScaledVector(forward, 26.0)
+          .lerp(trackAhead, 0.38 + cornerIntensity * 0.22)
+          .addScaledVector(up, 0.72);
       } else if (activeView === 'nose') {
-        targetCamPos = carPos.clone().addScaledVector(forward, 2.3).addScaledVector(up, 0.35);
-        targetLook = carPos.clone().addScaledVector(forward, 32.0).lerp(trackAhead, 0.25).addScaledVector(up, 0.35);
+        targetCamPos = carPos.clone().addScaledVector(forward, 2.3).addScaledVector(up, 0.42);
+        targetLook = carPos
+          .clone()
+          .addScaledVector(forward, 30.0)
+          .lerp(trackAhead, 0.35 + cornerIntensity * 0.22)
+          .addScaledVector(up, 0.38);
       }
 
       const lerpSpeed = activeView === 'cockpit' || activeView === 'nose' ? 0.35 : 0.14;

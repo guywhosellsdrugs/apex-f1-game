@@ -145,18 +145,31 @@ export function generateTrack(circuit: CircuitInfo): GeneratedTrack {
     curbColorsL.push(cr, cg, cb, cr, cg, cb);
     curbColorsR.push(cr, cg, cb, cr, cg, cb);
 
-    // Check local track curvature rate to ensure inner corner walls never pinch or stick out
+    // Check local and lookahead track curvature so inner corner walls never pinch, fold, or block sightlines
     const stepAhead = 0.008;
     const nextT = (t + stepAhead) % 1.0;
+    const lookT = (t + 0.022) % 1.0;
+    const prevT = ((t - 0.012) % 1.0 + 1.0) % 1.0;
     const nextTangent = curve.getTangentAt(nextT).normalize();
+    const lookTangent = curve.getTangentAt(lookT).normalize();
+    const prevTangent = curve.getTangentAt(prevT).normalize();
+
     const turnAngle = tangent.clone().cross(nextTangent).y; // positive = left turn, negative = right turn
+    const lookTurnAngle = prevTangent.clone().cross(lookTangent).y;
     const absTurn = Math.abs(turnAngle);
+    const absLookTurn = Math.abs(lookTurnAngle);
 
-    // Dynamic Runoff Expansion: On sharp turns, expand runoff by up to 3.0m so apex sightlines are wide open and walls never stick out
-    const dynamicRunoffL = runoffWidth + (turnAngle > 0.02 ? Math.min(3.2, absTurn * 4.5) : 0);
-    const dynamicRunoffR = runoffWidth + (turnAngle < -0.02 ? Math.min(3.2, absTurn * 4.5) : 0);
+    // Compact inner runoff on sharp turns prevents inner barrier vertices from crossing the center of curvature
+    const isLeftBend = turnAngle > 0.012 || lookTurnAngle > 0.025;
+    const isRightBend = turnAngle < -0.012 || lookTurnAngle < -0.025;
+    const dynamicRunoffL = isLeftBend
+      ? Math.max(2.4, runoffWidth - Math.min(1.1, absTurn * 3.0))
+      : runoffWidth + (isRightBend ? Math.min(2.2, absTurn * 3.0) : 0);
+    const dynamicRunoffR = isRightBend
+      ? Math.max(2.4, runoffWidth - Math.min(1.1, absTurn * 3.0))
+      : runoffWidth + (isLeftBend ? Math.min(2.2, absTurn * 3.0) : 0);
 
-    // Painted Runoff borders (Left & Right with corner sightline widening)
+    // Painted Runoff borders (Left & Right)
     const runoffOutL = curbOutL.clone().addScaledVector(right, -dynamicRunoffL);
     runoffVertsL.push(curbOutL.x, curbOutL.y - 0.03, curbOutL.z);
     runoffVertsL.push(runoffOutL.x, runoffOutL.y - 0.03, runoffOutL.z);
@@ -180,17 +193,25 @@ export function generateTrack(circuit: CircuitInfo): GeneratedTrack {
     runoffColorsL.push(rR, rG, rB, rR, rG, rB);
     runoffColorsR.push(rR, rG, rB, rR, rG, rB);
 
-    // Armco & Tecpro Barrier walls on LEFT and RIGHT (Placed safely behind expanded runoffs, guaranteeing no wall sticks out)
+    // Armco & Tecpro Barrier walls on LEFT and RIGHT
+    // On the INSIDE of corners (and corner entries/exits), lower the inner barrier height to 0.52m
+    // so drivers and cameras have an unobstructed panoramic sightline across every apex (zero blind corners!)
     const barrierBaseL = runoffOutL.clone().addScaledVector(right, -1.0);
     const barrierBaseR = runoffOutR.clone().addScaledVector(right, 1.0);
 
+    const leftInnerBlend = isLeftBend ? Math.min(1.0, Math.max(absTurn * 14.0, absLookTurn * 6.5)) : 0;
+    const rightInnerBlend = isRightBend ? Math.min(1.0, Math.max(absTurn * 14.0, absLookTurn * 6.5)) : 0;
+    const baseWallHeight = circuit.id === 'monaco' ? 1.55 : 2.0;
+    const barrierHeightL = THREE.MathUtils.lerp(baseWallHeight, 0.52, leftInnerBlend);
+    const barrierHeightR = THREE.MathUtils.lerp(baseWallHeight, 0.52, rightInnerBlend);
+
     const barrierTopL = barrierBaseL.clone();
-    barrierTopL.y += 2.2; // 2.2m high FIA specification safety barrier
+    barrierTopL.y += barrierHeightL;
     barrierVertsL.push(barrierBaseL.x, barrierBaseL.y, barrierBaseL.z);
     barrierVertsL.push(barrierTopL.x, barrierTopL.y, barrierTopL.z);
 
     const barrierTopR = barrierBaseR.clone();
-    barrierTopR.y += 2.2; // 2.2m high FIA specification safety barrier
+    barrierTopR.y += barrierHeightR;
     barrierVertsR.push(barrierBaseR.x, barrierBaseR.y, barrierBaseR.z);
     barrierVertsR.push(barrierTopR.x, barrierTopR.y, barrierTopR.z);
 
@@ -645,11 +666,14 @@ export function generateTrack(circuit: CircuitInfo): GeneratedTrack {
   for (let t = 0.08; t < 0.96; t += 0.04) {
     const pt = curve.getPointAt(t);
     const tan = curve.getTangentAt(t).normalize();
+    const nextTan = curve.getTangentAt((t + 0.02) % 1.0).normalize();
     const r = new THREE.Vector3().crossVectors(tan, up).normalize();
-    const treeSide = Math.floor(t * 100) % 2 === 0 ? 1 : -1;
-    const treeDist = 28 + (Math.floor(t * 70) % 4) * 8;
+    const turnDir = tan.clone().cross(nextTan).y;
+    // Place trees on the outside of bends or well clear of inside apex sightlines
+    const treeSide = Math.abs(turnDir) > 0.02 ? (turnDir > 0 ? 1 : -1) : (Math.floor(t * 100) % 2 === 0 ? 1 : -1);
+    const treeDist = 34 + (Math.floor(t * 70) % 4) * 8;
     const treePos = pt.clone().addScaledVector(r, treeSide * treeDist);
-    if (!isClearOfTrack(treePos, 22.0)) continue;
+    if (!isClearOfTrack(treePos, 30.0)) continue;
 
     const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.55, 6, 6), trunkMat);
     trunk.position.set(treePos.x, pt.y + 3, treePos.z);
@@ -665,7 +689,72 @@ export function generateTrack(circuit: CircuitInfo): GeneratedTrack {
     group.add(foliage);
   }
 
-  // 4. Modern Trackside Skyline Architecture (Strictly outside track limits > 34m + building half-diagonal, guaranteed zero track encroachment)
+  // High-Visibility FIA Corner Turn-In Chevron Boards along the outside of sharp turns (Zero Blind Corners)
+  if (typeof document !== 'undefined') {
+    const createTurnChevronTexture = (turnRight: boolean) => {
+      const cCanvas = document.createElement('canvas');
+      cCanvas.width = 256;
+      cCanvas.height = 96;
+      const cCtx = cCanvas.getContext('2d')!;
+      cCtx.fillStyle = '#0f172a';
+      cCtx.fillRect(0, 0, 256, 96);
+      cCtx.strokeStyle = '#facc15';
+      cCtx.lineWidth = 6;
+      cCtx.strokeRect(3, 3, 250, 90);
+
+      cCtx.fillStyle = '#facc15';
+      for (let k = 0; k < 3; k++) {
+        const bx = 42 + k * 76;
+        cCtx.beginPath();
+        if (turnRight) {
+          cCtx.moveTo(bx - 18, 18);
+          cCtx.lineTo(bx + 8, 18);
+          cCtx.lineTo(bx + 28, 48);
+          cCtx.lineTo(bx + 8, 78);
+          cCtx.lineTo(bx - 18, 78);
+          cCtx.lineTo(bx + 2, 48);
+        } else {
+          cCtx.moveTo(bx + 18, 18);
+          cCtx.lineTo(bx - 8, 18);
+          cCtx.lineTo(bx - 28, 48);
+          cCtx.lineTo(bx - 8, 78);
+          cCtx.lineTo(bx + 18, 78);
+          cCtx.lineTo(bx - 2, 48);
+        }
+        cCtx.closePath();
+        cCtx.fill();
+      }
+      const tex = new THREE.CanvasTexture(cCanvas);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      return new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide });
+    };
+
+    const rightChevronMat = createTurnChevronTexture(true);
+    const leftChevronMat = createTurnChevronTexture(false);
+    const chevSignGeom = new THREE.PlaneGeometry(4.2, 1.55);
+
+    for (let t = 0.02; t < 0.98; t += 0.018) {
+      const pt = curve.getPointAt(t);
+      const tan = curve.getTangentAt(t).normalize();
+      const aheadTan = curve.getTangentAt((t + 0.016) % 1.0).normalize();
+      const turnVal = tan.clone().cross(aheadTan).y; // > 0 left turn, < 0 right turn
+      if (Math.abs(turnVal) < 0.055) continue;
+
+      const r = new THREE.Vector3().crossVectors(tan, up).normalize();
+      const isLeftTurn = turnVal > 0;
+      const outsideSign = isLeftTurn ? 1 : -1;
+      const outerOffset = trackWidth * 0.5 + curbWidth + runoffWidth + 2.8;
+      const signPos = pt.clone().addScaledVector(r, outsideSign * outerOffset);
+      if (!isClearOfTrack(signPos, 17.5)) continue;
+
+      const signMesh = new THREE.Mesh(chevSignGeom, isLeftTurn ? leftChevronMat : rightChevronMat);
+      signMesh.position.set(signPos.x, pt.y + 2.35, signPos.z);
+      signMesh.lookAt(pt.clone().addScaledVector(tan, -18.0));
+      group.add(signMesh);
+    }
+  }
+
+  // 4. Modern Trackside Skyline Architecture (Strictly outside track limits & corner apex sightlines)
   const buildingMats = [
     new THREE.MeshStandardMaterial({ color: 0x2b303c, metalness: 0.6, roughness: 0.35 }),
     new THREE.MeshStandardMaterial({ color: 0x1e2430, metalness: 0.8, roughness: 0.2 }),
@@ -680,6 +769,7 @@ export function generateTrack(circuit: CircuitInfo): GeneratedTrack {
   for (let t = 0.04; t < 0.98; t += 0.065) {
     const pt = curve.getPointAt(t);
     const tan = curve.getTangentAt(t).normalize();
+    const nextTan = curve.getTangentAt((t + 0.024) % 1.0).normalize();
     const r = new THREE.Vector3().crossVectors(tan, up).normalize();
 
     const bWidth = 26 + ((t * 60) % 12);
@@ -687,14 +777,14 @@ export function generateTrack(circuit: CircuitInfo): GeneratedTrack {
     const bHeight = 28 + ((t * 130) % 45); // 28m to 73m tall corporate suites & towers
     const bRadius = Math.hypot(bWidth * 0.5, bDepth * 0.5);
 
-    // Place strictly OUTSIDE the track runoffs and barriers (distance safely clears outer diagonal)
-    const side = Math.floor(t * 100) % 2 === 0 ? 1 : -1;
-    const distOutside = 32 + bRadius + (Math.floor(t * 100) % 4) * 8;
+    // Place strictly OUTSIDE the track runoffs and never on the inside apex of a corner
+    const turnDir = tan.clone().cross(nextTan).y;
+    const side = Math.abs(turnDir) > 0.02 ? (turnDir > 0 ? 1 : -1) : (Math.floor(t * 100) % 2 === 0 ? 1 : -1);
+    const distOutside = 38 + bRadius + (Math.floor(t * 100) % 4) * 8;
     const bPos = pt.clone().addScaledVector(r, side * distOutside);
 
-    // CRITICAL: Ensure this building NEVER intersects any segment of the track ribbon!
-    // Safe radius checks full bounding diagonal + 30m track clearance margin
-    if (!isClearOfTrack(bPos, bRadius + 30.0)) continue;
+    // CRITICAL: Ensure this building NEVER intersects any segment of the track ribbon or corner sightline!
+    if (!isClearOfTrack(bPos, bRadius + 38.0)) continue;
 
     const bGeom = new THREE.BoxGeometry(bWidth, bHeight, bDepth);
     const bMat = buildingMats[Math.floor(t * 10) % buildingMats.length];

@@ -134,6 +134,7 @@ export default function App() {
   const [practiceBotCount, setPracticeBotCount] = useState<number>(19);
   const [lastRaceResult, setLastRaceResult] = useState<RaceResult | null>(null);
   const [showPodiumModal, setShowPodiumModal] = useState(false);
+  const [showRaceHighlights, setShowRaceHighlights] = useState(false);
   const [championNotice, setChampionNotice] = useState<string | null>(null);
   const [isGamepadConnected, setIsGamepadConnected] = useState(false);
   const [gamepadName, setGamepadName] = useState<string | null>(null);
@@ -978,6 +979,170 @@ export default function App() {
       totalPayout = Math.max(0, totalPayout + netSubscriberRoundDeltaCash);
     }
 
+    // Format lap time helper (seconds -> M:SS.mmm)
+    const formatLapClock = (sec: number) => {
+      if (!sec || !Number.isFinite(sec) || sec <= 0) return '1:24.310';
+      const mins = Math.floor(sec / 60);
+      const remSec = sec - mins * 60;
+      return `${mins}:${remSec < 10 ? '0' : ''}${remSec.toFixed(3)}`;
+    };
+
+    const startSlot = qualifyingGridSlot ?? 12;
+    const positionsGained = startSlot - actualPlayerPos;
+    const playerDisplayName = season.career.driverName || playerDriver.name;
+    const winnerDisplayName =
+      winnerDriver.id === playerDriver.id ? playerDisplayName : winnerDriver.name;
+    const p2Driver = sortedField[1] || DRIVERS[1];
+    const p3Driver = sortedField[2] || DRIVERS[2];
+    const p2DisplayName = p2Driver.id === playerDriver.id ? playerDisplayName : p2Driver.name;
+    const p3DisplayName = p3Driver.id === playerDriver.id ? playerDisplayName : p3Driver.name;
+
+    // Determine true session fastest lap across all drivers
+    let sessionFastestDriver = winnerDriver;
+    let sessionFastestLapSec = bestLapTime > 5 ? bestLapTime : 78.42;
+    if (finalStandingsDetails && finalStandingsDetails.length > 0) {
+      for (const detail of finalStandingsDetails) {
+        if (detail.bestLapTime && detail.bestLapTime > 5 && detail.bestLapTime < sessionFastestLapSec) {
+          sessionFastestLapSec = detail.bestLapTime;
+          sessionFastestDriver = detail.driver;
+        }
+      }
+    }
+    const fastestDriverDisplayName =
+      sessionFastestDriver.id === playerDriver.id ? playerDisplayName : sessionFastestDriver.name;
+    const playerBestLapSec =
+      bestLapTime > 5
+        ? bestLapTime
+        : playerDetail?.bestLapTime && playerDetail.bestLapTime > 5
+        ? playerDetail.bestLapTime
+        : sessionFastestLapSec + (actualPlayerPos === 1 ? 0 : 0.42);
+
+    // 1. Overtakes & Grid Progression Highlights
+    const overtakesList: string[] = [];
+    if (positionsGained > 0) {
+      const passedDrivers = sortedField
+        .slice(actualPlayerPos, Math.min(sortedField.length, startSlot))
+        .map((d) => d.name)
+        .slice(0, 3);
+      overtakesList.push(
+        `${playerDisplayName} surged from P${startSlot} on the grid to finish P${actualPlayerPos} (+${positionsGained} positions gained), executing decisive braking overtakes past ${
+          passedDrivers.length > 0 ? passedDrivers.join(', ') : p2DisplayName
+        }.`
+      );
+    } else if (positionsGained === 0 && actualPlayerPos === 1) {
+      overtakesList.push(
+        `${playerDisplayName} converted Pole Position (P1) into a lights-to-flag victory, fending off ${p2DisplayName}'s slipstream attacks through the DRS detection zones.`
+      );
+    } else if (positionsGained < 0) {
+      overtakesList.push(
+        `${playerDisplayName} started P${startSlot} and battled fierce midfield traffic to bring the car home in P${actualPlayerPos} as ${winnerDisplayName} controlled the front.`
+      );
+    } else {
+      overtakesList.push(
+        `${playerDisplayName} held grid slot P${actualPlayerPos} under intense wheel-to-wheel pressure across all ${raceLaps} laps at ${currentCircuit.name}.`
+      );
+    }
+
+    // Check other notable movers from qualifying or field order
+    if (qualifyingResults && qualifyingResults.length > 0) {
+      let bestAiGain = 0;
+      let bestAiMoverName = '';
+      let bestAiStart = 0;
+      let bestAiFinish = 0;
+      sortedField.forEach((drv, idx) => {
+        if (drv.id === playerDriver.id) return;
+        const qEntry = qualifyingResults.find((q) => q.driver.id === drv.id);
+        if (qEntry) {
+          const gain = qEntry.position - (idx + 1);
+          if (gain > bestAiGain) {
+            bestAiGain = gain;
+            bestAiMoverName = drv.name;
+            bestAiStart = qEntry.position;
+            bestAiFinish = idx + 1;
+          }
+        }
+      });
+      if (bestAiGain >= 2) {
+        overtakesList.push(
+          `Hard Charger: ${bestAiMoverName} carved through ${bestAiGain} cars from P${bestAiStart} to claim P${bestAiFinish} using late-braking dives into the ${currentCircuit.turns}-turn circuit.`
+        );
+      }
+    }
+    if (overtakesList.length < 2) {
+      overtakesList.push(
+        `Podium Battle: ${p2DisplayName} and ${p3DisplayName} traded slipstream tow passes at over 315 km/h before settling P2 and P3 by ${(
+          Math.abs((podiumGaps?.[2]?.gapSeconds || 2.4) - (podiumGaps?.[1]?.gapSeconds || 1.1)) || 0.85
+        ).toFixed(2)}s.`
+      );
+    }
+
+    // 2. Fastest Laps & Pace Telemetry Highlights
+    const avgSpeedKmh = Math.min(
+      268,
+      Math.max(162, (currentCircuit.lengthKm / (sessionFastestLapSec / 3600)) * 0.48)
+    ).toFixed(1);
+    const fastestLapsList: string[] = [
+      `Purple Fastest Lap: ${fastestDriverDisplayName} clocked the session benchmark of ${formatLapClock(
+        sessionFastestLapSec
+      )} (avg ${avgSpeedKmh} km/h across the ${currentCircuit.lengthKm} km ${currentCircuit.name} layout).`,
+      `Your Telemetry Pace: ${playerDisplayName} recorded a personal best lap of ${formatLapClock(
+        playerBestLapSec
+      )}${
+        Math.abs(playerBestLapSec - sessionFastestLapSec) < 0.01
+          ? ' — setting the overall fastest lap of the Grand Prix!'
+          : ` (${
+              playerBestLapSec > sessionFastestLapSec
+                ? `+${(playerBestLapSec - sessionFastestLapSec).toFixed(3)}s off purple pace`
+                : `-${(sessionFastestLapSec - playerBestLapSec).toFixed(3)}s faster than the field`
+            }).`
+      }`,
+    ];
+
+    // 3. Incidents & Key Session Events
+    const incidentsList: string[] = [];
+    const closeBattlePair = finalStandingsDetails?.find(
+      (s, idx) =>
+        idx > 0 &&
+        Math.abs(s.gapToLeaderSeconds - finalStandingsDetails[idx - 1].gapToLeaderSeconds) < 0.95
+    );
+    if (closeBattlePair && finalStandingsDetails) {
+      const aheadIdx = finalStandingsDetails.findIndex((s) => s.driver.id === closeBattlePair.driver.id) - 1;
+      const aheadDrv = finalStandingsDetails[aheadIdx]?.driver;
+      const delta = Math.abs(
+        closeBattlePair.gapToLeaderSeconds - (finalStandingsDetails[aheadIdx]?.gapToLeaderSeconds || 0)
+      );
+      if (aheadDrv) {
+        incidentsList.push(
+          `Photo-Finish Steward Note: ${aheadDrv.name} and ${closeBattlePair.driver.name} crossed the line separated by just ${delta.toFixed(
+            2
+          )}s after wheel-to-wheel contact warnings in the final sector.`
+        );
+      }
+    }
+
+    const tailDriver = sortedField[sortedField.length - 1] || DRIVERS[DRIVERS.length - 1];
+    const p19Driver = sortedField[sortedField.length - 2] || DRIVERS[DRIVERS.length - 2];
+    incidentsList.push(
+      `Track Limits & Lockup Report: ${tailDriver.name} (P${sortedField.length}) and ${p19Driver.name} (P${
+        sortedField.length - 1
+      }) suffered front-left tire lockups and curb strikes under heavy braking, dropping them out of points contention.`
+    );
+    if (teammateFinishPos !== undefined) {
+      incidentsList.push(
+        `Team Radio & Strategy: Your teammate finished P${teammateFinishPos} while ${winnerDisplayName} sealed P1 with a ${
+          p1LeadSec ? `+${p1LeadSec.toFixed(2)}s` : '+1.45s'
+        } winning margin over ${p2DisplayName}.`
+      );
+    }
+
+    const highlightsNarrative = `${winnerDisplayName} triumphed in the ${raceLaps}-lap ${
+      currentCircuit.name
+    } (${currentCircuit.location}) ahead of ${p2DisplayName} and ${p3DisplayName}. ${
+      overtakesList[0]
+    } ${fastestDriverDisplayName} set the fastest lap of the session at ${formatLapClock(
+      sessionFastestLapSec
+    )}, while ${tailDriver.name} lost ground following late-stint tire lockups.`;
+
     const result: RaceResult = {
       round: season.currentRound,
       circuitId: currentCircuit.id,
@@ -988,15 +1153,23 @@ export default function App() {
       p1LeadSeconds: p1LeadSec,
       playerGapToLeaderSeconds: playerDetail?.gapToLeaderSeconds,
       playerFinishedPosition: actualPlayerPos,
+      startingGridPosition: startSlot,
+      positionsGained,
       teammateFinishedPosition: teammateFinishPos,
       teammateOwnerBonus: teammateBonus,
       teammateOwnerBonusDesc: teammateBonusDesc,
-      fastestLapDriverId: winnerDriver.id,
-      fastestLapTime: bestLapTime,
+      fastestLapDriverId: sessionFastestDriver.id,
+      fastestLapTime: sessionFastestLapSec,
       driverPointsAwarded: pointsAwarded,
       constructorPointsSnapshot: { ...updatedConstructorPoints },
       prizeMoneyAwarded: totalPayout,
       lapsCompleted: raceLaps,
+      highlights: {
+        overtakes: overtakesList,
+        fastestLaps: fastestLapsList,
+        incidents: incidentsList,
+        narrative: highlightsNarrative,
+      },
     };
 
     setSeason((prev) => ({
@@ -1020,6 +1193,7 @@ export default function App() {
     }));
 
     setLastRaceResult(result);
+    setShowRaceHighlights(false);
     setQualifyingGridSlot(null);
     setQualifyingResults(null);
     setInRace(false);
@@ -1374,6 +1548,75 @@ export default function App() {
               </div>
             </div>
 
+            {/* Race Highlights Button & Expandable Session Summary */}
+            <div className="flex flex-col gap-2.5 text-left">
+              <button
+                type="button"
+                onClick={() => setShowRaceHighlights((prev) => !prev)}
+                className="w-full py-2.5 px-4 bg-neutral-800 hover:bg-neutral-700 border border-amber-500/40 text-amber-300 font-bold text-xs uppercase tracking-wider rounded-xl transition-all flex items-center justify-between cursor-pointer"
+              >
+                <span className="flex items-center gap-2">
+                  <Zap className="w-4 h-4 text-amber-400" />
+                  <span>{showRaceHighlights ? 'Hide Race Highlights' : 'Race Highlights'}</span>
+                </span>
+                <span className="text-[10px] font-mono text-neutral-400">
+                  Overtakes • Fastest Laps • Incidents
+                </span>
+              </button>
+
+              {showRaceHighlights && lastRaceResult.highlights && (
+                <div className="bg-neutral-950 border border-amber-500/30 rounded-xl p-4 flex flex-col gap-3 max-h-64 overflow-y-auto text-left">
+                  <div>
+                    <span className="text-[10px] uppercase font-black tracking-widest text-amber-400 block mb-1">
+                      OFFICIAL FIA SESSION HIGHLIGHTS SUMMARY
+                    </span>
+                    <p className="text-xs text-neutral-200 leading-relaxed">
+                      {lastRaceResult.highlights.narrative}
+                    </p>
+                  </div>
+
+                  <div className="border-t border-white/10 pt-2">
+                    <span className="text-[10px] uppercase font-bold tracking-wider text-emerald-400 flex items-center gap-1.5 mb-1">
+                      <Flame className="w-3.5 h-3.5" /> Overtakes & Grid Progression
+                    </span>
+                    <ul className="space-y-1">
+                      {lastRaceResult.highlights.overtakes.map((item, idx) => (
+                        <li key={idx} className="text-xs text-neutral-300 leading-snug">
+                          • {item}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  <div className="border-t border-white/10 pt-2">
+                    <span className="text-[10px] uppercase font-bold tracking-wider text-purple-400 flex items-center gap-1.5 mb-1">
+                      <Timer className="w-3.5 h-3.5" /> Fastest Laps & Telemetry
+                    </span>
+                    <ul className="space-y-1">
+                      {lastRaceResult.highlights.fastestLaps.map((item, idx) => (
+                        <li key={idx} className="text-xs text-neutral-300 leading-snug">
+                          • {item}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  <div className="border-t border-white/10 pt-2">
+                    <span className="text-[10px] uppercase font-bold tracking-wider text-rose-400 flex items-center gap-1.5 mb-1">
+                      <Shield className="w-3.5 h-3.5" /> Key Incidents & Race Control
+                    </span>
+                    <ul className="space-y-1">
+                      {lastRaceResult.highlights.incidents.map((item, idx) => (
+                        <li key={idx} className="text-xs text-neutral-300 leading-snug">
+                          • {item}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              )}
+            </div>
+
             {season.seasonFinished ? (
               <button
                 onClick={handleStartNextSeason}
@@ -1387,6 +1630,7 @@ export default function App() {
               <button
                 onClick={() => {
                   setShowPodiumModal(false);
+                  setShowRaceHighlights(false);
                   setChampionNotice(null);
                 }}
                 className="w-full py-3 bg-gradient-to-r from-red-600 to-red-500 hover:from-red-500 hover:to-red-400 text-white font-bold rounded-xl transition-all shadow-lg flex items-center justify-center gap-2 cursor-pointer"

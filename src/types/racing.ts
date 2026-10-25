@@ -349,6 +349,8 @@ export interface RaceResult {
   p1LeadSeconds?: number;
   playerGapToLeaderSeconds?: number;
   playerFinishedPosition: number;
+  startingGridPosition?: number;
+  positionsGained?: number;
   teammateFinishedPosition?: number;
   teammateOwnerBonus?: number;
   teammateOwnerBonusDesc?: string;
@@ -358,6 +360,12 @@ export interface RaceResult {
   constructorPointsSnapshot?: Record<string, number>;
   prizeMoneyAwarded: number;
   lapsCompleted: number;
+  highlights?: {
+    overtakes: string[];
+    fastestLaps: string[];
+    incidents: string[];
+    narrative: string;
+  };
 }
 
 export interface SeasonState {

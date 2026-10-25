@@ -647,17 +647,17 @@ function auditReportAgainstTelemetry(params: {
   const notes: string[] = [];
 
   // 1. Check for gibberish / keyboard mashing / ultra-short lazy text
-  const vowelCount = (lowerText.match(/[aeiou]/g) || []).length;
+  const vowelCount = (lowerText.match(/[aeiouy]/g) || []).length;
   const alphaCount = (lowerText.match(/[a-z]/g) || []).length;
   const vowelRatio = alphaCount > 0 ? vowelCount / alphaCount : 0;
   const uniqueWords = new Set(words.map((w) => w.toLowerCase())).size;
   const uniqueRatio = wordCount > 0 ? uniqueWords / wordCount : 0;
 
   const isGibberish =
-    alphaCount < 10 ||
-    vowelRatio < 0.16 ||
-    vowelRatio > 0.72 ||
-    (wordCount >= 8 && uniqueRatio < 0.35);
+    alphaCount < 6 ||
+    vowelRatio < 0.14 ||
+    vowelRatio > 0.78 ||
+    (wordCount >= 10 && uniqueRatio < 0.3);
 
   if (isGibberish) {
     return {
@@ -667,7 +667,7 @@ function auditReportAgainstTelemetry(params: {
       verdict: 'inaccurate_flop',
       verdictLabel: 'Unintelligible / Spam Report Rejected',
       factCheckNotes: [
-        'AI Editor detected gibberish, repetitive filler, or non-motorsport text.',
+        'AI Editor Bot detected gibberish, repetitive filler, or non-motorsport text.',
         'Reports must contain coherent Formula 1 journalism and factual analysis.',
       ],
       readerReaction:
@@ -675,12 +675,27 @@ function auditReportAgainstTelemetry(params: {
     };
   }
 
-  // 2. Fact-Checking against Ground-Truth Season Telemetry
-  let accuracyScore = 76; // Baseline for plausible F1 writing
+  // 2. Fact-Checking against Ground-Truth Season Telemetry & Full 2026 F1 Grid
+  let accuracyScore = 82; // Baseline for coherent F1 reporting
   let contradictionsFound = 0;
   let verifiedFactsCount = 0;
 
-  // Check mentioned drivers & teams
+  const allKnownDriverTokens = [
+    'verstappen', 'max', 'norris', 'lando', 'leclerc', 'charles', 'hamilton', 'lewis',
+    'piastri', 'oscar', 'russell', 'george', 'alonso', 'fernando', 'sainz', 'carlos',
+    'lawson', 'liam', 'antonelli', 'kimi', 'stroll', 'lance', 'hulkenberg', 'nico',
+    'bortoleto', 'gabriel', 'albon', 'alex', 'gasly', 'pierre', 'doohan', 'jack',
+    'tsunoda', 'yuki', 'hadjar', 'isack', 'bearman', 'ollie', 'oliver', 'ocon', 'esteban',
+    String(playerProfile.driverName || '').toLowerCase(),
+  ].filter((t) => t.length >= 3);
+
+  const allKnownTeamTokens = [
+    'mclaren', 'red bull', 'redbull', 'ferrari', 'mercedes', 'aston martin', 'williams',
+    'audi', 'sauber', 'alpine', 'haas', 'racing bulls', 'rb',
+    String(playerProfile.teamName || '').toLowerCase(),
+  ].filter((t) => t.length >= 2);
+
+  // Check mentioned drivers & teams from telemetry + full roster
   const mentionedDrivers = topDrivers.filter((d) => {
     const cleanName = d.name.replace(' (Player)', '').toLowerCase();
     const parts = cleanName.split(' ').filter((p) => p.length >= 3);
@@ -693,13 +708,27 @@ function auditReportAgainstTelemetry(params: {
     return parts.some((part) => lowerText.includes(part));
   });
 
-  if (mentionedDrivers.length > 0 || mentionedTeams.length > 0) {
+  const matchedAnyGridDriver = allKnownDriverTokens.some((tok) => lowerText.includes(tok));
+  const matchedAnyGridTeam = allKnownTeamTokens.some((tok) => lowerText.includes(tok));
+
+  if (mentionedDrivers.length > 0 || mentionedTeams.length > 0 || matchedAnyGridDriver || matchedAnyGridTeam) {
     verifiedFactsCount += 1;
+    accuracyScore += 6;
     const names = [
       ...mentionedDrivers.map((d) => d.name.replace(' (Player)', '')),
       ...mentionedTeams.map((t) => t.name),
     ].slice(0, 3);
-    notes.push(`Verified official 2026 paddock subjects: ${names.join(', ')}.`);
+    notes.push(
+      names.length > 0
+        ? `AI Bot verified official 2026 paddock subjects: ${names.join(', ')}.`
+        : 'AI Bot verified official 2026 FIA Formula 1 Championship driver/team references.'
+    );
+  }
+
+  // Also check if predictedTarget is mentioned or selected
+  if (params.isPrediction && params.predictedTarget) {
+    verifiedFactsCount += 1;
+    notes.push(`Prediction target locked & audited: ${params.predictedTarget} (${(params.predictionOutcomeType || 'win').toUpperCase()}).`);
   }
 
   // Check circuit reference
@@ -712,7 +741,8 @@ function auditReportAgainstTelemetry(params: {
       .some((w: string) => lowerText.includes(w))
   ) {
     verifiedFactsCount += 1;
-    notes.push(`Verified upcoming circuit context for ${upcoming.name}.`);
+    accuracyScore += 4;
+    notes.push(`Verified upcoming circuit telemetry context for ${upcoming.name}.`);
   }
 
   // Check for blatant false/exaggerated numbers (e.g., Toby Vance's 999 points / 500 points / 45 corners or user-written fake stats)
@@ -724,7 +754,7 @@ function auditReportAgainstTelemetry(params: {
     lowerText.includes('100 corners')
   ) {
     contradictionsFound += 2;
-    accuracyScore -= 42;
+    accuracyScore -= 48;
     notes.push(
       'FACT CHECK FAILURE: Article cites impossible or fabricated championship points/circuit corner numbers that contradict FIA telemetry.'
     );
@@ -764,7 +794,7 @@ function auditReportAgainstTelemetry(params: {
       );
     } else if (mentionedDrivers.length > 0 && mentionedDrivers[0].points < p1Driver.points) {
       contradictionsFound += 1;
-      accuracyScore -= 28;
+      accuracyScore -= 32;
       notes.push(
         `STANDINGS DISCREPANCY: Article claims ${mentionedDrivers[0].name.replace(' (Player)', '')} leads the standings, but ${p1Driver.name.replace(' (Player)', '')} is actually P1 with ${p1Driver.points} PTS.`
       );
@@ -792,7 +822,7 @@ function auditReportAgainstTelemetry(params: {
       );
     } else if (mentionedDrivers.length > 0) {
       contradictionsFound += 1;
-      accuracyScore -= 30;
+      accuracyScore -= 32;
       notes.push(
         `RACE RESULT ERROR: ${lastRace.winner} won at ${lastRace.circuitName}, contradicting the article's claim.`
       );
@@ -803,7 +833,7 @@ function auditReportAgainstTelemetry(params: {
   const numbersInText = (fullText.match(/\b\d+\b/g) || []).map((n) => Number(n));
   const validNumbers = new Set<number>([
     2026,
-    1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 20,
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 16, 17, 18, 19, 20, 24,
     Number(ctx.currentRoundNumber || 1),
     Number(upcoming.turns || 0),
     Math.round(Number(upcoming.lengthKm || 0)),
@@ -819,10 +849,9 @@ function auditReportAgainstTelemetry(params: {
     if (num > 20 && num !== 2026) {
       if (validNumbers.has(num)) {
         matchedStats += 1;
-      } else if (num > 350) {
-        // Suspiciously huge number not in valid set
+      } else if (num > 360) {
         contradictionsFound += 1;
-        accuracyScore -= 22;
+        accuracyScore -= 25;
       }
     }
   }
@@ -852,9 +881,26 @@ function auditReportAgainstTelemetry(params: {
     'given',
     'proven',
     'consistently',
+    'consistent',
     'momentum',
     'suits',
     'rewards',
+    'with',
+    'has',
+    'have',
+    'strong',
+    'superior',
+    'better',
+    'best',
+    'fastest',
+    'faster',
+    'great',
+    'good',
+    'dominant',
+    'dominate',
+    'will',
+    'should',
+    'can',
   ];
 
   const motorsportKeywords = [
@@ -863,35 +909,77 @@ function auditReportAgainstTelemetry(params: {
     'downforce',
     'drag',
     'speed',
+    'fast',
+    'fastest',
+    'quick',
+    'quicker',
+    'car',
+    'cars',
     'drs',
     'brake',
+    'brakes',
     'braking',
     'corner',
     'corners',
+    'cornering',
     'turn',
     'turns',
     'tire',
+    'tires',
     'tyre',
+    'tyres',
     'degradation',
     'grip',
     'traction',
     'pace',
     'qualifying',
     'podium',
+    'win',
+    'won',
+    'winner',
+    'victory',
+    'lead',
+    'leader',
+    'leading',
+    'first',
+    'p1',
+    'p2',
+    'p3',
+    'top',
     'points',
     'standings',
     'championship',
+    'champion',
+    'title',
     'rating',
     'engine',
     'power',
     'chassis',
     'overtake',
+    'pass',
     'sector',
     'straight',
     'setup',
     'strategy',
     'pit',
     'telemetry',
+    'upgrade',
+    'upgrades',
+    'driver',
+    'team',
+    'race',
+    'racing',
+    'track',
+    'circuit',
+    'lap',
+    'laps',
+    'grid',
+    'pole',
+    'handling',
+    'ers',
+    'slipstream',
+    'form',
+    'skill',
   ];
 
   const matchedCausal = causalKeywords.filter((k) => lowerText.includes(k));
@@ -904,73 +992,73 @@ function auditReportAgainstTelemetry(params: {
     lowerText.includes('no other reasons') ||
     lowerText.includes('no reasons needed') ||
     lowerText.includes('idk why') ||
-    lowerText.includes('just because');
+    lowerText.includes('dont know why');
 
-  // Calculate Quality Score (based on depth, vocabulary, length, and motorsport terminology)
-  let qualityScore = 35;
-  if (wordCount < 10) {
-    qualityScore = 22;
+  // Calculate Quality Score (rewards coherent F1 sentences & rich detail)
+  let qualityScore = 68;
+  if (wordCount < 4) {
+    qualityScore = 28;
     accuracyScore = Math.min(accuracyScore, 48);
     notes.push(
-      'Article is far too brief (< 10 words). Readers expect a complete multi-sentence motorsport report.'
+      'Article is far too brief (< 4 words). Write at least a complete sentence about the race, drivers, or prediction.'
     );
-  } else if (wordCount < 22) {
-    qualityScore = 48 + matchedMotorsport.length * 4;
-    notes.push(
-      'Report is somewhat short; expanding your analysis with more paddock detail will boost quality scores.'
+  } else if (wordCount < 9) {
+    qualityScore = Math.min(
+      85,
+      58 + matchedMotorsport.length * 6 + verifiedFactsCount * 5
     );
   } else {
     qualityScore = Math.min(
-      96,
-      58 +
-        Math.min(20, Math.floor(wordCount / 3.5)) +
-        Math.min(18, matchedMotorsport.length * 4)
+      97,
+      68 +
+        Math.min(16, Math.floor(wordCount / 3)) +
+        Math.min(16, matchedMotorsport.length * 4)
     );
   }
 
-  // Calculate Reasoning Score (especially important for predictions and analytical claims)
-  let reasoningScore = 40;
+  // Calculate Reasoning Score (rewards explaining why a result or prediction happens)
+  let reasoningScore = 65;
   if (refusesReasons) {
-    reasoningScore = 18;
-    qualityScore = Math.min(qualityScore, 38);
+    reasoningScore = 20;
+    qualityScore = Math.min(qualityScore, 40);
     notes.push(
-      'WEAK REASONING: Author dismissed the need for analytical reasons instead of backing claims with telemetry.'
+      'WEAK REASONING: Author dismissed the need for analytical reasons instead of backing claims with F1 analysis.'
     );
   } else {
     reasoningScore = Math.min(
-      97,
-      32 +
-        matchedCausal.length * 14 +
+      98,
+      54 +
+        matchedCausal.length * 9 +
         matchedMotorsport.length * 6 +
-        (wordCount >= 30 ? 12 : 0) +
+        (wordCount >= 14 ? 10 : 0) +
         (verifiedFactsCount > 0 ? 8 : 0)
     );
   }
 
-  if (matchedCausal.length > 0 && matchedMotorsport.length >= 2) {
+  if (matchedMotorsport.length >= 1 && !refusesReasons) {
     notes.push(
-      `Strong analytical reasoning detected (${matchedMotorsport.slice(0, 4).join(', ')}).`
+      `AI Bot verified motorsport analysis (${matchedMotorsport.slice(0, 5).join(', ')}).`
     );
-  } else if (params.isPrediction && reasoningScore < 60) {
+  } else if (params.isPrediction && reasoningScore < 58) {
     notes.push(
-      'Prediction lacked sufficient technical or statistical reasons (e.g., car downforce, driver rating, or circuit turns) explaining WHY it will come true.'
+      'Tip: Mentioning car pace, aero, braking, or driver form makes your prediction even more compelling to readers.'
     );
   }
 
-  // Clamp scores to [5, 98]
+  // Clamp scores to [10, 98]
   accuracyScore = Math.max(
     10,
-    Math.min(98, Math.round(accuracyScore + (verifiedFactsCount >= 2 ? 8 : 0)))
+    Math.min(98, Math.round(accuracyScore + (verifiedFactsCount >= 2 ? 6 : 0)))
   );
-  qualityScore = Math.max(10, Math.min(97, Math.round(qualityScore)));
-  reasoningScore = Math.max(10, Math.min(97, Math.round(reasoningScore)));
+  qualityScore = Math.max(10, Math.min(98, Math.round(qualityScore)));
+  reasoningScore = Math.max(10, Math.min(98, Math.round(reasoningScore)));
 
   // Determine Verdict
   let verdict: 'verified_scoop' | 'solid_report' | 'mediocre' | 'inaccurate_flop' =
-    'mediocre';
-  let verdictLabel = 'Standard Paddock Report';
+    'solid_report';
+  let verdictLabel = 'Accurate & Solid Paddock Report';
   let readerReaction =
-    '"Decent read from the paddock press room." — F1 Newsletter Subscriber';
+    '"Good factual reporting on the championship situation, looking forward to the race." — Paddock Subscriber';
 
   if (contradictionsFound > 0 || accuracyScore < 50) {
     verdict = 'inaccurate_flop';
@@ -978,9 +1066,9 @@ function auditReportAgainstTelemetry(params: {
     readerReaction =
       '"These stats contradict official FIA timing screens! Check your facts before publishing!" — Disappointed Subscriber';
   } else if (
-    accuracyScore >= 75 &&
-    qualityScore >= 72 &&
-    reasoningScore >= 70
+    accuracyScore >= 74 &&
+    qualityScore >= 70 &&
+    reasoningScore >= 68
   ) {
     verdict = 'verified_scoop';
     verdictLabel = params.isPrediction
@@ -989,9 +1077,9 @@ function auditReportAgainstTelemetry(params: {
     readerReaction =
       '"Spot-on telemetry analysis and rock-solid reasoning—worth every penny of my subscription!" — VIP Paddock Reader';
   } else if (
-    accuracyScore >= 65 &&
-    qualityScore >= 55 &&
-    reasoningScore >= 52
+    accuracyScore >= 62 &&
+    qualityScore >= 52 &&
+    reasoningScore >= 50
   ) {
     verdict = 'solid_report';
     verdictLabel = 'Accurate & Solid Paddock Report';
@@ -999,13 +1087,13 @@ function auditReportAgainstTelemetry(params: {
       '"Good factual reporting on the championship situation, looking forward to the race." — Paddock Subscriber';
   } else {
     verdict = 'mediocre';
-    verdictLabel = 'Thin Analysis / Lacks Compelling Reasons';
+    verdictLabel = 'Brief Report / Add More Racing Detail';
     readerReaction =
-      '"True enough, but it reads like a quick tweet rather than deep F1 journalism." — Paddock Reader';
+      '"True enough, though adding more technical detail would make it even better." — Paddock Reader';
   }
 
   if (notes.length === 0) {
-    notes.push('Audited against 2026 FIA World Championship standings and circuit telemetry.');
+    notes.push('Audited by AI Editor Bot against 2026 FIA World Championship standings and circuit telemetry.');
   }
 
   return {
@@ -1109,10 +1197,13 @@ app.post('/api/news/evaluate', async (req, res) => {
     seasonContext,
   } = req.body || {};
 
-  if (!title || !content) {
+  const safeTitle = String(title || content || '').trim();
+  const safeContent = String(content || title || '').trim();
+
+  if (!safeTitle && !safeContent) {
     return res.status(400).json({
       success: false,
-      error: 'Headline and report body are required.',
+      error: 'Please enter a headline or article text to review.',
     });
   }
 
@@ -1218,7 +1309,7 @@ Evaluate this submission and return JSON matching the schema.`;
     });
 
     const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('GEMINI_TIMEOUT')), 2500)
+      setTimeout(() => reject(new Error('GEMINI_TIMEOUT')), 650)
     );
 
     const response = await Promise.race([geminiPromise, timeoutPromise]);
@@ -1235,8 +1326,8 @@ Evaluate this submission and return JSON matching the schema.`;
   } catch (_err: any) {
     // Seamless, deep server-side F1 telemetry & reasoning evaluation
     const evaluation = auditReportAgainstTelemetry({
-      title,
-      content,
+      title: safeTitle,
+      content: safeContent,
       category,
       isPrediction,
       predictedTarget,
@@ -1338,7 +1429,7 @@ Write a headline, article body (3 to 5 sentences), and a brief writerNote to the
     });
 
     const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('GEMINI_WRITER_TIMEOUT')), 2500)
+      setTimeout(() => reject(new Error('GEMINI_WRITER_TIMEOUT')), 650)
     );
 
     const response = await Promise.race([geminiPromise, timeoutPromise]);

@@ -626,7 +626,19 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
   } | null>(null);
 
   const [isEvaluatingAI, setIsEvaluatingAI] = useState<boolean>(false);
+  const [isScanningOnly, setIsScanningOnly] = useState<boolean>(false);
   const [aiErrorMsg, setAiErrorMsg] = useState<string | null>(null);
+  const [aiBotReviewResult, setAiBotReviewResult] = useState<{
+    accuracyScore: number;
+    qualityScore: number;
+    reasoningScore: number;
+    overallScore: number;
+    verdict: PublishedNewsReport['verdict'];
+    verdictLabel: string;
+    factCheckNotes: string[];
+    readerReaction: string;
+    reviewedTitle: string;
+  } | null>(null);
   const [lastPublishedResult, setLastPublishedResult] =
     useState<PublishedNewsReport | null>(null);
 
@@ -753,7 +765,7 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
         name: currentCircuit.name,
         location: currentCircuit.location,
         lengthKm: currentCircuit.lengthKm,
-        turns: currentCircuit.turns,
+        turns: currentCircuit.turns || 15,
         lapRecord: currentCircuit.lapRecord,
         description: currentCircuit.description,
       },
@@ -1011,43 +1023,263 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
     return baseDistributionCost + writersPayroll + managerSalary;
   }, [hiredWriters, activePricingManager]);
 
-  // Evaluate and Publish Report using Server-Side Gemini AI
-  const handlePublishReport = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newsCompany || !onPublishNewsReport || isEvaluatingAI) return;
+  // Local Client-Side Telemetry Auditor (Guaranteed instant fallback matching server auditReportAgainstTelemetry)
+  const runLocalTelemetryAudit = (
+    titleText: string,
+    bodyText: string,
+    activeIsPrediction: boolean,
+    predictedTargetText?: string
+  ) => {
+    const fullText = `${titleText} ${bodyText}`.trim();
+    const lowerText = fullText.toLowerCase();
+    const words = fullText
+      .replace(/[^a-zA-Z0-9\s]/g, ' ')
+      .split(/\s+/)
+      .filter(Boolean);
+    const wordCount = words.length;
+    const notes: string[] = [];
 
-    const cleanTitle = reportTitle.trim();
-    const cleanBody = reportContent.trim();
-    if (!cleanTitle || !cleanBody) return;
+    const vowelCount = (lowerText.match(/[aeiouy]/g) || []).length;
+    const alphaCount = (lowerText.match(/[a-z]/g) || []).length;
+    const vowelRatio = alphaCount > 0 ? vowelCount / alphaCount : 0;
+    const uniqueWords = new Set(words.map((w) => w.toLowerCase())).size;
+    const uniqueRatio = wordCount > 0 ? uniqueWords / wordCount : 0;
 
-    setIsEvaluatingAI(true);
-    setAiErrorMsg(null);
+    if (
+      alphaCount < 6 ||
+      vowelRatio < 0.14 ||
+      vowelRatio > 0.78 ||
+      (wordCount >= 10 && uniqueRatio < 0.3)
+    ) {
+      return {
+        accuracy: 12,
+        quality: 10,
+        reasoning: 8,
+        overallScore: 11,
+        verdict: 'inaccurate_flop' as PublishedNewsReport['verdict'],
+        verdictLabel: 'Unintelligible / Spam Report Rejected',
+        factCheckNotes: [
+          'AI Editor Bot detected gibberish, repetitive filler, or non-motorsport text.',
+          'Reports must contain coherent Formula 1 journalism and factual analysis.',
+        ],
+        readerReaction:
+          '"Is this a typo? Unsubscribing immediately until real F1 journalism returns." — Angry Paddock Subscriber',
+      };
+    }
+
+    let accuracy = 82;
+    let contradictions = 0;
+    let verifiedFacts = 0;
+
+    const matchedDrivers = selectableDrivers.filter((d) =>
+      d.rawName
+        .toLowerCase()
+        .split(' ')
+        .filter((p) => p.length >= 3)
+        .some((p) => lowerText.includes(p))
+    );
+    const matchedTeams = seasonTelemetryContext.constructorsStandings.filter((c) =>
+      c.name
+        .toLowerCase()
+        .split(' ')
+        .filter((p) => p.length >= 3 && p !== 'team' && p !== 'racing')
+        .some((p) => lowerText.includes(p))
+    );
+
+    if (matchedDrivers.length > 0 || matchedTeams.length > 0) {
+      verifiedFacts += 1;
+      accuracy += 6;
+      const subj = [
+        ...matchedDrivers.map((d) => d.rawName),
+        ...matchedTeams.map((t) => t.name),
+      ].slice(0, 3);
+      notes.push(`AI Bot verified official 2026 paddock subjects: ${subj.join(', ')}.`);
+    }
+
+    if (activeIsPrediction && predictedTargetText) {
+      verifiedFacts += 1;
+      notes.push(`Prediction target locked & audited: ${predictedTargetText}.`);
+    }
+
+    if (
+      lowerText.includes('999 points') ||
+      lowerText.includes('500 points') ||
+      lowerText.includes('1000 points') ||
+      lowerText.includes('45 corners') ||
+      lowerText.includes('100 corners')
+    ) {
+      contradictions += 2;
+      accuracy -= 48;
+      notes.push(
+        'FACT CHECK FAILURE: Article cites impossible or fabricated championship points/circuit corner numbers that contradict FIA telemetry.'
+      );
+    }
+
+    const p1Driver = seasonTelemetryContext.topDriversStandings[0];
+    if (
+      p1Driver &&
+      p1Driver.points > 0 &&
+      (lowerText.includes('leads the championship') ||
+        lowerText.includes('leading the championship') ||
+        lowerText.includes('championship leader'))
+    ) {
+      const p1Clean = p1Driver.name.replace(' (Player)', '').toLowerCase();
+      if (p1Clean.split(' ').some((p) => p.length >= 3 && lowerText.includes(p))) {
+        verifiedFacts += 1;
+        accuracy += 10;
+        notes.push(
+          `Verified championship leader claim: ${p1Driver.name.replace(' (Player)', '')} (${p1Driver.points} PTS).`
+        );
+      } else if (matchedDrivers.length > 0 && matchedDrivers[0].points < p1Driver.points) {
+        contradictions += 1;
+        accuracy -= 32;
+        notes.push(
+          `STANDINGS DISCREPANCY: ${p1Driver.name.replace(' (Player)', '')} actually leads with ${p1Driver.points} PTS.`
+        );
+      }
+    }
+
+    const causalWords = [
+      'because', 'due to', 'thanks to', 'since', 'therefore', 'thus', 'allows', 'enables',
+      'advantage', 'edge', 'reason', 'factor', 'key', 'crucial', 'given', 'proven',
+      'consistent', 'momentum', 'suits', 'rewards', 'with', 'has', 'have', 'strong',
+      'superior', 'better', 'best', 'fastest', 'faster', 'great', 'good', 'dominant', 'will',
+    ];
+    const racingWords = [
+      'aero', 'aerodynamic', 'downforce', 'drag', 'speed', 'fast', 'fastest', 'quick',
+      'car', 'drs', 'brake', 'brakes', 'braking', 'corner', 'corners', 'turn', 'turns',
+      'tire', 'tires', 'tyre', 'grip', 'traction', 'pace', 'qualifying', 'podium',
+      'win', 'won', 'winner', 'victory', 'lead', 'leader', 'first', 'p1', 'p2', 'p3',
+      'points', 'standings', 'championship', 'rating', 'engine', 'power', 'chassis',
+      'overtake', 'pass', 'sector', 'straight', 'setup', 'strategy', 'pit', 'telemetry',
+      'upgrade', 'driver', 'team', 'race', 'track', 'circuit', 'lap', 'grid', 'pole',
+    ];
+
+    const matchedCausal = causalWords.filter((k) => lowerText.includes(k));
+    const matchedRacing = racingWords.filter((k) => lowerText.includes(k));
+    const refusesReasons =
+      lowerText.includes('no other reasons') ||
+      lowerText.includes('no reasons needed') ||
+      lowerText.includes('idk why');
+
+    let quality = 68;
+    if (wordCount < 4) {
+      quality = 28;
+      accuracy = Math.min(accuracy, 48);
+      notes.push('Article is far too brief (< 4 words). Write at least a complete sentence.');
+    } else if (wordCount < 9) {
+      quality = Math.min(85, 58 + matchedRacing.length * 6 + verifiedFacts * 5);
+    } else {
+      quality = Math.min(
+        97,
+        68 + Math.min(16, Math.floor(wordCount / 3)) + Math.min(16, matchedRacing.length * 4)
+      );
+    }
+
+    let reasoning = 65;
+    if (refusesReasons) {
+      reasoning = 20;
+      quality = Math.min(quality, 40);
+      notes.push('WEAK REASONING: Author dismissed the need for analytical reasons.');
+    } else {
+      reasoning = Math.min(
+        98,
+        54 +
+          matchedCausal.length * 9 +
+          matchedRacing.length * 6 +
+          (wordCount >= 14 ? 10 : 0) +
+          (verifiedFacts > 0 ? 8 : 0)
+      );
+    }
+
+    if (matchedRacing.length >= 1 && !refusesReasons) {
+      notes.push(`AI Bot verified motorsport analysis (${matchedRacing.slice(0, 5).join(', ')}).`);
+    }
+
+    accuracy = Math.max(10, Math.min(98, Math.round(accuracy + (verifiedFacts >= 2 ? 6 : 0))));
+    quality = Math.max(10, Math.min(98, Math.round(quality)));
+    reasoning = Math.max(10, Math.min(98, Math.round(reasoning)));
+
+    const overallScore =
+      accuracy < 50
+        ? Math.round(accuracy * 0.6 + quality * 0.2 + reasoning * 0.2)
+        : Math.round(accuracy * 0.42 + quality * 0.28 + reasoning * 0.3);
+
+    let verdict: PublishedNewsReport['verdict'] = 'solid_report';
+    let verdictLabel = 'Accurate & Solid Paddock Report';
+    let readerReaction =
+      '"Good factual reporting on the championship situation, looking forward to the race." — Paddock Subscriber';
+
+    if (contradictions > 0 || accuracy < 50) {
+      verdict = 'inaccurate_flop';
+      verdictLabel = 'Debunked / Inaccurate Report';
+      readerReaction =
+        '"These stats contradict official FIA timing screens! Check your facts before publishing!" — Disappointed Subscriber';
+    } else if (accuracy >= 74 && quality >= 70 && reasoning >= 68) {
+      verdict = 'verified_scoop';
+      verdictLabel = activeIsPrediction
+        ? 'Compelling & Well-Reasoned Prediction'
+        : 'Verified Tier-1 Paddock Scoop';
+      readerReaction =
+        '"Spot-on telemetry analysis and rock-solid reasoning—worth every penny of my subscription!" — VIP Paddock Reader';
+    } else if (accuracy >= 62 && quality >= 52 && reasoning >= 50) {
+      verdict = 'solid_report';
+      verdictLabel = 'Accurate & Solid Paddock Report';
+    } else {
+      verdict = 'mediocre';
+      verdictLabel = 'Brief Report / Add More Racing Detail';
+      readerReaction =
+        '"True enough, though adding more technical detail would make it even better." — Paddock Reader';
+    }
+
+    if (notes.length === 0) {
+      notes.push('Audited by AI Editor Bot against 2026 FIA World Championship standings and circuit telemetry.');
+    }
+
+    return {
+      accuracy,
+      quality,
+      reasoning,
+      overallScore,
+      verdict,
+      verdictLabel,
+      factCheckNotes: notes.slice(0, 4),
+      readerReaction,
+    };
+  };
+
+  // Shared AI Editor Bot Evaluation Helper (used by both "Scan with AI Bot" and "Publish")
+  const evaluateArticleWithAIBot = async () => {
+    const rawTitle = reportTitle.trim();
+    const rawBody = reportContent.trim();
+    const cleanTitle =
+      rawTitle ||
+      (rawBody.length > 60
+        ? `${rawBody.slice(0, 56).trim()}...`
+        : rawBody || `Paddock Report: ${currentCircuit.name}`);
+    const cleanBody = rawBody || rawTitle;
 
     const activeIsPrediction =
       reportCategory === 'prediction' || includePrediction;
     const targetDrv = selectableDrivers.find((d) => d.id === predictedDriverId);
-    const predictedTargetText = activeIsPrediction && targetDrv
-      ? `${targetDrv.rawName} to finish ${
-          predictionType === 'win'
-            ? 'P1 (Race Winner)'
-            : predictionType === 'podium'
-            ? 'on the Podium (Top 3)'
-            : 'in the Top 5'
-        } at ${currentCircuit.name}`
-      : undefined;
-
-    let accuracy = 50;
-    let quality = 50;
-    let reasoning = 50;
-    let verdict: PublishedNewsReport['verdict'] = 'mediocre';
-    let verdictLabel = 'Evaluated Report';
-    let factCheckNotes: string[] = [];
-    let readerReaction = '';
+    const predictedTargetText =
+      activeIsPrediction && targetDrv
+        ? `${targetDrv.rawName} to finish ${
+            predictionType === 'win'
+              ? 'P1 (Race Winner)'
+              : predictionType === 'podium'
+              ? 'on the Podium (Top 3)'
+              : 'in the Top 5'
+          } at ${currentCircuit.name}`
+        : undefined;
 
     try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 2800);
       const response = await fetch('/api/news/evaluate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
         body: JSON.stringify({
           title: cleanTitle,
           content: cleanBody,
@@ -1058,16 +1290,23 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
           seasonContext: seasonTelemetryContext,
         }),
       });
+      clearTimeout(timer);
 
       const data = await response.json();
       if (!response.ok || !data.success || !data.evaluation) {
-        throw new Error(data.error || 'Failed to evaluate report with AI.');
+        throw new Error(data.error || 'Fallback to local AI telemetry auditor');
       }
 
       const ev = data.evaluation;
-      accuracy = Math.max(0, Math.min(100, Number(ev.accuracyScore ?? 50)));
-      quality = Math.max(0, Math.min(100, Number(ev.qualityScore ?? 50)));
-      reasoning = Math.max(0, Math.min(100, Number(ev.reasoningScore ?? 50)));
+      const accuracy = Math.max(0, Math.min(100, Number(ev.accuracyScore ?? 80)));
+      const quality = Math.max(0, Math.min(100, Number(ev.qualityScore ?? 78)));
+      const reasoning = Math.max(0, Math.min(100, Number(ev.reasoningScore ?? 76)));
+      const overallScore =
+        accuracy < 50
+          ? Math.round(accuracy * 0.6 + quality * 0.2 + reasoning * 0.2)
+          : Math.round(accuracy * 0.42 + quality * 0.28 + reasoning * 0.3);
+
+      let verdict: PublishedNewsReport['verdict'] = 'solid_report';
       const rawVerdict = String(ev.verdict || '');
       if (
         rawVerdict === 'verified_scoop' ||
@@ -1078,66 +1317,120 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
         verdict = rawVerdict;
       } else if (accuracy < 50) {
         verdict = 'inaccurate_flop';
-      } else if (accuracy >= 75 && (quality >= 75 || reasoning >= 75)) {
+      } else if (accuracy >= 74 && (quality >= 70 || reasoning >= 68)) {
         verdict = 'verified_scoop';
-      } else if (accuracy >= 60 && quality >= 55) {
+      } else if (accuracy >= 60 && quality >= 52) {
         verdict = 'solid_report';
       } else {
         verdict = 'mediocre';
       }
-      verdictLabel = ev.verdictLabel || 'FIA AI Editorial Audit';
-      factCheckNotes = Array.isArray(ev.factCheckNotes)
-        ? ev.factCheckNotes
-        : ['Evaluated against 2026 FIA Championship telemetry.'];
-      readerReaction =
-        ev.readerReaction ||
-        '"Interesting analysis from the paddock press room." — F1 Reader';
-    } catch (err: any) {
-      setAiErrorMsg(
-        err?.message || 'AI evaluation unavailable; applied local telemetry audit.'
+
+      return {
+        cleanTitle,
+        cleanBody,
+        activeIsPrediction,
+        targetDrv,
+        accuracy,
+        quality,
+        reasoning,
+        overallScore,
+        verdict,
+        verdictLabel: ev.verdictLabel || 'FIA AI Editorial Audit',
+        factCheckNotes: Array.isArray(ev.factCheckNotes)
+          ? ev.factCheckNotes
+          : ['Evaluated against 2026 FIA Championship telemetry.'],
+        readerReaction:
+          ev.readerReaction ||
+          '"Interesting analysis from the paddock press room." — F1 Reader',
+      };
+    } catch {
+      const localAudit = runLocalTelemetryAudit(
+        cleanTitle,
+        cleanBody,
+        activeIsPrediction,
+        predictedTargetText
       );
-      const combined = `${cleanTitle} ${cleanBody}`.toLowerCase();
-      const hasReasons =
-        combined.includes('because') ||
-        combined.includes('due to') ||
-        combined.includes('pace') ||
-        combined.includes('aero') ||
-        combined.includes('downforce') ||
-        combined.includes('speed') ||
-        combined.includes('points') ||
-        combined.includes('rating') ||
-        combined.includes('turns') ||
-        combined.includes('tire');
-      accuracy = cleanBody.length >= 60 ? 78 : 42;
-      quality = Math.min(95, Math.max(15, Math.round(cleanBody.length / 2.5)));
-      reasoning = hasReasons && cleanBody.length >= 80 ? 84 : 30;
-      verdict =
-        accuracy >= 75 && quality >= 70
-          ? 'verified_scoop'
-          : accuracy < 50
-          ? 'inaccurate_flop'
-          : 'mediocre';
-      verdictLabel =
-        verdict === 'verified_scoop'
-          ? 'Verified & Well-Reasoned Report'
-          : 'Insufficient Telemetry Reasoning';
-      factCheckNotes = [
-        hasReasons
-          ? 'Technical and championship reasons identified in article.'
-          : 'Lacked concrete technical or statistical reasons supporting the claim.',
-      ];
-      readerReaction =
-        verdict === 'verified_scoop'
-          ? '"Strong reasoning and accurate paddock facts!" — Paddock Subscriber'
-          : '"Needs much stronger evidence and accurate stats." — Paddock Reader';
-    } finally {
-      setIsEvaluatingAI(false);
+      return {
+        cleanTitle,
+        cleanBody,
+        activeIsPrediction,
+        targetDrv,
+        ...localAudit,
+      };
+    }
+  };
+
+  // Pre-Publish AI Bot Scan Handler ("Scan & Review Article with AI Bot")
+  const handleScanArticleWithAIBot = async () => {
+    if (isEvaluatingAI || isScanningOnly) return;
+    if (!reportTitle.trim() && !reportContent.trim()) {
+      setAiErrorMsg('Write a headline or article (or have a hired writer draft one) before scanning with the AI Bot.');
+      return;
     }
 
-    const overallScore =
-      accuracy < 50
-        ? Math.round(accuracy * 0.6 + quality * 0.2 + reasoning * 0.2)
-        : Math.round(accuracy * 0.42 + quality * 0.28 + reasoning * 0.3);
+    setIsScanningOnly(true);
+    setAiErrorMsg(null);
+    const evaluated = await evaluateArticleWithAIBot();
+    if (!reportTitle.trim() && evaluated.cleanTitle) {
+      setReportTitle(evaluated.cleanTitle);
+    }
+    if (!reportContent.trim() && evaluated.cleanBody) {
+      setReportContent(evaluated.cleanBody);
+    }
+    setAiBotReviewResult({
+      accuracyScore: evaluated.accuracy,
+      qualityScore: evaluated.quality,
+      reasoningScore: evaluated.reasoning,
+      overallScore: evaluated.overallScore,
+      verdict: evaluated.verdict,
+      verdictLabel: evaluated.verdictLabel,
+      factCheckNotes: evaluated.factCheckNotes,
+      readerReaction: evaluated.readerReaction,
+      reviewedTitle: evaluated.cleanTitle,
+    });
+    setIsScanningOnly(false);
+  };
+
+  // Evaluate and Publish Report using Server-Side Gemini AI + Telemetry Auditor
+  const handlePublishReport = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newsCompany || !onPublishNewsReport || isEvaluatingAI || isScanningOnly) return;
+    if (!reportTitle.trim() && !reportContent.trim()) {
+      setAiErrorMsg('Please enter a headline or article body before publishing.');
+      return;
+    }
+
+    setIsEvaluatingAI(true);
+    setAiErrorMsg(null);
+
+    const evaluated = await evaluateArticleWithAIBot();
+    const {
+      cleanTitle,
+      cleanBody,
+      activeIsPrediction,
+      targetDrv,
+      accuracy,
+      quality,
+      reasoning,
+      overallScore,
+      verdictLabel,
+      readerReaction,
+    } = evaluated;
+    let verdict = evaluated.verdict;
+    const factCheckNotes = [...evaluated.factCheckNotes];
+
+    setAiBotReviewResult({
+      accuracyScore: accuracy,
+      qualityScore: quality,
+      reasoningScore: reasoning,
+      overallScore,
+      verdict,
+      verdictLabel,
+      factCheckNotes,
+      readerReaction,
+      reviewedTitle: cleanTitle,
+    });
+    setIsEvaluatingAI(false);
 
     // =========================================================================
     // SUBSCRIPTION PRICE ELASTICITY + QUALITY INTERACTION + PRICING MANAGER:
@@ -2612,7 +2905,6 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
                       </div>
                       <input
                         type="text"
-                        required
                         value={reportTitle}
                         onChange={(e) => setReportTitle(e.target.value)}
                         placeholder="Write or edit the headline (e.g. Why Norris and McLaren Are Favorites for the Podium at Bahrain)..."
@@ -2634,13 +2926,12 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
                       </div>
                       <textarea
                         rows={6}
-                        required
                         value={reportContent}
                         onChange={(e) => setReportContent(e.target.value)}
                         placeholder={
                           reportCategory === 'prediction' || includePrediction
                             ? `Write or edit your prediction and list the concrete reasons WHY it should be correct (e.g. driver rating, championship momentum, car top speed/downforce, and how ${currentCircuit.name}'s ${currentCircuit.turns} corners suit their car)...`
-                            : 'Write your paddock report here or edit what your hired writer drafted. Our AI Editor-in-Chief checks if your claims match actual race results and championship standings, and grades how compelling and well-reasoned your article is...'
+                            : 'Write your paddock report here or edit what your hired writer drafted. Our AI Editor Bot checks if your claims match actual race results and championship standings, and grades how compelling and well-reasoned your article is...'
                         }
                         className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-4 text-xs text-white leading-relaxed focus:outline-none focus:border-amber-400"
                       />
@@ -2652,32 +2943,126 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
                       </div>
                     )}
 
-                    <button
-                      type="submit"
-                      disabled={
-                        isEvaluatingAI ||
-                        !reportTitle.trim() ||
-                        !reportContent.trim()
-                      }
-                      className="w-full py-3.5 bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-black font-black text-xs uppercase tracking-wider rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-2"
-                    >
-                      {isEvaluatingAI ? (
-                        <>
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          <span>
-                            AI Editor-in-Chief Checking Truth, Quality & Reasoning...
+                    {/* Instant AI Editor Bot Review Panel (Shown immediately on Scan or Publish) */}
+                    {aiBotReviewResult && (
+                      <div
+                        className={`p-4 rounded-xl border space-y-2.5 ${
+                          aiBotReviewResult.verdict === 'verified_scoop'
+                            ? 'bg-emerald-950/30 border-emerald-500/50'
+                            : aiBotReviewResult.verdict === 'solid_report'
+                            ? 'bg-cyan-950/30 border-cyan-500/50'
+                            : aiBotReviewResult.verdict === 'inaccurate_flop'
+                            ? 'bg-red-950/35 border-red-500/50'
+                            : 'bg-amber-950/30 border-amber-500/50'
+                        }`}
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
+                            <span className="text-xs font-black uppercase tracking-wider text-white">
+                              AI Editor Bot Review: {aiBotReviewResult.verdictLabel}
+                            </span>
+                          </div>
+                          <span className="text-[11px] font-mono text-neutral-300">
+                            Overall Grade: <strong className="text-white">{aiBotReviewResult.overallScore}/100</strong>
                           </span>
-                        </>
-                      ) : (
-                        <>
-                          <Send className="w-4 h-4" />
-                          <span>
-                            Submit to AI Editor & Publish (Sub Price: ${subscriptionPrice}/mo · Operating Cost:{' '}
-                            {formatMoney(currentOperatingCost)})
-                          </span>
-                        </>
-                      )}
-                    </button>
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-2 font-mono text-xs">
+                          <div className="bg-neutral-950/80 border border-white/10 rounded-lg p-2">
+                            <span className="text-[10px] text-neutral-400 block">Factual Accuracy</span>
+                            <span
+                              className={`text-sm font-black ${
+                                aiBotReviewResult.accuracyScore >= 70
+                                  ? 'text-emerald-400'
+                                  : aiBotReviewResult.accuracyScore >= 50
+                                  ? 'text-amber-400'
+                                  : 'text-red-400'
+                              }`}
+                            >
+                              {aiBotReviewResult.accuracyScore}%
+                            </span>
+                          </div>
+                          <div className="bg-neutral-950/80 border border-white/10 rounded-lg p-2">
+                            <span className="text-[10px] text-neutral-400 block">Writing Quality</span>
+                            <span className="text-sm font-black text-cyan-400">
+                              {aiBotReviewResult.qualityScore}%
+                            </span>
+                          </div>
+                          <div className="bg-neutral-950/80 border border-white/10 rounded-lg p-2">
+                            <span className="text-[10px] text-neutral-400 block">Reasoning Depth</span>
+                            <span className="text-sm font-black text-purple-400">
+                              {aiBotReviewResult.reasoningScore}%
+                            </span>
+                          </div>
+                        </div>
+
+                        <ul className="space-y-1 text-xs text-neutral-200">
+                          {aiBotReviewResult.factCheckNotes.map((note, idx) => (
+                            <li key={idx} className="flex items-start gap-1.5">
+                              <span className="text-amber-400 font-bold">•</span>
+                              <span>{note}</span>
+                            </li>
+                          ))}
+                        </ul>
+
+                        <p className="text-[11px] italic text-neutral-400 border-t border-white/10 pt-2">
+                          {aiBotReviewResult.readerReaction}
+                        </p>
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <button
+                        type="button"
+                        onClick={handleScanArticleWithAIBot}
+                        disabled={
+                          isEvaluatingAI ||
+                          isScanningOnly ||
+                          (!reportTitle.trim() && !reportContent.trim())
+                        }
+                        className="w-full py-3.5 bg-neutral-800 hover:bg-neutral-700 border border-cyan-500/40 disabled:opacity-40 text-cyan-300 font-black text-xs uppercase tracking-wider rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-2"
+                      >
+                        {isScanningOnly ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin text-cyan-400" />
+                            <span>AI Bot Scanning Article...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles className="w-4 h-4 text-cyan-400" />
+                            <span>Scan & Review Article with AI Bot</span>
+                          </>
+                        )}
+                      </button>
+
+                      <button
+                        type="submit"
+                        disabled={
+                          isEvaluatingAI ||
+                          isScanningOnly ||
+                          (!reportTitle.trim() && !reportContent.trim())
+                        }
+                        className="w-full py-3.5 bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-black font-black text-xs uppercase tracking-wider rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-2"
+                      >
+                        {isEvaluatingAI ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            <span>
+                              AI Bot Reviewing & Publishing...
+                            </span>
+                          </>
+                        ) : (
+                          <>
+                            <Send className="w-4 h-4" />
+                            <span>
+                              Submit to AI Editor & Publish (${subscriptionPrice}/mo · Cost:{' '}
+                              {formatMoney(currentOperatingCost)})
+                            </span>
+                          </>
+                        )}
+                      </button>
+                    </div>
                   </form>
 
                   {/* Latest Published AI Audit Result Receipt */}
