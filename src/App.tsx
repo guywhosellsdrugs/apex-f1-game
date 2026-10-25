@@ -547,6 +547,17 @@ export default function App() {
     }));
   };
 
+  const handleUpdateNewsCompany = (company: NewsCompanyConfig, feeDelta: number = 0) => {
+    setSeason((prev) => ({
+      ...prev,
+      career: {
+        ...prev.career,
+        careerEarnings: Math.max(0, prev.career.careerEarnings - feeDelta),
+        newsCompany: company,
+      },
+    }));
+  };
+
   const handlePublishNewsReport = (report: PublishedNewsReport) => {
     setSeason((prev) => {
       const currentCompany = prev.career.newsCompany;
@@ -563,7 +574,10 @@ export default function App() {
         ...prev,
         career: {
           ...prev.career,
-          careerEarnings: prev.career.careerEarnings + report.revenueEarned,
+          careerEarnings: Math.max(
+            0,
+            prev.career.careerEarnings + report.revenueEarned
+          ),
           newsCompany: {
             ...currentCompany,
             credibility: updatedCredibility,
@@ -830,6 +844,140 @@ export default function App() {
     const p1LeadSec = finalStandingsDetails?.[0]?.leadOverP2Seconds || (finalStandingsDetails && finalStandingsDetails.length > 1 ? finalStandingsDetails[1].gapToLeaderSeconds : undefined);
     const playerDetail = finalStandingsDetails?.find((s) => s.driver.id === playerDriver.id);
 
+    // Resolve any pending Paddock News Company predictions for this round:
+    // Correct predictions gain subscribers (which organically drives subscriber income);
+    // Incorrect predictions lose subscribers and trigger subscriber refund losses!
+    let updatedNewsCompany = season.career.newsCompany || null;
+    if (updatedNewsCompany && updatedNewsCompany.publishedReports?.length) {
+      let totalSubShiftFromPredictions = 0;
+      let totalCredibilityShift = 0;
+      let netSubscriberRoundDeltaCash = 0;
+
+      const resolvedReports = updatedNewsCompany.publishedReports.map((rep) => {
+        if (
+          rep.isPrediction &&
+          rep.predictionStatus === 'pending' &&
+          rep.predictionTargetRound === season.currentRound &&
+          rep.predictedDriverId
+        ) {
+          const drvRank =
+            sortedField.findIndex((d) => d.id === rep.predictedDriverId) + 1;
+          const targetThreshold =
+            rep.predictionType === 'win'
+              ? 1
+              : rep.predictionType === 'podium'
+              ? 3
+              : 5;
+          const isOutcomeCorrect = drvRank >= 1 && drvRank <= targetThreshold;
+          const hasCompellingReasoning =
+            (rep.reasoningScore ?? 50) >= 55 && rep.accuracyScore >= 55;
+
+          const subPrice = updatedNewsCompany!.subscriptionPrice ?? 8;
+          const mgrProtection = updatedNewsCompany!.pricingManager
+            ? updatedNewsCompany!.pricingManager.elasticityProtection
+            : 0;
+          const mgrConversion = updatedNewsCompany!.pricingManager
+            ? updatedNewsCompany!.pricingManager.conversionBonus
+            : 0;
+          const lowPriceBoost = subPrice < 8 ? 1 + (8 - subPrice) * 0.08 : 1.0;
+
+          if (isOutcomeCorrect && hasCompellingReasoning) {
+            const difficultyScale =
+              rep.predictionType === 'win'
+                ? 1.5
+                : rep.predictionType === 'podium'
+                ? 1.15
+                : 0.85;
+            const reasonFactor = 0.75 + ((rep.reasoningScore ?? 75) / 100) * 0.6;
+            // Because the prediction was RIGHT and well-reasoned, even expensive prices barely dampen subscriber sign-ups!
+            const highPriceDampen =
+              subPrice > 22
+                ? Math.max(
+                    0.6,
+                    1 - (subPrice - 22) * 0.012 * (1 - mgrProtection)
+                  )
+                : 1.0;
+            const gainedSubscribers = Math.round(
+              14500 *
+                difficultyScale *
+                reasonFactor *
+                lowPriceBoost *
+                highPriceDampen *
+                (1 + mgrConversion)
+            );
+            // Organic subscription revenue from the new subscribers based on your subscriptionPrice
+            const organicSubIncome = Math.round(
+              gainedSubscribers *
+                subPrice *
+                0.5 *
+                (0.65 + (updatedNewsCompany!.credibility / 100) * 0.6)
+            );
+            totalSubShiftFromPredictions += gainedSubscribers;
+            totalCredibilityShift += 8;
+            netSubscriberRoundDeltaCash += organicSubIncome;
+
+            return {
+              ...rep,
+              predictionStatus: 'correct' as const,
+              predictionSubscriberShift: gainedSubscribers,
+              subscriberDelta: rep.subscriberDelta + gainedSubscribers,
+              revenueEarned: rep.revenueEarned + organicSubIncome,
+            };
+          } else {
+            // Incorrect prediction -> Lose subscribers (more if subscription price is expensive, mitigated by Pricing Manager)!
+            const overpriceAnger =
+              subPrice > 10
+                ? 1 + (subPrice - 10) * 0.045 * (1 - mgrProtection)
+                : 1.0;
+            const lostSubscribers = -Math.min(
+              Math.max(0, updatedNewsCompany!.subscribers - 500),
+              Math.round(
+                (rep.predictionType === 'win'
+                  ? 14000
+                  : rep.predictionType === 'podium'
+                  ? 11000
+                  : 8500) * overpriceAnger
+              )
+            );
+            const cancellationRefundLoss = -Math.round(
+              Math.abs(lostSubscribers) * Math.max(4, subPrice * 0.55)
+            );
+            totalSubShiftFromPredictions += lostSubscribers;
+            totalCredibilityShift -= 9;
+            netSubscriberRoundDeltaCash += cancellationRefundLoss;
+
+            return {
+              ...rep,
+              predictionStatus: 'incorrect' as const,
+              predictionSubscriberShift: lostSubscribers,
+              subscriberDelta: rep.subscriberDelta + lostSubscribers,
+              revenueEarned: rep.revenueEarned + cancellationRefundLoss,
+            };
+          }
+        }
+        return rep;
+      });
+
+      const newSubCount = Math.max(
+        500,
+        updatedNewsCompany.subscribers + totalSubShiftFromPredictions
+      );
+      const newCred = Math.max(
+        5,
+        Math.min(100, updatedNewsCompany.credibility + totalCredibilityShift)
+      );
+
+      updatedNewsCompany = {
+        ...updatedNewsCompany,
+        totalRevenue:
+          updatedNewsCompany.totalRevenue + netSubscriberRoundDeltaCash,
+        credibility: newCred,
+        subscribers: newSubCount,
+        publishedReports: resolvedReports,
+      };
+      totalPayout = Math.max(0, totalPayout + netSubscriberRoundDeltaCash);
+    }
+
     const result: RaceResult = {
       round: season.currentRound,
       circuitId: currentCircuit.id,
@@ -867,6 +1015,7 @@ export default function App() {
         wins: isWin ? prev.career.wins + 1 : prev.career.wins,
         podiums: isPodium ? prev.career.podiums + 1 : prev.career.podiums,
         championships: isSeasonEnd && champBonus > 0 ? prev.career.championships + 1 : prev.career.championships,
+        newsCompany: updatedNewsCompany,
       },
     }));
 
@@ -953,6 +1102,7 @@ export default function App() {
           onStartQualifying={handleStartQualifying}
           qualifyingGridSlot={qualifyingGridSlot}
           onFoundNewsCompany={handleFoundNewsCompany}
+          onUpdateNewsCompany={handleUpdateNewsCompany}
           onPublishNewsReport={handlePublishNewsReport}
         />
       )}

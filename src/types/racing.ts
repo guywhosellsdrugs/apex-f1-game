@@ -231,24 +231,60 @@ export interface SeasonHistoryEntry {
   totalEarnings: number;
 }
 
+export interface NewsWriterStaff {
+  id: string;
+  name: string;
+  role: string;
+  specialty: 'race_result' | 'championship' | 'transfer' | 'technical' | 'prediction';
+  hiringFee: number;
+  salaryPerReport: number;
+  accuracyRating: number; // 45 - 96
+  writingRating: number; // 50 - 96
+  bio: string;
+}
+
+export interface NewsPricingManager {
+  id: string;
+  name: string;
+  role: string;
+  hiringFee: number;
+  salaryPerReport: number;
+  elasticityProtection: number; // 0.15 to 0.55 — reduces subscriber churn at high prices
+  conversionBonus: number; // 0.10 to 0.35 — boosts subscriber growth
+  bio: string;
+}
+
 export interface PublishedNewsReport {
   id: string;
   title: string;
   content: string;
-  category: 'race_result' | 'championship' | 'transfer' | 'technical';
+  category: 'race_result' | 'championship' | 'transfer' | 'technical' | 'prediction';
   roundPublished: number;
   timestamp: number;
+  authorName?: string;
+  wasEditedByPlayer?: boolean;
   accuracyScore: number; // 0 - 100
   qualityScore: number; // 0 - 100
+  reasoningScore?: number; // 0 - 100
   overallScore: number; // 0 - 100
   verdict: 'verified_scoop' | 'solid_report' | 'mediocre' | 'inaccurate_flop';
   verdictLabel: string;
   factCheckNotes: string[];
   readerReaction: string;
   views: number;
-  revenueEarned: number;
+  subscriptionPriceUsed?: number;
+  revenueEarned: number; // Can be negative when operating costs/retractions/refunds exceed reader income!
+  operatingCost?: number;
   subscriberDelta: number;
   credibilityDelta: number;
+  isPrediction?: boolean;
+  predictedDriverId?: string;
+  predictedDriverName?: string;
+  predictionType?: 'win' | 'podium' | 'top5';
+  predictionTargetRound?: number;
+  predictionTargetCircuitName?: string;
+  predictionStatus?: 'pending' | 'correct' | 'incorrect';
+  predictionSubscriberShift?: number;
 }
 
 export interface NewsCompanyConfig {
@@ -259,7 +295,11 @@ export interface NewsCompanyConfig {
   foundedRound: number;
   credibility: number; // 0 - 100%
   subscribers: number;
-  totalRevenue: number;
+  subscriptionPrice?: number; // $1 to $50 per subscriber
+  pricingManager?: NewsPricingManager | null;
+  autoOptimizePrice?: boolean;
+  totalRevenue: number; // Net profit/loss across all reports
+  hiredWriters?: NewsWriterStaff[];
   publishedReports: PublishedNewsReport[];
 }
 

@@ -3,6 +3,7 @@ import { createServer } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { GoogleGenAI, Type } from '@google/genai';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -611,6 +612,243 @@ app.get('/api/cloud/load/:uid', (req, res) => {
     return res.status(404).json({ success: false, error: 'No cloud save found.' });
   }
   res.json({ success: true, career });
+});
+
+// AI Paddock News & Prediction Evaluator Endpoint (Server-Side Gemini API)
+app.post('/api/news/evaluate', async (req, res) => {
+  const {
+    title,
+    content,
+    category,
+    isPrediction,
+    predictedTarget,
+    predictionOutcomeType,
+    seasonContext,
+  } = req.body || {};
+
+  if (!title || !content) {
+    return res.status(400).json({
+      success: false,
+      error: 'Headline and report body are required.',
+    });
+  }
+
+  try {
+    const ai = new GoogleGenAI({
+      apiKey: process.env.GEMINI_API_KEY,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        },
+      },
+    });
+
+    const systemInstruction = `You are the Chief FIA Paddock Media Auditor and F1 Editor-in-Chief.
+Your job is to evaluate a player-written Formula 1 news report or race prediction against the ACTUAL ground-truth season telemetry provided.
+
+Strict Grading Rules:
+1. FACTUAL ACCURACY (accuracyScore: 0 to 100):
+   - Compare every claim in the user's headline and article against the Ground-Truth Season Context.
+   - If the user states true race results, true championship standings, real drivers/teams, or plausible paddock analysis that does NOT contradict the ground truth, score accuracy high (75 to 100).
+   - If the user fabricates fake race winners, wrong point totals, claims a backmarker with 0 points is leading the championship, or writes nonsense/gibberish, score accuracy very low (0 to 35).
+   - For Predictions: A prediction about the NEXT race is NOT factually false just because it hasn't happened yet—judge its accuracy/plausibility based on whether the supporting facts, car performance, driver form, and circuit characteristics cited by the author are true and realistic!
+
+2. COMPELLING WRITING & REASONING (qualityScore: 0 to 100, reasoningScore: 0 to 100):
+   - Did the author write a compelling, articulate F1 report with genuine motorsport analysis?
+   - If the author made a prediction (or analytical claim), did they list clear, logical REASONS why it should be correct (e.g. car aero, top speed, driver rating, recent podiums, tire wear, circuit layout)?
+   - Lazy 1-sentence reports, spam, or predictions with zero explanation ("Max will win idk why") must receive low qualityScore (<35) and low reasoningScore (<30).
+   - Detailed, well-reasoned reports that explain WHY a driver/team will succeed or why a result happened should score 80 to 100.
+
+3. VERDICT:
+   - "verified_scoop": High accuracy (>=75) AND compelling writing/reasoning (>=75).
+   - "solid_report": Good accuracy (>=65) AND decent writing/reasoning (>=55).
+   - "mediocre": Accurate enough (>=50) but weak/short writing or lacking reasons (<55).
+   - "inaccurate_flop": Factually inaccurate (<50 accuracy), contradicted by FIA standings/results, or complete gibberish/spam.`;
+
+    const prompt = `GROUND-TRUTH 2026 F1 SEASON TELEMETRY:
+${JSON.stringify(seasonContext, null, 2)}
+
+PLAYER SUBMISSION:
+- Category: ${category || 'race_result'}
+- Is Making a Prediction: ${Boolean(isPrediction)}
+- Predicted Target (if specified): ${predictedTarget || 'Stated in article text'} (${predictionOutcomeType || 'general'})
+- Headline: "${title}"
+- Article & Reasoning Body: "${content}"
+
+Evaluate this submission and return JSON matching the schema.`;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.8-flash',
+      contents: prompt,
+      config: {
+        systemInstruction,
+        temperature: 0.3,
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            accuracyScore: {
+              type: Type.INTEGER,
+              description: '0 to 100 score for factual accuracy and truthfulness against season data.',
+            },
+            qualityScore: {
+              type: Type.INTEGER,
+              description: '0 to 100 score for compelling journalism, depth, and F1 analysis.',
+            },
+            reasoningScore: {
+              type: Type.INTEGER,
+              description: '0 to 100 score for how well the author listed reasons supporting their claims or prediction.',
+            },
+            verdict: {
+              type: Type.STRING,
+              description: 'One of: verified_scoop, solid_report, mediocre, inaccurate_flop',
+            },
+            verdictLabel: {
+              type: Type.STRING,
+              description: 'Short editorial verdict label, e.g. "Compelling & Verified Analysis" or "Debunked Inaccurate Report"',
+            },
+            factCheckNotes: {
+              type: Type.ARRAY,
+              items: { type: Type.STRING },
+              description: '2 to 4 specific bullet points explaining what the AI verified as true, compelling, or inaccurate in the user text.',
+            },
+            readerReaction: {
+              type: Type.STRING,
+              description: 'A realistic quote from F1 paddock readers reacting to this specific article.',
+            },
+          },
+          required: [
+            'accuracyScore',
+            'qualityScore',
+            'reasoningScore',
+            'verdict',
+            'verdictLabel',
+            'factCheckNotes',
+            'readerReaction',
+          ],
+        },
+      },
+    });
+
+    const rawText = response.text;
+    if (!rawText) {
+      throw new Error('Empty response from Gemini model.');
+    }
+
+    const parsed = JSON.parse(rawText.trim());
+    return res.json({
+      success: true,
+      evaluation: parsed,
+    });
+  } catch (err: any) {
+    console.error('Gemini evaluation error:', err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err?.message || 'AI evaluation service encountered an error.',
+    });
+  }
+});
+
+// AI Hired Writer Draft Generator Endpoint (Server-Side Gemini API)
+app.post('/api/news/writer-draft', async (req, res) => {
+  const {
+    writer,
+    category,
+    isPrediction,
+    predictedTarget,
+    predictionOutcomeType,
+    seasonContext,
+  } = req.body || {};
+
+  if (!writer) {
+    return res.status(400).json({
+      success: false,
+      error: 'Writer profile is required.',
+    });
+  }
+
+  try {
+    const ai = new GoogleGenAI({
+      apiKey: process.env.GEMINI_API_KEY,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        },
+      },
+    });
+
+    const acc = Number(writer.accuracyRating ?? 70);
+    const wrt = Number(writer.writingRating ?? 70);
+
+    const systemInstruction = `You are roleplaying as "${writer.name}", a hired Formula 1 staff journalist (${writer.role}) working for the player's Paddock News Company.
+Your Journalist Attributes:
+- Factual Accuracy Skill: ${acc}/100
+- Writing & Analytical Skill: ${wrt}/100
+- Specialty Beat: ${writer.specialty}
+
+How to write your draft based on your skill ratings:
+1. If your Accuracy Skill (${acc}) is HIGH (>=82): Use 100% accurate facts, real point totals, real race winners, and true circuit characteristics from the provided 2026 F1 Season Telemetry.
+2. If your Accuracy Skill (${acc}) is MEDIUM (65-81): Mostly use real facts from the telemetry, but occasionally be slightly vague or overstate a midfield team's pace so the Editor-in-Chief (the player) can polish it.
+3. If your Accuracy Skill (${acc}) is LOW (<65): Slip in 1 or 2 noticeable factual mistakes or exaggerated tabloid claims (e.g. wrong point gap, confusing who won the last race, or questionable technical claims) that the player should catch and edit before publishing!
+4. If your Writing Skill (${wrt}) is HIGH (>=80): Write a crisp, compelling, multi-sentence F1 analytical report with concrete technical and championship reasons (aero downforce, tire degradation, driver rating, circuit turns).
+5. If your Writing Skill (${wrt}) is LOW (<65): Write a shorter, somewhat casual or surface-level draft that benefits from the player editing and adding stronger reasons.
+6. Also provide a short "writerNote" (1 sentence from the writer to the boss explaining what they focused on or what the boss might want to double-check).`;
+
+    const prompt = `GROUND-TRUTH 2026 F1 SEASON TELEMETRY:
+${JSON.stringify(seasonContext, null, 2)}
+
+ASSIGNMENT FOR ${writer.name}:
+- Article Beat: ${category || 'race_result'}
+- Include Next-Race Prediction: ${Boolean(isPrediction)}
+- Predicted Target (if prediction): ${predictedTarget || 'None'} (${predictionOutcomeType || 'N/A'})
+
+Write a headline, article body (3 to 5 sentences), and a brief writerNote to the Editor-in-Chief.`;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.8-flash',
+      contents: prompt,
+      config: {
+        systemInstruction,
+        temperature: 0.6,
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            title: {
+              type: Type.STRING,
+              description: 'Draft headline written by this staff writer.',
+            },
+            content: {
+              type: Type.STRING,
+              description: 'Draft article body (and prediction reasons if applicable) written by this staff writer.',
+            },
+            writerNote: {
+              type: Type.STRING,
+              description: 'A 1-sentence note from the staff writer to the player (Editor-in-Chief) about the draft.',
+            },
+          },
+          required: ['title', 'content', 'writerNote'],
+        },
+      },
+    });
+
+    const rawText = response.text;
+    if (!rawText) {
+      throw new Error('Empty response from Gemini writer draft.');
+    }
+
+    const parsed = JSON.parse(rawText.trim());
+    return res.json({
+      success: true,
+      draft: parsed,
+    });
+  } catch (err: any) {
+    console.error('Gemini writer-draft error:', err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err?.message || 'Writer draft service encountered an error.',
+    });
+  }
 });
 
 app.get('/api/rooms/:code', (req, res) => {

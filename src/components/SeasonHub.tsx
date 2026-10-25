@@ -110,6 +110,7 @@ interface SeasonHubProps {
   onStartQualifying?: () => void;
   qualifyingGridSlot?: number | null;
   onFoundNewsCompany?: (company: NewsCompanyConfig, startupFee: number) => void;
+  onUpdateNewsCompany?: (company: NewsCompanyConfig, feeDelta?: number) => void;
   onPublishNewsReport?: (report: PublishedNewsReport) => void;
 }
 
@@ -137,6 +138,7 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
   onStartQualifying,
   qualifyingGridSlot,
   onFoundNewsCompany,
+  onUpdateNewsCompany,
   onPublishNewsReport,
 }) => {
   const [activeTab, setActiveTab] = useState<'weekend' | 'newsfeed' | 'analytics' | 'contracts' | 'myteam' | 'standings' | 'calendar' | 'records'>('weekend');
@@ -1429,17 +1431,22 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
             if (onFoundNewsCompany) {
               onFoundNewsCompany(company, startupFee);
               setNotificationMsg(
-                `OFFICIAL FIA MEDIA PRESS CREDENTIAL: Founded "${company.name}" [${company.badgeCode}]! Write accurate, high-quality paddock reports to earn subscriber & ad revenue.`
+                `OFFICIAL FIA MEDIA PRESS CREDENTIAL: Founded "${company.name}" [${company.badgeCode}]! Hire writers, edit their drafts, or write your own reports to grow your subscribers.`
               );
+            }
+          }}
+          onUpdateNewsCompany={(company, feeDelta) => {
+            if (onUpdateNewsCompany) {
+              onUpdateNewsCompany(company, feeDelta);
             }
           }}
           onPublishNewsReport={(report) => {
             if (onPublishNewsReport) {
               onPublishNewsReport(report);
               setNotificationMsg(
-                report.revenueEarned >= 10000
-                  ? `REPORT PUBLISHED (${report.verdictLabel}): Earned +${formatMoney(report.revenueEarned)} and +${report.subscriberDelta.toLocaleString()} subscribers!`
-                  : `REPORT DEMONETIZED (${report.verdictLabel}): Inaccurate or low-effort reporting earned only ${formatMoney(report.revenueEarned)} and lost ${Math.abs(report.subscriberDelta).toLocaleString()} subscribers.`
+                report.revenueEarned >= 0
+                  ? `REPORT PUBLISHED (${report.verdictLabel}): Net Profit +${formatMoney(report.revenueEarned)} (${report.subscriberDelta >= 0 ? '+' : ''}${report.subscriberDelta.toLocaleString()} subscribers)!`
+                  : `REPORT FINANCIAL LOSS (${report.verdictLabel}): Lost -${formatMoney(Math.abs(report.revenueEarned))} and ${Math.abs(report.subscriberDelta).toLocaleString()} subscribers due to operating costs & inaccurate/weak reporting.`
               );
             }
           }}

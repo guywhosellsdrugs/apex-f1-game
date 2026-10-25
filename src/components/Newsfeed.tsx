@@ -3,34 +3,210 @@ import {
   SeasonState,
   NewsCompanyConfig,
   PublishedNewsReport,
+  NewsWriterStaff,
+  NewsPricingManager,
 } from '../types/racing';
 import { CIRCUITS, TEAMS, DRIVERS } from '../constants/f1Data';
 import {
   Newspaper,
   TrendingUp,
-  Award,
   Users,
   Search,
-  Clock,
   ExternalLink,
   ChevronRight,
   Zap,
   Flag,
   Bookmark,
   PenTool,
-  DollarSign,
   CheckCircle,
   AlertTriangle,
-  XCircle,
-  FileText,
   Send,
   Building2,
-  Eye,
+  Target,
+  Loader2,
+  Lock,
+  UserPlus,
+  UserMinus,
+  Sparkles,
+  FileEdit,
+  Trophy,
+  DollarSign,
+  Sliders,
+  Pencil,
+  Check,
+  X,
 } from 'lucide-react';
+
+export const NEWS_COMPANY_STARTUP_COST = 15000000; // $15,000,000 FIA Media Broadcast & Press Syndicate Fee
+
+export const NEWS_WRITER_OPTIONS: NewsWriterStaff[] = [
+  {
+    id: 'writer_toby',
+    name: 'Toby Vance',
+    role: 'Junior Paddock Blogger',
+    specialty: 'race_result',
+    hiringFee: 450000,
+    salaryPerReport: 35000,
+    accuracyRating: 56,
+    writingRating: 60,
+    bio: 'Low-cost junior blogger. Writes fast drafts, but frequently mixes up point gaps or exaggerates claims—you should carefully edit what he writes before publishing or risk losing money!',
+  },
+  {
+    id: 'writer_elena',
+    name: 'Elena Rossi',
+    role: 'Telemetry & Tech Reporter',
+    specialty: 'technical',
+    hiringFee: 1400000,
+    salaryPerReport: 85000,
+    accuracyRating: 78,
+    writingRating: 76,
+    bio: 'Former F2 data engineer who writes grounded technical and race reports. Adding your own championship context to her drafts produces high-scoring scoops.',
+  },
+  {
+    id: 'writer_marcus',
+    name: 'Marcus Sterling',
+    role: 'Senior F1 Correspondent',
+    specialty: 'championship',
+    hiringFee: 3200000,
+    salaryPerReport: 145000,
+    accuracyRating: 89,
+    writingRating: 87,
+    bio: 'Seasoned paddock journalist with strong factual precision and compelling narrative structure across title fights and driver market stories.',
+  },
+  {
+    id: 'writer_claire',
+    name: 'Claire Beaumont',
+    role: 'Chief Motorsport Columnist',
+    specialty: 'prediction',
+    hiringFee: 5800000,
+    salaryPerReport: 220000,
+    accuracyRating: 96,
+    writingRating: 95,
+    bio: 'Elite FIA columnist. Crafts razor-sharp race analyses and well-reasoned Grand Prix predictions backed by real car telemetry and standings data.',
+  },
+];
+
+export const NEWS_PRICING_MANAGER_OPTIONS: NewsPricingManager[] = [
+  {
+    id: 'pm_liam',
+    name: 'Liam Chen',
+    role: 'Junior Subscription Analyst',
+    hiringFee: 650000,
+    salaryPerReport: 30000,
+    elasticityProtection: 0.2,
+    conversionBonus: 0.12,
+    bio: 'Tracks reader price sensitivity and reduces subscriber pushback by 20% when raising subscription fees, while boosting reader sign-ups by +12%.',
+  },
+  {
+    id: 'pm_sofia',
+    name: 'Sofia Lindqvist',
+    role: 'Senior Media Economist',
+    hiringFee: 1850000,
+    salaryPerReport: 75000,
+    elasticityProtection: 0.38,
+    conversionBonus: 0.22,
+    bio: 'Former motorsport paywall strategist. Protects against 38% of high-price churn and boosts subscriber conversion by +22% across every published issue.',
+  },
+  {
+    id: 'pm_victor',
+    name: 'Victor Vance-Sterling',
+    role: 'Chief Monetization Director',
+    hiringFee: 4200000,
+    salaryPerReport: 140000,
+    elasticityProtection: 0.55,
+    conversionBonus: 0.35,
+    bio: 'World-class media monetization executive. Absorbs 55% of high-price subscriber resistance, adds +35% subscriber growth, and can auto-optimize your subscription price.',
+  },
+];
+
+export interface CompetitorNewsNetwork {
+  id: string;
+  name: string;
+  badgeCode: string;
+  focusLabel: string;
+  subscribers: number;
+  subscriptionPrice: number;
+  credibility: number;
+  estRevenuePerIssue: number;
+  isPlayer?: boolean;
+}
+
+export const RIVAL_NEWS_COMPANIES: CompetitorNewsNetwork[] = [
+  {
+    id: 'rival_sky',
+    name: 'Sky Sports F1 Syndicate',
+    badgeCode: 'SKY',
+    focusLabel: 'Global Broadcast & Live Paddock',
+    subscribers: 385000,
+    subscriptionPrice: 14,
+    credibility: 94,
+    estRevenuePerIssue: 5390000,
+  },
+  {
+    id: 'rival_therace',
+    name: 'The Race Media Network',
+    badgeCode: 'THE RACE',
+    focusLabel: 'Championship & Technical Analysis',
+    subscribers: 275000,
+    subscriptionPrice: 10,
+    credibility: 91,
+    estRevenuePerIssue: 2750000,
+  },
+  {
+    id: 'rival_autosport',
+    name: 'Autosport Grand Prix Press',
+    badgeCode: 'AUTOSPORT',
+    focusLabel: 'Investigative & Historic Telemetry',
+    subscribers: 215000,
+    subscriptionPrice: 12,
+    credibility: 89,
+    estRevenuePerIssue: 2580000,
+  },
+  {
+    id: 'rival_motorsport',
+    name: 'Motorsport.com Global Wire',
+    badgeCode: 'MSPORT',
+    focusLabel: 'International Paddock Coverage',
+    subscribers: 160000,
+    subscriptionPrice: 8,
+    credibility: 85,
+    estRevenuePerIssue: 1280000,
+  },
+  {
+    id: 'rival_bbc',
+    name: 'BBC Sport F1 Desk',
+    badgeCode: 'BBC',
+    focusLabel: 'Race Recaps & Driver Features',
+    subscribers: 120000,
+    subscriptionPrice: 6,
+    credibility: 88,
+    estRevenuePerIssue: 720000,
+  },
+  {
+    id: 'rival_f1tech',
+    name: 'F1 Technical Engineering Review',
+    badgeCode: 'TECH',
+    focusLabel: 'Aero & Power Unit Telemetry',
+    subscribers: 74000,
+    subscriptionPrice: 15,
+    credibility: 92,
+    estRevenuePerIssue: 1110000,
+  },
+  {
+    id: 'rival_insider',
+    name: 'Pitlane Insider Gazette',
+    badgeCode: 'INSIDER',
+    focusLabel: 'Driver Transfers & Rumors',
+    subscribers: 42000,
+    subscriptionPrice: 5,
+    credibility: 68,
+    estRevenuePerIssue: 210000,
+  },
+];
 
 export interface NewsArticle {
   id: string;
-  category: 'race_result' | 'championship' | 'transfer' | 'technical';
+  category: 'race_result' | 'championship' | 'transfer' | 'technical' | 'prediction';
   categoryLabel: string;
   categoryColor: string;
   source: string;
@@ -45,20 +221,60 @@ export interface NewsArticle {
   importance: 'breaking' | 'featured' | 'standard';
   readTime: string;
   isPlayerReport?: boolean;
+  wasEditedByPlayer?: boolean;
   accuracyScore?: number;
   qualityScore?: number;
+  reasoningScore?: number;
+  subscriptionPriceUsed?: number;
+  operatingCost?: number;
   revenueEarned?: number;
   views?: number;
   verdictLabel?: string;
   readerReaction?: string;
   factCheckNotes?: string[];
+  isPrediction?: boolean;
+  predictedDriverName?: string;
+  predictionType?: 'win' | 'podium' | 'top5';
+  predictionTargetCircuitName?: string;
+  predictionStatus?: 'pending' | 'correct' | 'incorrect';
+  predictionSubscriberShift?: number;
 }
 
 interface NewsfeedProps {
   season: SeasonState;
   onNavigateToTab?: (tab: 'weekend' | 'contracts' | 'myteam' | 'standings' | 'analytics') => void;
   onFoundNewsCompany?: (company: NewsCompanyConfig, startupFee: number) => void;
+  onUpdateNewsCompany?: (company: NewsCompanyConfig, feeDelta?: number) => void;
   onPublishNewsReport?: (report: PublishedNewsReport) => void;
+}
+
+/**
+ * Helper to compute the Pricing Manager's recommended optimal subscription price
+ * based on current credibility and recent report quality.
+ */
+export function computeRecommendedSubscriptionPrice(company: NewsCompanyConfig): number {
+  const cred = company.credibility || 75;
+  const recentReports = company.publishedReports.slice(0, 4);
+  const avgScore =
+    recentReports.length > 0
+      ? recentReports.reduce((sum, r) => sum + r.overallScore, 0) /
+        recentReports.length
+      : 76;
+
+  // Higher credibility & higher report quality allow charging much higher prices without losing subscribers
+  let optimal = 6;
+  if (cred >= 90 && avgScore >= 82) optimal = 18;
+  else if (cred >= 82 && avgScore >= 75) optimal = 14;
+  else if (cred >= 72 && avgScore >= 68) optimal = 10;
+  else if (cred >= 55) optimal = 7;
+  else optimal = 3; // Low credibility should charge a cheap price to rebuild subscribers!
+
+  if (company.pricingManager) {
+    optimal = Math.round(
+      optimal * (1 + company.pricingManager.elasticityProtection * 0.45)
+    );
+  }
+  return Math.max(1, Math.min(50, optimal));
 }
 
 export function generatePaddockNews(season: SeasonState): NewsArticle[] {
@@ -95,7 +311,17 @@ export function generatePaddockNews(season: SeasonState): NewsArticle[] {
           label: 'Technical Brief',
           color: 'text-cyan-400',
         },
+        prediction: {
+          label: 'Grand Prix Prediction',
+          color: 'text-purple-400',
+        },
       }[rep.category];
+
+      const authorCredit = rep.authorName
+        ? rep.wasEditedByPlayer
+          ? `${rep.authorName} (Edited by ${playerDriverName})`
+          : rep.authorName
+        : `${playerDriverName} (Editor-in-Chief)`;
 
       articles.push({
         id: rep.id,
@@ -110,18 +336,28 @@ export function generatePaddockNews(season: SeasonState): NewsArticle[] {
             ? `${rep.content.slice(0, 160)}...`
             : rep.content,
         content: rep.content,
-        author: `${playerDriverName} (Editor-in-Chief)`,
+        author: authorCredit,
         timeAgo: `Round ${rep.roundPublished + 1}`,
         importance: rep.overallScore >= 80 ? 'breaking' : 'featured',
         readTime: '2 min read',
         isPlayerReport: true,
+        wasEditedByPlayer: rep.wasEditedByPlayer,
         accuracyScore: rep.accuracyScore,
         qualityScore: rep.qualityScore,
+        reasoningScore: rep.reasoningScore,
+        subscriptionPriceUsed: rep.subscriptionPriceUsed,
+        operatingCost: rep.operatingCost,
         revenueEarned: rep.revenueEarned,
         views: rep.views,
         verdictLabel: rep.verdictLabel,
         readerReaction: rep.readerReaction,
         factCheckNotes: rep.factCheckNotes,
+        isPrediction: rep.isPrediction,
+        predictedDriverName: rep.predictedDriverName,
+        predictionType: rep.predictionType,
+        predictionTargetCircuitName: rep.predictionTargetCircuitName,
+        predictionStatus: rep.predictionStatus,
+        predictionSubscriberShift: rep.predictionSubscriberShift,
       });
     });
   }
@@ -198,7 +434,7 @@ export function generatePaddockNews(season: SeasonState): NewsArticle[] {
         category: 'race_result',
         categoryLabel: 'Grand Prix Victory',
         categoryColor: 'text-emerald-400',
-        source: 'Sky Sports F1',
+        source: 'Sky Sports F1 Syndicate',
         sourceBadge: 'SKY',
         title: `SENSATIONAL WIN: ${playerDriverName} Triumphs at ${lastResult.circuitName} for ${playerTeamName}!`,
         excerpt: `A masterclass in racecraft saw ${playerDriverName} claim the top step of the podium in dramatic fashion, resisting intense pressure from the chasing pack.`,
@@ -216,7 +452,7 @@ export function generatePaddockNews(season: SeasonState): NewsArticle[] {
         category: 'race_result',
         categoryLabel: 'Podium Finish',
         categoryColor: 'text-amber-400',
-        source: 'The Race',
+        source: 'The Race Media Network',
         sourceBadge: 'THE RACE',
         title: `PODIUM DRIVE: ${playerDriverName} Seals P${lastResult.playerFinishedPosition} at ${lastResult.circuitName}`,
         excerpt: `${playerTeamName} celebrated on the pit wall as ${playerDriverName} held off relentless challengers to secure a memorable podium finish.`,
@@ -234,7 +470,7 @@ export function generatePaddockNews(season: SeasonState): NewsArticle[] {
         category: 'race_result',
         categoryLabel: 'Race Analysis',
         categoryColor: 'text-red-400',
-        source: 'Autosport',
+        source: 'Autosport Grand Prix Press',
         sourceBadge: 'AUTOSPORT',
         title: `${winnerName} Takes Victory at ${lastResult.circuitName}; ${playerDriverName} Finishes P${lastResult.playerFinishedPosition}`,
         excerpt: `High-speed drama unfolded across ${lastResult.circuitName} as ${winnerName} took victory while ${playerTeamName} fought hard in the midfield battle.`,
@@ -253,7 +489,7 @@ export function generatePaddockNews(season: SeasonState): NewsArticle[] {
       category: 'race_result',
       categoryLabel: 'Season Preview',
       categoryColor: 'text-blue-400',
-      source: 'BBC Sport F1',
+      source: 'BBC Sport F1 Desk',
       sourceBadge: 'BBC',
       title: `2026 FORMULA 1 PREVIEW: ${playerDriverName} Prepares for Season Opener at Bahrain`,
       excerpt: `Pre-season testing in Sakhir has concluded. High-downforce floor updates, aggressive sidepod designs, and new power unit upgrades set the stage.`,
@@ -272,7 +508,7 @@ export function generatePaddockNews(season: SeasonState): NewsArticle[] {
     category: 'championship',
     categoryLabel: 'Championship Battle',
     categoryColor: 'text-amber-400',
-    source: 'The Race',
+    source: 'The Race Media Network',
     sourceBadge: 'THE RACE',
     title: `TITLE FIGHT: ${p1Driver.name} Holds ${titlePointsGap}pt Lead Over ${p2Driver.name}`,
     excerpt: `With ${10 - completedRounds.length} rounds remaining on the calendar, the battle for the FIA World Drivers' Championship is reaching fever pitch.`,
@@ -289,7 +525,7 @@ export function generatePaddockNews(season: SeasonState): NewsArticle[] {
     category: 'championship',
     categoryLabel: "Constructors' Cup",
     categoryColor: 'text-cyan-400',
-    source: 'Autosport',
+    source: 'Autosport Grand Prix Press',
     sourceBadge: 'AUTOSPORT',
     title: `CONSTRUCTORS' WAR: ${p1Constructor.name} (${p1Constructor.points}pts) vs ${p2Constructor.name} (${p2Constructor.points}pts)`,
     excerpt: `Millions in FIA prize money hang in the balance as constructors pour development resources into floor and wing aero upgrades.`,
@@ -307,7 +543,7 @@ export function generatePaddockNews(season: SeasonState): NewsArticle[] {
     category: 'transfer',
     categoryLabel: 'Driver Market',
     categoryColor: 'text-rose-400',
-    source: 'Sky Sports F1',
+    source: 'Sky Sports F1 Syndicate',
     sourceBadge: 'SKY',
     title: `SILLY SEASON: Top Teams Keeping Watch on ${playerDriverName}'s Contract Status`,
     excerpt: `Recent performances have prompted discussions up and down the paddock regarding potential buyout clauses.`,
@@ -325,7 +561,7 @@ export function generatePaddockNews(season: SeasonState): NewsArticle[] {
     category: 'technical',
     categoryLabel: 'Technical Analysis',
     categoryColor: 'text-emerald-400',
-    source: 'F1 Technical',
+    source: 'F1 Technical Engineering Review',
     sourceBadge: 'TECH',
     title: `ENGINEERING DEBRIEF: Downforce vs Top-Speed Setup for ${currentCircuit.name}`,
     excerpt: `Teams prepare low-drag rear wing trims and optimized brake duct cooling ahead of the upcoming Grand Prix weekend.`,
@@ -343,9 +579,12 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
   season,
   onNavigateToTab,
   onFoundNewsCompany,
+  onUpdateNewsCompany,
   onPublishNewsReport,
 }) => {
-  const [activeSubView, setActiveSubView] = useState<'feed' | 'press_room'>('feed');
+  const [activeSubView, setActiveSubView] = useState<
+    'feed' | 'press_room' | 'leaderboard'
+  >('feed');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [bookmarkedIds, setBookmarkedIds] = useState<Set<string>>(new Set());
@@ -358,17 +597,45 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
     'investigative' | 'technical' | 'insider'
   >('investigative');
 
-  // Writing Report State
+  // Switch / Rename News Company Anytime State
+  const [isRenamingCompany, setIsRenamingCompany] = useState(false);
+  const [renameNameInput, setRenameNameInput] = useState('');
+  const [renameBadgeInput, setRenameBadgeInput] = useState('');
+
+  // Writing Report, Staff Writer Drafts & Prediction State
   const [reportCategory, setReportCategory] = useState<
-    'race_result' | 'championship' | 'transfer' | 'technical'
+    'race_result' | 'championship' | 'transfer' | 'technical' | 'prediction'
   >('race_result');
-  const [selectedFactClaimId, setSelectedFactClaimId] = useState<string>('verified_1');
+  const [includePrediction, setIncludePrediction] = useState<boolean>(false);
+  const [predictedDriverId, setPredictedDriverId] = useState<string>(
+    season.selectedDriverId || 'verstappen'
+  );
+  const [predictionType, setPredictionType] = useState<'win' | 'podium' | 'top5'>('podium');
   const [reportTitle, setReportTitle] = useState<string>('');
   const [reportContent, setReportContent] = useState<string>('');
+
+  // Hired Writer Drafting & Editing State
+  const [selectedWriterId, setSelectedWriterId] = useState<string>('self'); // 'self' = Write My Own
+  const [isGeneratingWriterDraft, setIsGeneratingWriterDraft] = useState<boolean>(false);
+  const [writerDraftSnapshot, setWriterDraftSnapshot] = useState<{
+    writerId: string;
+    writerName: string;
+    originalTitle: string;
+    originalContent: string;
+    writerNote: string;
+  } | null>(null);
+
+  const [isEvaluatingAI, setIsEvaluatingAI] = useState<boolean>(false);
+  const [aiErrorMsg, setAiErrorMsg] = useState<string | null>(null);
   const [lastPublishedResult, setLastPublishedResult] =
     useState<PublishedNewsReport | null>(null);
 
   const newsCompany = season.career.newsCompany || null;
+  const hiredWriters = newsCompany?.hiredWriters || [];
+  const activePricingManager = newsCompany?.pricingManager || null;
+  const subscriptionPrice = newsCompany?.subscriptionPrice ?? 8; // Default $8/mo
+  const bankBalance = season.career.careerEarnings || 0;
+  const canAffordNewsCompany = bankBalance >= NEWS_COMPANY_STARTUP_COST;
   const currentCircuit = CIRCUITS[season.currentRound] || CIRCUITS[0];
   const completedRounds = season.completedRounds || [];
   const lastRound =
@@ -376,8 +643,55 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
       ? completedRounds[completedRounds.length - 1]
       : null;
 
-  // Ground-truth paddock facts for fact-checking player articles
-  const groundTruth = useMemo(() => {
+  // Recommended Optimal Price (for Pricing Manager)
+  const recommendedPrice = useMemo(() => {
+    if (!newsCompany) return 8;
+    return computeRecommendedSubscriptionPrice(newsCompany);
+  }, [newsCompany]);
+
+  // Ranked Leaderboard of Best News Companies (Rivals + Player's Publication)
+  const rankedNewsCompanies = useMemo(() => {
+    const list: CompetitorNewsNetwork[] = RIVAL_NEWS_COMPANIES.map((r) => ({
+      ...r,
+      // Slight organic growth as season progresses
+      subscribers: r.subscribers + completedRounds.length * 2400,
+      estRevenuePerIssue:
+        (r.subscribers + completedRounds.length * 2400) * r.subscriptionPrice,
+    }));
+
+    if (newsCompany) {
+      const focusMap = {
+        investigative: 'Investigative & Standings Desk',
+        technical: 'Telemetry & Engineering Desk',
+        insider: 'Predictions & Paddock Analyst',
+      };
+      list.push({
+        id: newsCompany.id,
+        name: newsCompany.name,
+        badgeCode: newsCompany.badgeCode,
+        focusLabel: focusMap[newsCompany.editorialFocus],
+        subscribers: newsCompany.subscribers,
+        subscriptionPrice,
+        credibility: newsCompany.credibility,
+        estRevenuePerIssue: newsCompany.subscribers * subscriptionPrice,
+        isPlayer: true,
+      });
+    }
+
+    // Sort by Subscribers (primary) and Credibility (secondary)
+    return list.sort(
+      (a, b) => b.subscribers - a.subscribers || b.credibility - a.credibility
+    );
+  }, [newsCompany, subscriptionPrice, completedRounds.length]);
+
+  const playerLeaderboardRank = useMemo(() => {
+    if (!newsCompany) return null;
+    const idx = rankedNewsCompanies.findIndex((c) => c.isPlayer);
+    return idx >= 0 ? idx + 1 : null;
+  }, [rankedNewsCompanies, newsCompany]);
+
+  // Ground-truth season context sent to the AI Evaluator & Writer Draft Generator on the server
+  const seasonTelemetryContext = useMemo(() => {
     const playerDriverId = season.selectedDriverId || 'bearman';
     const playerDriverName = season.career.driverName || 'Rookie Driver';
     const playerTeamId = season.selectedTeamId || 'haas';
@@ -386,367 +700,660 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
       TEAMS.find((t) => t.id === playerTeamId)?.name ||
       'MoneyGram Haas F1';
 
-    const sortedDrivers = Object.entries(season.driverPoints || {})
-      .sort((a, b) => b[1] - a[1])
-      .map(([id, pts]) => {
-        const d = DRIVERS.find((drv) => drv.id === id);
-        return {
-          id,
-          name: id === playerDriverId ? playerDriverName : d?.name || id,
-          points: pts,
-        };
-      });
+    const driversList = DRIVERS.map((d) => {
+      const isPlayer = d.id === playerDriverId;
+      const t = TEAMS.find((tm) => tm.id === (isPlayer ? playerTeamId : d.teamId));
+      return {
+        id: d.id,
+        name: isPlayer ? `${playerDriverName} (Player)` : d.name,
+        team: isPlayer ? playerTeamName : t?.name || d.teamId,
+        points: season.driverPoints[d.id] || 0,
+        rating: isPlayer ? season.career.driverRating : d.rating,
+      };
+    }).sort((a, b) => b.points - a.points);
 
-    const sortedTeams = Object.entries(season.constructorPoints || {})
-      .sort((a, b) => b[1] - a[1])
+    const constructorsList = Object.entries(season.constructorPoints || {})
       .map(([id, pts]) => {
         const t = TEAMS.find((tm) => tm.id === id);
         const name =
           season.career.customTeam && id === season.career.customTeam.id
             ? season.career.customTeam.name
             : t?.name || id;
-        return { id, name, points: pts };
-      });
+        return {
+          id,
+          name,
+          points: pts,
+          engine:
+            season.career.customTeam && id === season.career.customTeam.id
+              ? season.career.customTeam.engine
+              : t?.engine || 'V6 Turbo',
+          carProfile: t?.carProfile || null,
+        };
+      })
+      .sort((a, b) => b.points - a.points);
 
-    const leaderDriver = sortedDrivers[0] || {
-      id: 'verstappen',
-      name: 'Max Verstappen',
-      points: 0,
-    };
-    const lastPlaceDriver = sortedDrivers[sortedDrivers.length - 1] || {
-      id: 'doohan',
-      name: 'Jack Doohan',
-      points: 0,
-    };
-
-    const leaderTeam = sortedTeams[0] || {
-      id: 'mclaren',
-      name: 'McLaren',
-      points: 0,
-    };
-    const lastPlaceTeam = sortedTeams[sortedTeams.length - 1] || {
-      id: 'alpine',
-      name: 'Alpine',
-      points: 0,
-    };
-
-    const lastWinnerName = lastRound
-      ? lastRound.winnerDriverId === playerDriverId
-        ? playerDriverName
-        : DRIVERS.find((d) => d.id === lastRound.winnerDriverId)?.name ||
-          'Max Verstappen'
-      : null;
+    const recentRaces = completedRounds.map((r) => {
+      const winDrv =
+        r.winnerDriverId === playerDriverId
+          ? playerDriverName
+          : DRIVERS.find((d) => d.id === r.winnerDriverId)?.name ||
+            r.winnerDriverId;
+      return {
+        round: r.round + 1,
+        circuitName: r.circuitName,
+        winner: winDrv,
+        playerFinishedPosition: r.playerFinishedPosition,
+      };
+    });
 
     return {
-      playerDriverName,
-      playerTeamName,
-      playerPoints: season.driverPoints[playerDriverId] || 0,
-      playerRating: season.career.driverRating,
-      leaderDriver,
-      lastPlaceDriver,
-      leaderTeam,
-      lastPlaceTeam,
-      lastWinnerName,
-      lastCircuitName: lastRound?.circuitName || currentCircuit.name,
-      lastPlayerPos: lastRound?.playerFinishedPosition || null,
-      currentCircuit,
+      seasonNumber: season.career.seasonNumber || 1,
+      currentRoundNumber: season.currentRound + 1,
+      upcomingCircuit: {
+        name: currentCircuit.name,
+        location: currentCircuit.location,
+        lengthKm: currentCircuit.lengthKm,
+        turns: currentCircuit.turns,
+        lapRecord: currentCircuit.lapRecord,
+        description: currentCircuit.description,
+      },
+      playerProfile: {
+        name: playerDriverName,
+        team: playerTeamName,
+        driverRating: season.career.driverRating,
+        reputation: season.career.reputation,
+        wins: season.career.wins,
+        podiums: season.career.podiums,
+        points: season.driverPoints[playerDriverId] || 0,
+      },
+      topDriversStandings: driversList.slice(0, 12),
+      constructorsStandings: constructorsList,
+      completedRacesHistory: recentRaces,
     };
-  }, [season, lastRound, currentCircuit]);
+  }, [season, completedRounds, currentCircuit]);
 
-  // Dynamic Fact Claims (Mix of Verified Truths and False/Fabricated Claims)
-  const factClaims = useMemo(() => {
-    const gt = groundTruth;
-    return [
-      {
-        id: 'verified_1',
-        isTrue: true,
-        category: 'race_result',
-        label: lastRound
-          ? `[FACT] ${gt.lastWinnerName} won the ${gt.lastCircuitName}, while ${gt.playerDriverName} finished P${gt.lastPlayerPos}.`
-          : `[FACT] Round 1 opens at ${gt.currentCircuit.name} (${gt.currentCircuit.turns} turns, ${gt.currentCircuit.lengthKm} km) with ${gt.playerDriverName} driving for ${gt.playerTeamName}.`,
-        explanation: lastRound
-          ? `Verified by FIA Timing: ${gt.lastWinnerName} won ${gt.lastCircuitName} and ${gt.playerDriverName} classified P${gt.lastPlayerPos}.`
-          : `Verified by FIA Entry List: Season opens at ${gt.currentCircuit.name} with ${gt.playerDriverName} at ${gt.playerTeamName}.`,
-      },
-      {
-        id: 'verified_2',
-        isTrue: true,
-        category: 'championship',
-        label: `[FACT] ${gt.leaderTeam.name} leads the Constructors' Cup with ${gt.leaderTeam.points} PTS, and ${gt.leaderDriver.name} leads Drivers with ${gt.leaderDriver.points} PTS.`,
-        explanation: `Verified by FIA Standings: ${gt.leaderTeam.name} (${gt.leaderTeam.points} PTS) and ${gt.leaderDriver.name} (${gt.leaderDriver.points} PTS) top the championship tables.`,
-      },
-      {
-        id: 'verified_3',
-        isTrue: true,
-        category: 'technical',
-        label: `[FACT] ${gt.currentCircuit.name} features ${gt.currentCircuit.turns} corners over a ${gt.currentCircuit.lengthKm} km layout (Lap Record: ${gt.currentCircuit.lapRecord}).`,
-        explanation: `Verified by Pirelli & FIA Track Engineering data for ${gt.currentCircuit.name}.`,
-      },
-      {
-        id: 'false_1',
-        isTrue: false,
-        category: 'race_result',
-        label: lastRound
-          ? `[RUMOR / UNVERIFIED] ${gt.lastPlaceDriver.name} won ${gt.lastCircuitName} by 45 seconds after all other 19 cars were disqualified.`
-          : `[RUMOR / UNVERIFIED] The FIA secretly canceled ${gt.currentCircuit.name} and awarded 500 bonus points to ${gt.lastPlaceTeam.name}.`,
-        explanation: lastRound
-          ? `DEBUNKED: ${gt.lastWinnerName} won ${gt.lastCircuitName}, not ${gt.lastPlaceDriver.name}. No mass disqualification occurred.`
-          : `DEBUNKED: ${gt.currentCircuit.name} is active on the calendar and no 500-point bonus exists.`,
-      },
-      {
-        id: 'false_2',
-        isTrue: false,
-        category: 'championship',
-        label: `[RUMOR / UNVERIFIED] ${gt.lastPlaceTeam.name} has clinched the Constructors' Championship with 999 points ahead of ${gt.leaderTeam.name}.`,
-        explanation: `DEBUNKED: ${gt.lastPlaceTeam.name} has ${gt.lastPlaceTeam.points} points. ${gt.leaderTeam.name} leads with ${gt.leaderTeam.points} points.`,
-      },
-      {
-        id: 'false_3',
-        isTrue: false,
-        category: 'technical',
-        label: `[RUMOR / UNVERIFIED] ${gt.currentCircuit.name} has 62 corners, is 29.4 km long, and mandates V12 engines this weekend.`,
-        explanation: `DEBUNKED: ${gt.currentCircuit.name} is ${gt.currentCircuit.lengthKm} km with ${gt.currentCircuit.turns} turns, and 2026 F1 rules mandate 1.6L V6 turbo-hybrids.`,
-      },
-    ];
-  }, [groundTruth, lastRound]);
+  // All selectable drivers for predictions
+  const selectableDrivers = useMemo(() => {
+    const playerDriverId = season.selectedDriverId || 'bearman';
+    return DRIVERS.map((d) => {
+      const isPlayer = d.id === playerDriverId;
+      const name = isPlayer
+        ? `${season.career.driverName} (YOU)`
+        : d.name;
+      const pts = season.driverPoints[d.id] || 0;
+      const rating = isPlayer ? season.career.driverRating : d.rating;
+      return {
+        id: d.id,
+        name,
+        rawName: isPlayer ? season.career.driverName : d.name,
+        points: pts,
+        rating,
+      };
+    }).sort((a, b) => b.points - a.points || b.rating - a.rating);
+  }, [season]);
 
-  // Helper to pre-fill a High-Quality Accurate Draft vs a Bad/Inaccurate Draft
-  const fillSampleReport = (type: 'accurate_high_quality' | 'inaccurate_bad') => {
-    const gt = groundTruth;
-    if (type === 'accurate_high_quality') {
-      setSelectedFactClaimId('verified_1');
-      setReportCategory(lastRound ? 'race_result' : 'championship');
-      if (lastRound) {
-        setReportTitle(
-          `Paddock Telemetry Audit: How ${gt.lastWinnerName} Conquered ${gt.lastCircuitName} While ${gt.leaderTeam.name} Leads at ${gt.leaderTeam.points} Points`
-        );
-        setReportContent(
-          `Official post-race telemetry from ${gt.lastCircuitName} confirms a decisive victory for ${gt.lastWinnerName}, while ${gt.playerDriverName} brought the ${gt.playerTeamName} car home in P${gt.lastPlayerPos}. Across the ${gt.currentCircuit.turns}-turn circuit, tire degradation and ERS battery deployment proved decisive in the DRS zones. In the championship standings, ${gt.leaderDriver.name} holds P1 with ${gt.leaderDriver.points} points and ${gt.leaderTeam.name} leads the Constructors' Cup on ${gt.leaderTeam.points} points.`
-        );
-      } else {
-        setReportTitle(
-          `Technical & Championship Briefing: ${gt.playerDriverName} and ${gt.playerTeamName} Target Points at ${gt.currentCircuit.name}`
-        );
-        setReportContent(
-          `As the paddock assembles at ${gt.currentCircuit.name} (${gt.currentCircuit.lengthKm} km, ${gt.currentCircuit.turns} turns), aerodynamicists are fine-tuning floor downforce and brake balance for the opening round. ${gt.playerDriverName} enters the weekend with a ${gt.playerRating} driver rating for ${gt.playerTeamName}, while ${gt.leaderTeam.name} (${gt.leaderTeam.points} PTS) and ${gt.leaderDriver.name} (${gt.leaderDriver.points} PTS) set the early championship benchmark.`
-        );
-      }
-    } else {
-      setSelectedFactClaimId('false_1');
-      setReportCategory('race_result');
-      setReportTitle(
-        `SHOCKING: ${gt.lastPlaceDriver.name} Wins Everything With 999 Points as V12 Engines Return!`
-      );
-      setReportContent(
-        `Sources say ${gt.lastPlaceTeam.name} already has 999 points and won the race by 3 laps after every other car was banned. Also the track is 40km long.`
-      );
+  // Switch / Rename News Company Anytime Handler
+  const handleSaveCompanyRename = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!newsCompany || !onUpdateNewsCompany) return;
+    const cleanName = renameNameInput.trim() || newsCompany.name;
+    const cleanBadge = (renameBadgeInput.trim() || newsCompany.badgeCode)
+      .toUpperCase()
+      .slice(0, 8);
+
+    onUpdateNewsCompany(
+      {
+        ...newsCompany,
+        name: cleanName,
+        badgeCode: cleanBadge,
+      },
+      0
+    );
+    setIsRenamingCompany(false);
+  };
+
+  // Change Subscription Price Handler ($1 to $50)
+  const handleSubscriptionPriceChange = (newPrice: number) => {
+    if (!newsCompany || !onUpdateNewsCompany) return;
+    const clamped = Math.max(1, Math.min(50, Math.round(newPrice)));
+    onUpdateNewsCompany(
+      {
+        ...newsCompany,
+        subscriptionPrice: clamped,
+      },
+      0
+    );
+  };
+
+  // Hire or Fire Pricing Manager
+  const handleHirePricingManager = (pm: NewsPricingManager) => {
+    if (!newsCompany || !onUpdateNewsCompany) return;
+    if (bankBalance < pm.hiringFee) return;
+    const nextOptimal = computeRecommendedSubscriptionPrice({
+      ...newsCompany,
+      pricingManager: pm,
+    });
+    onUpdateNewsCompany(
+      {
+        ...newsCompany,
+        pricingManager: pm,
+        subscriptionPrice: newsCompany.autoOptimizePrice
+          ? nextOptimal
+          : newsCompany.subscriptionPrice ?? 8,
+      },
+      pm.hiringFee
+    );
+  };
+
+  const handleFirePricingManager = () => {
+    if (!newsCompany || !onUpdateNewsCompany) return;
+    onUpdateNewsCompany(
+      {
+        ...newsCompany,
+        pricingManager: null,
+        autoOptimizePrice: false,
+      },
+      0
+    );
+  };
+
+  const handleToggleAutoOptimizePrice = () => {
+    if (!newsCompany || !onUpdateNewsCompany || !activePricingManager) return;
+    const nextAuto = !newsCompany.autoOptimizePrice;
+    onUpdateNewsCompany(
+      {
+        ...newsCompany,
+        autoOptimizePrice: nextAuto,
+        subscriptionPrice: nextAuto
+          ? recommendedPrice
+          : newsCompany.subscriptionPrice ?? 8,
+      },
+      0
+    );
+  };
+
+  // Hire or Fire a Journalist Writer
+  const handleHireWriter = (writer: NewsWriterStaff) => {
+    if (!newsCompany || !onUpdateNewsCompany) return;
+    if (hiredWriters.some((w) => w.id === writer.id)) return;
+    if (bankBalance < writer.hiringFee) return;
+
+    const updatedCompany: NewsCompanyConfig = {
+      ...newsCompany,
+      hiredWriters: [...hiredWriters, writer],
+    };
+    onUpdateNewsCompany(updatedCompany, writer.hiringFee);
+    setSelectedWriterId(writer.id);
+  };
+
+  const handleFireWriter = (writerId: string) => {
+    if (!newsCompany || !onUpdateNewsCompany) return;
+    const updatedCompany: NewsCompanyConfig = {
+      ...newsCompany,
+      hiredWriters: hiredWriters.filter((w) => w.id !== writerId),
+    };
+    onUpdateNewsCompany(updatedCompany, 0);
+    if (selectedWriterId === writerId) {
+      setSelectedWriterId('self');
+    }
+    if (writerDraftSnapshot?.writerId === writerId) {
+      setWriterDraftSnapshot(null);
     }
   };
 
-  // Evaluate and Publish Report
-  const handlePublishReport = (e: React.FormEvent) => {
+  // Ask a Hired Writer to Draft an Article (Player can then view & edit what they wrote!)
+  const handleGenerateWriterDraft = async (writer: NewsWriterStaff) => {
+    if (isGeneratingWriterDraft) return;
+    setIsGeneratingWriterDraft(true);
+    setAiErrorMsg(null);
+
+    const activeIsPrediction =
+      reportCategory === 'prediction' || includePrediction;
+    const targetDrv = selectableDrivers.find((d) => d.id === predictedDriverId);
+    const predictedTargetText =
+      activeIsPrediction && targetDrv
+        ? `${targetDrv.rawName} to finish ${
+            predictionType === 'win'
+              ? 'P1 (Race Winner)'
+              : predictionType === 'podium'
+              ? 'on the Podium (Top 3)'
+              : 'in the Top 5'
+          } at ${currentCircuit.name}`
+        : undefined;
+
+    try {
+      const response = await fetch('/api/news/writer-draft', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          writer,
+          category: reportCategory,
+          isPrediction: activeIsPrediction,
+          predictedTarget: predictedTargetText,
+          predictionOutcomeType: predictionType,
+          seasonContext: seasonTelemetryContext,
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok || !data.success || !data.draft) {
+        throw new Error(data.error || 'Failed to generate writer draft.');
+      }
+
+      const { title, content, writerNote } = data.draft;
+      setReportTitle(title || '');
+      setReportContent(content || '');
+      setWriterDraftSnapshot({
+        writerId: writer.id,
+        writerName: writer.name,
+        originalTitle: title || '',
+        originalContent: content || '',
+        writerNote:
+          writerNote ||
+          `Drafted by ${writer.name} (${writer.role}). Review and edit before publishing!`,
+      });
+    } catch {
+      const p1 = seasonTelemetryContext.topDriversStandings[0];
+      const p2 = seasonTelemetryContext.topDriversStandings[1];
+      const c1 = seasonTelemetryContext.constructorsStandings[0];
+      const isLowAccuracy = writer.accuracyRating < 65;
+
+      let fallbackTitle = '';
+      let fallbackContent = '';
+      let fallbackNote = '';
+
+      if (activeIsPrediction && targetDrv) {
+        fallbackTitle = isLowAccuracy
+          ? `guaranteed lock: ${targetDrv.rawName} will easily crush everyone at ${currentCircuit.name}`
+          : `Telemetry Forecast: Why ${targetDrv.rawName} Is Poised for a ${predictionType.toUpperCase()} Finish at ${currentCircuit.name}`;
+        fallbackContent = isLowAccuracy
+          ? `${targetDrv.rawName} is 100% going to finish ${predictionType} at ${currentCircuit.name}. Even though the track has 45 corners and they already have 999 points this season, their car is basically a rocket ship. No other reasons needed.`
+          : `Heading into Round ${season.currentRound + 1} at ${currentCircuit.name} (${currentCircuit.lengthKm} km, ${currentCircuit.turns} turns), ${targetDrv.rawName} carries a driver rating of ${targetDrv.rating} and ${targetDrv.points} championship points. Because ${currentCircuit.name} rewards balanced aerodynamic efficiency and clean trail-braking through its ${currentCircuit.turns} corners, their current pace and tire management give them a strong statistical edge to secure a ${predictionType} result.`;
+        fallbackNote = isLowAccuracy
+          ? `Toby Vance: "Boss, I threw together a quick prediction draft—might want to check the corner count and point stats before publishing!"`
+          : `${writer.name}: "I compiled the circuit telemetry and driver rating data for your ${currentCircuit.name} prediction. Feel free to edit or add your own insights!"`;
+      } else {
+        fallbackTitle = isLowAccuracy
+          ? `Shocking Paddock Rumor: Championship Standings Turned Upside Down Before ${currentCircuit.name}`
+          : `${p1?.name || 'Championship Leader'} Leads Standings With ${p1?.points || 0} Points Ahead of ${currentCircuit.name}`;
+        fallbackContent = isLowAccuracy
+          ? `Everyone in the paddock is talking about how ${p2?.name || 'the midfield'} is already 500 points ahead in the championship while ${c1?.name || 'McLaren'} has zero points. The upcoming race at ${currentCircuit.name} should be wild.`
+          : `As the 2026 FIA Formula 1 Championship arrives at ${currentCircuit.name} (${currentCircuit.lengthKm} km, ${currentCircuit.turns} corners), ${p1?.name} leads the Drivers' Championship on ${p1?.points} points ahead of ${p2?.name} (${p2?.points} pts). In the Constructors' Cup, ${c1?.name} holds P1 with ${c1?.points} points thanks to consistent aerodynamic upgrades and strong race execution.`;
+        fallbackNote = isLowAccuracy
+          ? `Toby Vance: "Here's my quick draft! I didn't double-check the FIA standings table, so you should probably edit the numbers!"`
+          : `${writer.name}: "Draft complete using official Round ${season.currentRound + 1} standings. You can edit any lines or publish when ready."`;
+      }
+
+      setReportTitle(fallbackTitle);
+      setReportContent(fallbackContent);
+      setWriterDraftSnapshot({
+        writerId: writer.id,
+        writerName: writer.name,
+        originalTitle: fallbackTitle,
+        originalContent: fallbackContent,
+        writerNote: fallbackNote,
+      });
+    } finally {
+      setIsGeneratingWriterDraft(false);
+    }
+  };
+
+  // Calculate per-report operating cost (Base press wire fee + active writer payroll + pricing manager salary)
+  const currentOperatingCost = useMemo(() => {
+    const baseDistributionCost = 55000; // $55,000 FIA press wire & syndicate distribution
+    const writersPayroll = hiredWriters.reduce(
+      (sum, w) => sum + w.salaryPerReport,
+      0
+    );
+    const managerSalary = activePricingManager
+      ? activePricingManager.salaryPerReport
+      : 0;
+    return baseDistributionCost + writersPayroll + managerSalary;
+  }, [hiredWriters, activePricingManager]);
+
+  // Evaluate and Publish Report using Server-Side Gemini AI
+  const handlePublishReport = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newsCompany || !onPublishNewsReport) return;
+    if (!newsCompany || !onPublishNewsReport || isEvaluatingAI) return;
 
     const cleanTitle = reportTitle.trim();
     const cleanBody = reportContent.trim();
     if (!cleanTitle || !cleanBody) return;
 
-    const chosenClaim =
-      factClaims.find((c) => c.id === selectedFactClaimId) || factClaims[0];
-    const combinedText = `${cleanTitle} ${cleanBody}`.toLowerCase();
-    const gt = groundTruth;
+    setIsEvaluatingAI(true);
+    setAiErrorMsg(null);
 
-    let accuracy = chosenClaim.isTrue ? 82 : 22;
-    const factCheckNotes: string[] = [chosenClaim.explanation];
+    const activeIsPrediction =
+      reportCategory === 'prediction' || includePrediction;
+    const targetDrv = selectableDrivers.find((d) => d.id === predictedDriverId);
+    const predictedTargetText = activeIsPrediction && targetDrv
+      ? `${targetDrv.rawName} to finish ${
+          predictionType === 'win'
+            ? 'P1 (Race Winner)'
+            : predictionType === 'podium'
+            ? 'on the Podium (Top 3)'
+            : 'in the Top 5'
+        } at ${currentCircuit.name}`
+      : undefined;
 
-    // Free-text fact verification against actual season state
-    if (combinedText.includes('999') || combinedText.includes('v12')) {
-      accuracy -= 30;
-      factCheckNotes.push(
-        'Contradiction detected: Fabricated point totals (999) or banned engine specs (V12) cited in text.'
-      );
-    }
+    let accuracy = 50;
+    let quality = 50;
+    let reasoning = 50;
+    let verdict: PublishedNewsReport['verdict'] = 'mediocre';
+    let verdictLabel = 'Evaluated Report';
+    let factCheckNotes: string[] = [];
+    let readerReaction = '';
 
-    if (
-      combinedText.includes(gt.leaderTeam.name.toLowerCase()) ||
-      combinedText.includes(gt.leaderDriver.name.toLowerCase()) ||
-      combinedText.includes(gt.currentCircuit.name.toLowerCase())
-    ) {
-      if (chosenClaim.isTrue) {
-        accuracy += 12;
-        factCheckNotes.push(
-          `Verified references to real paddock entities (${gt.currentCircuit.name} / ${gt.leaderTeam.name}).`
-        );
+    try {
+      const response = await fetch('/api/news/evaluate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: cleanTitle,
+          content: cleanBody,
+          category: reportCategory,
+          isPrediction: activeIsPrediction,
+          predictedTarget: predictedTargetText,
+          predictionOutcomeType: predictionType,
+          seasonContext: seasonTelemetryContext,
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok || !data.success || !data.evaluation) {
+        throw new Error(data.error || 'Failed to evaluate report with AI.');
       }
-    }
 
-    // Check if player falsely claims a 0-point team has hundreds of points
-    if (
-      combinedText.includes('banned') ||
-      combinedText.includes('disqualified') ||
-      combinedText.includes('canceled')
-    ) {
-      accuracy -= 20;
-      factCheckNotes.push(
-        'Unverified sensationalist claim: FIA Stewards issued no mass bans or cancellations.'
+      const ev = data.evaluation;
+      accuracy = Math.max(0, Math.min(100, Number(ev.accuracyScore ?? 50)));
+      quality = Math.max(0, Math.min(100, Number(ev.qualityScore ?? 50)));
+      reasoning = Math.max(0, Math.min(100, Number(ev.reasoningScore ?? 50)));
+      const rawVerdict = String(ev.verdict || '');
+      if (
+        rawVerdict === 'verified_scoop' ||
+        rawVerdict === 'solid_report' ||
+        rawVerdict === 'mediocre' ||
+        rawVerdict === 'inaccurate_flop'
+      ) {
+        verdict = rawVerdict;
+      } else if (accuracy < 50) {
+        verdict = 'inaccurate_flop';
+      } else if (accuracy >= 75 && (quality >= 75 || reasoning >= 75)) {
+        verdict = 'verified_scoop';
+      } else if (accuracy >= 60 && quality >= 55) {
+        verdict = 'solid_report';
+      } else {
+        verdict = 'mediocre';
+      }
+      verdictLabel = ev.verdictLabel || 'FIA AI Editorial Audit';
+      factCheckNotes = Array.isArray(ev.factCheckNotes)
+        ? ev.factCheckNotes
+        : ['Evaluated against 2026 FIA Championship telemetry.'];
+      readerReaction =
+        ev.readerReaction ||
+        '"Interesting analysis from the paddock press room." — F1 Reader';
+    } catch (err: any) {
+      setAiErrorMsg(
+        err?.message || 'AI evaluation unavailable; applied local telemetry audit.'
       );
+      const combined = `${cleanTitle} ${cleanBody}`.toLowerCase();
+      const hasReasons =
+        combined.includes('because') ||
+        combined.includes('due to') ||
+        combined.includes('pace') ||
+        combined.includes('aero') ||
+        combined.includes('downforce') ||
+        combined.includes('speed') ||
+        combined.includes('points') ||
+        combined.includes('rating') ||
+        combined.includes('turns') ||
+        combined.includes('tire');
+      accuracy = cleanBody.length >= 60 ? 78 : 42;
+      quality = Math.min(95, Math.max(15, Math.round(cleanBody.length / 2.5)));
+      reasoning = hasReasons && cleanBody.length >= 80 ? 84 : 30;
+      verdict =
+        accuracy >= 75 && quality >= 70
+          ? 'verified_scoop'
+          : accuracy < 50
+          ? 'inaccurate_flop'
+          : 'mediocre';
+      verdictLabel =
+        verdict === 'verified_scoop'
+          ? 'Verified & Well-Reasoned Report'
+          : 'Insufficient Telemetry Reasoning';
+      factCheckNotes = [
+        hasReasons
+          ? 'Technical and championship reasons identified in article.'
+          : 'Lacked concrete technical or statistical reasons supporting the claim.',
+      ];
+      readerReaction =
+        verdict === 'verified_scoop'
+          ? '"Strong reasoning and accurate paddock facts!" — Paddock Subscriber'
+          : '"Needs much stronger evidence and accurate stats." — Paddock Reader';
+    } finally {
+      setIsEvaluatingAI(false);
     }
 
-    if (newsCompany.editorialFocus === 'investigative' && chosenClaim.isTrue) {
-      accuracy += 6;
-    }
-
-    accuracy = Math.max(5, Math.min(100, Math.round(accuracy)));
-
-    // Editorial Quality Evaluation (Headline, Depth, Motorsport Vocabulary)
-    let quality = 25;
-    if (cleanTitle.length >= 25 && cleanTitle.length <= 140) {
-      quality += 20;
-    } else if (cleanTitle.length >= 12) {
-      quality += 10;
-    } else {
-      factCheckNotes.push('Headline is too brief for FIA syndication standards.');
-    }
-
-    if (cleanBody.length >= 220) {
-      quality += 30;
-    } else if (cleanBody.length >= 110) {
-      quality += 20;
-    } else if (cleanBody.length >= 50) {
-      quality += 8;
-      factCheckNotes.push(
-        'Article body is brief; deeper race analysis increases reader retention.'
-      );
-    } else {
-      quality -= 15;
-      factCheckNotes.push(
-        'Low-effort report: Article body is far too short for paying subscribers.'
-      );
-    }
-
-    const f1Keywords = [
-      'podium',
-      'points',
-      'championship',
-      'telemetry',
-      'downforce',
-      'tire',
-      'drs',
-      'qualifying',
-      'strategy',
-      'apex',
-      'constructor',
-      'circuit',
-      'turn',
-      'pace',
-      'overtake',
-      'ers',
-    ];
-    const matchedKeywords = f1Keywords.filter((kw) =>
-      combinedText.includes(kw)
-    );
-    quality += Math.min(25, matchedKeywords.length * 5);
-
-    quality = Math.max(10, Math.min(100, Math.round(quality)));
-
-    // Overall Score weights Accuracy heavily (if it's inaccurate, overall plummets)
     const overallScore =
       accuracy < 50
-        ? Math.round(accuracy * 0.65 + quality * 0.2)
-        : Math.round(accuracy * 0.58 + quality * 0.42);
+        ? Math.round(accuracy * 0.6 + quality * 0.2 + reasoning * 0.2)
+        : Math.round(accuracy * 0.42 + quality * 0.28 + reasoning * 0.3);
 
-    let verdict: PublishedNewsReport['verdict'] = 'mediocre';
-    let verdictLabel = 'Mixed Editorial Review';
-    let revenueEarned = 0;
+    // =========================================================================
+    // SUBSCRIPTION PRICE ELASTICITY + QUALITY INTERACTION + PRICING MANAGER:
+    // - If price is LOW ($1 - $6): You gain more subscribers easily (+15% to +65% boost),
+    //   though you earn less per subscriber.
+    // - If price is EXPENSIVE ($12 - $50):
+    //   * If your news is REALLY GOOD (verified_scoop, high overallScore >= 78):
+    //     Readers feel the premium price is worth it—almost NO subscriber penalty,
+    //     allowing you to earn high revenue per subscriber!
+    //   * If your news is only average, mediocre, or inaccurate:
+    //     Readers balk at the expensive price—you gain far fewer subscribers or
+    //     LOSE existing subscribers who cancel their overpriced subscriptions!
+    // - Hiring a Pricing Manager shields against high-price resistance and adds a conversion bonus.
+    // =========================================================================
+    const effectivePrice = newsCompany.autoOptimizePrice && activePricingManager
+      ? recommendedPrice
+      : subscriptionPrice;
+
+    const managerProtection = activePricingManager
+      ? activePricingManager.elasticityProtection
+      : 0;
+    const managerConversion = activePricingManager
+      ? activePricingManager.conversionBonus
+      : 0;
+
     let subscriberDelta = 0;
     let credibilityDelta = 0;
     let views = 0;
-    let readerReaction = '';
+    let grossSubscriberRevenue = 0;
+    let retractionAndRefundLoss = 0;
 
-    const credibilityMultiplier = 0.6 + (newsCompany.credibility / 100) * 0.9;
-    const subBaseBonus = Math.round(newsCompany.subscribers * 1.4);
+    const credibilityFactor = 0.65 + (newsCompany.credibility / 100) * 0.65;
+    const reasonQualityBoost =
+      activeIsPrediction && reasoning >= 75 ? 1.25 : 1.0;
 
-    if (accuracy >= 80 && overallScore >= 78) {
+    // Low-price subscriber attraction bonus (for prices below $8)
+    const lowPriceAttractionMultiplier =
+      effectivePrice < 8 ? 1 + (8 - effectivePrice) * 0.095 : 1.0;
+
+    if (
+      verdict === 'verified_scoop' ||
+      (accuracy >= 75 && overallScore >= 75)
+    ) {
       verdict = 'verified_scoop';
-      verdictLabel = 'Verified Gold-Standard Report';
-      revenueEarned = Math.round(
-        (165000 + overallScore * 2200 + subBaseBonus) * credibilityMultiplier
+      // Because the news is REALLY GOOD, high subscription prices barely hurt subscriber growth!
+      // Only prices above $22 have a mild dampening, further reduced by a Pricing Manager.
+      const highPriceResistance =
+        effectivePrice > 22
+          ? Math.max(
+              0.55,
+              1 - (effectivePrice - 22) * 0.015 * (1 - managerProtection)
+            )
+          : 1.0;
+
+      const baseNewSubs = (4800 + overallScore * 95) * reasonQualityBoost;
+      subscriberDelta = Math.round(
+        baseNewSubs *
+          lowPriceAttractionMultiplier *
+          highPriceResistance *
+          (1 + managerConversion)
       );
-      subscriberDelta = Math.round(14500 + overallScore * 180);
-      credibilityDelta = 8;
-      views = Math.round(95000 + newsCompany.subscribers * 3.2);
-      readerReaction =
-        '"Spot-on telemetry and verified paddock facts! Worth every penny of our premium subscription." — Verified F1 Paddock Reader';
-    } else if (accuracy >= 65 && overallScore >= 55) {
+      credibilityDelta = 7;
+
+      const effectiveSubs = Math.max(
+        1000,
+        newsCompany.subscribers + subscriberDelta
+      );
+      // Subscribers pay your subscriptionPrice (scaled by credibility & engagement)
+      grossSubscriberRevenue = Math.round(
+        effectiveSubs * effectivePrice * 0.52 * credibilityFactor
+      );
+      views = Math.round(effectiveSubs * 3.5);
+    } else if (
+      verdict === 'solid_report' ||
+      (accuracy >= 60 && overallScore >= 55)
+    ) {
       verdict = 'solid_report';
-      verdictLabel = 'Accurate Paddock Report';
-      revenueEarned = Math.round(
-        (55000 + overallScore * 900 + subBaseBonus * 0.5) * credibilityMultiplier
-      );
-      subscriberDelta = Math.round(4200 + overallScore * 50);
+      // Solid (but not extraordinary) news: if price is expensive (> $12), subscriber growth drops or turns negative!
+      const rawOverpricePenalty =
+        effectivePrice > 12
+          ? (effectivePrice - 12) * 260 * (1 - managerProtection)
+          : 0;
+      const baseNewSubs =
+        (2100 + overallScore * 42) *
+        reasonQualityBoost *
+        lowPriceAttractionMultiplier *
+        (1 + managerConversion);
+
+      subscriberDelta = Math.round(baseNewSubs - rawOverpricePenalty);
       credibilityDelta = 3;
-      views = Math.round(38000 + newsCompany.subscribers * 1.6);
-      readerReaction =
-        '"Accurate reporting on the standings, though we would love even deeper technical breakdown next round." — Paddock Subscriber';
-    } else if (accuracy < 50) {
-      // INACCURATE / FAKE NEWS -> Little to no money!
+
+      const effectiveSubs = Math.max(
+        1000,
+        newsCompany.subscribers + subscriberDelta
+      );
+      grossSubscriberRevenue = Math.round(
+        effectiveSubs * effectivePrice * 0.34 * credibilityFactor
+      );
+      views = Math.round(effectiveSubs * 2.1);
+    } else if (accuracy < 50 || verdict === 'inaccurate_flop') {
+      // INACCURATE / FALSE NEWS -> Lose subscribers AND lose money!
+      // If subscription price is high, angry subscribers leave even faster and demand bigger refunds!
       verdict = 'inaccurate_flop';
-      verdictLabel = 'Fact-Check Failed · Demonetized';
-      revenueEarned = Math.round(Math.random() * 350); // $0 to $350 (little to no money!)
+      const expensiveAngerMultiplier =
+        effectivePrice > 10
+          ? 1 + (effectivePrice - 10) * 0.05 * (1 - managerProtection * 0.5)
+          : 1.0;
+
       subscriberDelta = -Math.min(
-        newsCompany.subscribers,
-        Math.round(5500 + (50 - accuracy) * 120)
+        Math.max(0, newsCompany.subscribers - 500),
+        Math.round((5500 + (50 - accuracy) * 180) * expensiveAngerMultiplier)
       );
       credibilityDelta = -14;
-      views = Math.round(4200);
-      readerReaction =
-        '"Total fake news! These numbers are completely wrong and contradict official FIA timing. Canceling my subscription!" — Angry F1 Reader';
+      grossSubscriberRevenue = 0;
+      retractionAndRefundLoss = Math.round(
+        85000 + Math.abs(subscriberDelta) * Math.max(8, effectivePrice * 0.9)
+      );
+      views = Math.max(1200, Math.round(newsCompany.subscribers * 0.25));
     } else {
-      // Low quality / sloppy writing -> Little to no money!
+      // Mediocre / weak reasoning -> Lose subscribers (especially if subscription price is high!)
       verdict = 'mediocre';
-      verdictLabel = 'Low-Effort Report · Poor Sales';
-      revenueEarned = Math.round(450 + overallScore * 12); // ~$800
-      subscriberDelta = -1200;
-      credibilityDelta = -5;
-      views = 6100;
-      readerReaction =
-        '"Barely two sentences of analysis. Why pay for a news outlet when there is no substance?" — Disappointed Reader';
+      const overpriceChurn =
+        effectivePrice > 8
+          ? Math.round((effectivePrice - 8) * 320 * (1 - managerProtection))
+          : 0;
+      subscriberDelta = -Math.min(
+        Math.max(0, newsCompany.subscribers - 500),
+        Math.round(2200 + (60 - overallScore) * 65 + overpriceChurn)
+      );
+      credibilityDelta = -6;
+      grossSubscriberRevenue = Math.round(
+        newsCompany.subscribers * Math.min(4, effectivePrice * 0.08)
+      );
+      retractionAndRefundLoss = 35000;
+      views = Math.max(2000, Math.round(newsCompany.subscribers * 0.5));
     }
+
+    // Add a fact-check note explaining how the subscription price affected subscribers
+    if (effectivePrice <= 5 && verdict !== 'inaccurate_flop') {
+      factCheckNotes.push(
+        `Low $${effectivePrice}/mo subscription price attracted extra budget-conscious paddock readers.`
+      );
+    } else if (effectivePrice >= 15 && verdict === 'verified_scoop') {
+      factCheckNotes.push(
+        `High-quality journalism justified your premium $${effectivePrice}/mo subscription price with strong reader retention!`
+      );
+    } else if (effectivePrice >= 14 && verdict !== 'verified_scoop') {
+      factCheckNotes.push(
+        `Readers felt your $${effectivePrice}/mo subscription price was too expensive for a ${verdict.replace('_', ' ')} article, hurting subscriber numbers.`
+      );
+    }
+
+    // Net Profit or Net Financial Loss (can be negative!)
+    const netRevenueEarned =
+      grossSubscriberRevenue - currentOperatingCost - retractionAndRefundLoss;
+
+    const wasDraftedByWriter =
+      writerDraftSnapshot && selectedWriterId === writerDraftSnapshot.writerId;
+    const wasEditedByPlayer = Boolean(
+      wasDraftedByWriter &&
+        (cleanTitle !== writerDraftSnapshot.originalTitle.trim() ||
+          cleanBody !== writerDraftSnapshot.originalContent.trim())
+    );
 
     const published: PublishedNewsReport = {
       id: `player_rep_${Date.now()}`,
       title: cleanTitle,
       content: cleanBody,
-      category: reportCategory,
+      category: activeIsPrediction ? 'prediction' : reportCategory,
       roundPublished: season.currentRound,
       timestamp: Date.now(),
+      authorName: wasDraftedByWriter
+        ? writerDraftSnapshot.writerName
+        : `${season.career.driverName} (Editor-in-Chief)`,
+      wasEditedByPlayer,
       accuracyScore: accuracy,
       qualityScore: quality,
+      reasoningScore: reasoning,
       overallScore,
       verdict,
       verdictLabel,
       factCheckNotes,
       readerReaction,
       views,
-      revenueEarned,
+      subscriptionPriceUsed: effectivePrice,
+      operatingCost: currentOperatingCost + retractionAndRefundLoss,
+      revenueEarned: netRevenueEarned,
       subscriberDelta,
       credibilityDelta,
+      isPrediction: activeIsPrediction,
+      predictedDriverId: activeIsPrediction ? predictedDriverId : undefined,
+      predictedDriverName:
+        activeIsPrediction && targetDrv ? targetDrv.rawName : undefined,
+      predictionType: activeIsPrediction ? predictionType : undefined,
+      predictionTargetRound: activeIsPrediction
+        ? season.currentRound
+        : undefined,
+      predictionTargetCircuitName: activeIsPrediction
+        ? currentCircuit.name
+        : undefined,
+      predictionStatus: activeIsPrediction ? 'pending' : undefined,
     };
 
     onPublishNewsReport(published);
     setLastPublishedResult(published);
     setReportTitle('');
     setReportContent('');
+    setWriterDraftSnapshot(null);
   };
 
   const handleFoundCompanySubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!onFoundNewsCompany) return;
+    if (!onFoundNewsCompany || !canAffordNewsCompany) return;
     const cleanName = companyNameInput.trim() || 'Apex Paddock Gazette';
     const cleanBadge =
       (companyBadgeInput.trim() || 'APEX').toUpperCase().slice(0, 8);
-    const startupFee = season.career.careerEarnings >= 25000 ? 25000 : 0;
 
     const newCompany: NewsCompanyConfig = {
       id: `news_co_${Date.now()}`,
@@ -754,13 +1361,17 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
       badgeCode: cleanBadge,
       editorialFocus: editorialFocusInput,
       foundedRound: season.currentRound,
-      credibility: 72,
-      subscribers: 15000,
+      credibility: 75,
+      subscribers: 25000,
+      subscriptionPrice: 8,
+      pricingManager: null,
+      autoOptimizePrice: false,
       totalRevenue: 0,
       publishedReports: [],
+      hiredWriters: [],
     };
 
-    onFoundNewsCompany(newCompany, startupFee);
+    onFoundNewsCompany(newCompany, NEWS_COMPANY_STARTUP_COST);
     setActiveSubView('press_room');
   };
 
@@ -799,12 +1410,21 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
       maximumFractionDigits: 0,
     }).format(val);
 
+  const formatSignedMoney = (val: number) => {
+    if (val < 0) return `-${formatMoney(Math.abs(val))}`;
+    return `+${formatMoney(val)}`;
+  };
+
   const breakingArticle =
     articles.find((a) => a.importance === 'breaking') || articles[0];
 
+  const activeSelectedWriter = hiredWriters.find(
+    (w) => w.id === selectedWriterId
+  );
+
   return (
     <div className="space-y-6">
-      {/* 1. Top Header & Mode Switcher (Paddock Wire vs. My News Company Studio) */}
+      {/* 1. Top Header & Mode Switcher (Paddock Wire vs. My News Company vs. Best News Companies) */}
       <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 bg-neutral-900 border border-neutral-800 p-6 rounded-2xl">
         <div className="flex items-center gap-3.5">
           <div className="w-12 h-12 rounded-2xl bg-red-600/15 border border-red-500/30 flex items-center justify-center text-red-500 shrink-0">
@@ -816,21 +1436,21 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
               <span aria-hidden="true">·</span>
               <span>
                 {newsCompany
-                  ? `Owner of ${newsCompany.name} [${newsCompany.badgeCode}]`
-                  : 'Independent Media License Available'}
+                  ? `Owner of ${newsCompany.name} [${newsCompany.badgeCode}] · Global Rank #${playerLeaderboardRank}`
+                  : '$15,000,000 FIA Broadcast Syndicate License'}
               </span>
             </div>
             <h2 className="text-xl md:text-2xl font-black text-white tracking-tight mt-0.5">
-              Paddock News & Press Studio
+              Paddock News & AI Press Studio
             </h2>
             <p className="text-xs text-neutral-400 mt-0.5">
-              Read live championship coverage or run your own motorsport news company—accurate, high-quality reports pay top dollar while inaccurate stories make little to nothing.
+              Rename your company anytime, control your subscription price, hire writers and a pricing manager, and climb the Global Best News Companies Leaderboard.
             </p>
           </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5 w-full lg:w-auto">
-          <div className="flex items-center gap-1 p-1 bg-neutral-950 border border-neutral-800 rounded-xl">
+          <div className="flex flex-wrap items-center gap-1 p-1 bg-neutral-950 border border-neutral-800 rounded-xl">
             <button
               onClick={() => setActiveSubView('feed')}
               className={`px-3.5 py-2 rounded-lg text-xs font-bold flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
@@ -854,90 +1474,333 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
               <span>
                 {newsCompany
                   ? `My News Company (${newsCompany.badgeCode})`
-                  : 'Start News Company'}
+                  : 'Start News Company ($15M)'}
+              </span>
+            </button>
+            <button
+              onClick={() => setActiveSubView('leaderboard')}
+              className={`px-3.5 py-2 rounded-lg text-xs font-bold flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                activeSubView === 'leaderboard'
+                  ? 'bg-cyan-500 text-black font-black'
+                  : 'text-cyan-300 hover:text-white'
+              }`}
+            >
+              <Trophy className="w-3.5 h-3.5" />
+              <span>
+                Best News Companies
+                {playerLeaderboardRank ? ` (#${playerLeaderboardRank})` : ''}
               </span>
             </button>
           </div>
         </div>
       </div>
 
-      {/* 2. News Company Executive Summary Bar (Always visible if founded) */}
+      {/* 2. News Company Executive Summary Bar + Switch Name Anytime Modal/Bar */}
       {newsCompany && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
-            <div className="text-xs text-neutral-400">Your Publication</div>
-            <div className="flex items-baseline justify-between mt-1">
-              <span className="text-base font-black text-white truncate">
-                {newsCompany.name}
-              </span>
-              <span className="text-xs font-mono font-bold text-amber-400">
-                [{newsCompany.badgeCode}]
-              </span>
+        <div className="space-y-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+            <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
+              <div className="flex items-center justify-between text-xs text-neutral-400">
+                <span>Your Publication</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRenameNameInput(newsCompany.name);
+                    setRenameBadgeInput(newsCompany.badgeCode);
+                    setIsRenamingCompany(!isRenamingCompany);
+                  }}
+                  className="text-amber-400 hover:text-amber-300 font-bold flex items-center gap-1 cursor-pointer"
+                  title="Switch your news company name anytime"
+                >
+                  <Pencil className="w-3 h-3" />
+                  <span>Rename</span>
+                </button>
+              </div>
+              <div className="flex items-baseline justify-between mt-1 gap-2">
+                <span className="text-base font-black text-white truncate">
+                  {newsCompany.name}
+                </span>
+                <span className="text-xs font-mono font-bold text-amber-400 shrink-0">
+                  [{newsCompany.badgeCode}]
+                </span>
+              </div>
+              <div className="text-[11px] text-neutral-500 font-mono mt-1">
+                Rank #{playerLeaderboardRank} of {rankedNewsCompanies.length} Networks
+              </div>
             </div>
-            <div className="text-[11px] text-neutral-500 font-mono mt-1">
-              {newsCompany.publishedReports.length} Reports Published
-            </div>
-          </div>
 
-          <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
-            <div className="text-xs text-neutral-400">Editorial Credibility</div>
-            <div className="flex items-baseline justify-between mt-1">
-              <span
-                className={`text-xl font-mono font-black tabular-nums ${
-                  newsCompany.credibility >= 70
-                    ? 'text-emerald-400'
+            <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
+              <div className="text-xs text-neutral-400">Editorial Credibility</div>
+              <div className="flex items-baseline justify-between mt-1">
+                <span
+                  className={`text-xl font-mono font-black tabular-nums ${
+                    newsCompany.credibility >= 70
+                      ? 'text-emerald-400'
+                      : newsCompany.credibility >= 45
+                      ? 'text-amber-400'
+                      : 'text-red-400'
+                  }`}
+                >
+                  {newsCompany.credibility}%
+                </span>
+                <span className="text-xs font-mono text-neutral-400">
+                  {newsCompany.credibility >= 75
+                    ? 'Tier-1 Trusted'
                     : newsCompany.credibility >= 45
-                    ? 'text-amber-400'
-                    : 'text-red-400'
-                }`}
-              >
-                {newsCompany.credibility}%
-              </span>
-              <span className="text-xs font-mono text-neutral-400">
-                {newsCompany.credibility >= 75
-                  ? 'Trusted Tier-1 Media'
-                  : newsCompany.credibility >= 45
-                  ? 'Standard Press'
-                  : 'Tabloid / Distrusted'}
-              </span>
+                    ? 'Standard Press'
+                    : 'Tabloid'}
+                </span>
+              </div>
+              <div className="text-[11px] text-neutral-500 font-mono mt-1">
+                Justifies higher subscription prices
+              </div>
             </div>
-            <div className="text-[11px] text-neutral-500 font-mono mt-1">
-              Higher credibility multiplies ad payouts
+
+            <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
+              <div className="text-xs text-neutral-400">Paid Subscribers</div>
+              <div className="flex items-baseline justify-between mt-1">
+                <span className="text-xl font-mono font-black text-cyan-400 tabular-nums">
+                  {newsCompany.subscribers.toLocaleString()}
+                </span>
+                <span className="text-xs font-mono text-neutral-400">Readers</span>
+              </div>
+              <div className="text-[11px] text-neutral-500 font-mono mt-1">
+                {hiredWriters.length} Writers ·{' '}
+                {activePricingManager ? 'Pricing Mgr Active' : 'No Pricing Mgr'}
+              </div>
+            </div>
+
+            <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
+              <div className="text-xs text-neutral-400">Subscription Price</div>
+              <div className="flex items-baseline justify-between mt-1">
+                <span className="text-xl font-mono font-black text-purple-400 tabular-nums">
+                  ${subscriptionPrice}/mo
+                </span>
+                <span className="text-xs font-mono text-neutral-400">
+                  {subscriptionPrice <= 5
+                    ? 'Budget Tier'
+                    : subscriptionPrice <= 12
+                    ? 'Standard Tier'
+                    : 'Premium Tier'}
+                </span>
+              </div>
+              <div className="text-[11px] text-neutral-500 font-mono mt-1">
+                {activePricingManager
+                  ? `Mgr Optimal: $${recommendedPrice}/mo`
+                  : 'Adjust price in Press Studio'}
+              </div>
+            </div>
+
+            <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
+              <div className="text-xs text-neutral-400">Net Media Profit / Loss</div>
+              <div className="flex items-baseline justify-between mt-1">
+                <span
+                  className={`text-xl font-mono font-black tabular-nums ${
+                    newsCompany.totalRevenue >= 0
+                      ? 'text-emerald-400'
+                      : 'text-red-400'
+                  }`}
+                >
+                  {newsCompany.totalRevenue < 0
+                    ? `-${formatMoney(Math.abs(newsCompany.totalRevenue))}`
+                    : formatMoney(newsCompany.totalRevenue)}
+                </span>
+                <button
+                  onClick={() =>
+                    setActiveSubView(
+                      activeSubView === 'press_room' ? 'leaderboard' : 'press_room'
+                    )
+                  }
+                  className="text-xs font-bold text-amber-400 hover:text-amber-300 underline cursor-pointer"
+                >
+                  {activeSubView === 'press_room' ? 'Leaderboard' : 'Press Studio'}
+                </button>
+              </div>
+              <div className="text-[11px] text-neutral-500 font-mono mt-1">
+                Operating Cost: {formatMoney(currentOperatingCost)} / report
+              </div>
             </div>
           </div>
 
-          <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
-            <div className="text-xs text-neutral-400">Paid Subscribers</div>
-            <div className="flex items-baseline justify-between mt-1">
-              <span className="text-xl font-mono font-black text-cyan-400 tabular-nums">
-                {newsCompany.subscribers.toLocaleString()}
-              </span>
-              <span className="text-xs font-mono text-neutral-400">Readers</span>
-            </div>
-            <div className="text-[11px] text-neutral-500 font-mono mt-1">
-              Accurate scoops attract paying readers
-            </div>
-          </div>
+          {/* Inline Switch News Company Name Anytime Bar */}
+          {isRenamingCompany && (
+            <form
+              onSubmit={handleSaveCompanyRename}
+              className="p-4 rounded-xl bg-neutral-900 border border-amber-500/50 flex flex-col sm:flex-row items-stretch sm:items-end justify-between gap-3"
+            >
+              <div className="flex-1 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="sm:col-span-2">
+                  <label className="text-[11px] font-bold text-amber-400 block mb-1">
+                    New News Company Name (Switch Anytime — Free)
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    maxLength={48}
+                    value={renameNameInput}
+                    onChange={(e) => setRenameNameInput(e.target.value)}
+                    placeholder="Enter new publication name..."
+                    className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-400"
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] font-bold text-amber-400 block mb-1">
+                    Wire Ticker Code
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    maxLength={8}
+                    value={renameBadgeInput}
+                    onChange={(e) =>
+                      setRenameBadgeInput(e.target.value.toUpperCase())
+                    }
+                    placeholder="APEX"
+                    className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-3 py-2 text-xs font-mono uppercase text-white focus:outline-none focus:border-amber-400"
+                  />
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="submit"
+                  className="px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-black font-black text-xs flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  <span>Save New Name</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsRenamingCompany(false)}
+                  className="px-3 py-2 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-xs font-bold flex items-center gap-1 cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                  <span>Cancel</span>
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
+      )}
 
-          <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
-            <div className="text-xs text-neutral-400">Total Media Revenue</div>
-            <div className="flex items-baseline justify-between mt-1">
-              <span className="text-xl font-mono font-black text-emerald-400 tabular-nums">
-                {formatMoney(newsCompany.totalRevenue)}
-              </span>
-              <button
-                onClick={() =>
-                  setActiveSubView(
-                    activeSubView === 'press_room' ? 'feed' : 'press_room'
-                  )
-                }
-                className="text-xs font-bold text-amber-400 hover:text-amber-300 underline cursor-pointer"
-              >
-                {activeSubView === 'press_room' ? 'View Feed' : 'Write Report'}
-              </button>
+      {/* ================================================================= */}
+      {/* VIEW C: GLOBAL BEST NEWS COMPANIES LEADERBOARD                    */}
+      {/* ================================================================= */}
+      {activeSubView === 'leaderboard' && (
+        <div className="space-y-6">
+          <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-6 space-y-5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-neutral-800 pb-4">
+              <div>
+                <div className="text-xs font-mono text-cyan-400 font-bold">
+                  FIA Global Motorsport Media Rankings
+                </div>
+                <h3 className="text-xl font-black text-white mt-0.5">
+                  Best Paddock News Companies Leaderboard
+                </h3>
+                <p className="text-xs text-neutral-400 mt-0.5">
+                  Ranked by active paid subscribers and editorial credibility. Publish verified scoops, nail race predictions, and optimize your subscription price to overtake Sky Sports F1 and The Race!
+                </p>
+              </div>
+              {newsCompany && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRenameNameInput(newsCompany.name);
+                    setRenameBadgeInput(newsCompany.badgeCode);
+                    setIsRenamingCompany(true);
+                  }}
+                  className="px-3.5 py-2 rounded-xl bg-neutral-950 hover:bg-neutral-800 text-amber-400 border border-amber-500/30 text-xs font-bold flex items-center gap-1.5 shrink-0 cursor-pointer"
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                  <span>Switch Company Name</span>
+                </button>
+              )}
             </div>
-            <div className="text-[11px] text-neutral-500 font-mono mt-1">
-              Paid directly into Career Bank Balance
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-neutral-800 text-[11px] font-mono text-neutral-400">
+                    <th className="py-3 px-3">RANK</th>
+                    <th className="py-3 px-3">PUBLICATION / NETWORK</th>
+                    <th className="py-3 px-3">EDITORIAL BEAT</th>
+                    <th className="py-3 px-3 text-right">PAID SUBSCRIBERS</th>
+                    <th className="py-3 px-3 text-right">SUB PRICE</th>
+                    <th className="py-3 px-3 text-right">CREDIBILITY</th>
+                    <th className="py-3 px-3 text-right">EST. ISSUE GROSS</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-neutral-800/70 text-xs font-mono tabular-nums">
+                  {rankedNewsCompanies.map((comp, index) => {
+                    const rank = index + 1;
+                    return (
+                      <tr
+                        key={comp.id}
+                        className={`transition-colors ${
+                          comp.isPlayer
+                            ? 'bg-amber-500/15 border-l-4 border-l-amber-400'
+                            : 'hover:bg-neutral-950/60'
+                        }`}
+                      >
+                        <td className="py-3.5 px-3 font-black">
+                          <span
+                            className={
+                              rank === 1
+                                ? 'text-amber-400'
+                                : rank === 2
+                                ? 'text-cyan-400'
+                                : rank === 3
+                                ? 'text-emerald-400'
+                                : 'text-neutral-400'
+                            }
+                          >
+                            #{rank}
+                          </span>
+                        </td>
+                        <td className="py-3.5 px-3 font-sans">
+                          <div className="flex items-center gap-2">
+                            <span className="font-black text-white">
+                              {comp.name}
+                            </span>
+                            <span className="text-[10px] font-mono font-bold text-amber-400">
+                              [{comp.badgeCode}]
+                            </span>
+                            {comp.isPlayer && (
+                              <span className="text-[10px] font-mono font-black bg-amber-500 text-black px-2 py-0.5 rounded">
+                                YOUR COMPANY
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="py-3.5 px-3 font-sans text-neutral-400">
+                          {comp.focusLabel}
+                        </td>
+                        <td className="py-3.5 px-3 text-right font-bold text-cyan-400">
+                          {comp.subscribers.toLocaleString()}
+                        </td>
+                        <td className="py-3.5 px-3 text-right text-purple-300 font-bold">
+                          ${comp.subscriptionPrice}/mo
+                        </td>
+                        <td className="py-3.5 px-3 text-right">
+                          <span
+                            className={`font-bold ${
+                              comp.credibility >= 80
+                                ? 'text-emerald-400'
+                                : comp.credibility >= 60
+                                ? 'text-amber-400'
+                                : 'text-red-400'
+                            }`}
+                          >
+                            {comp.credibility}%
+                          </span>
+                        </td>
+                        <td className="py-3.5 px-3 text-right font-bold text-emerald-400">
+                          {formatMoney(comp.estRevenuePerIssue)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           </div>
         </div>
@@ -949,18 +1812,18 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
       {activeSubView === 'press_room' && (
         <div className="space-y-6">
           {!newsCompany ? (
-            /* FOUND YOUR OWN NEWS COMPANY CARD */
+            /* FOUND YOUR OWN NEWS COMPANY CARD ($15,000,000 FIA LICENSE) */
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               <div className="lg:col-span-2 bg-neutral-900 border border-neutral-800 rounded-2xl p-6 space-y-5">
                 <div>
                   <div className="text-xs font-mono text-amber-400 font-bold">
-                    FIA Paddock Media Credentialing
+                    Official FIA Commercial Media Rights & Syndicate Entry
                   </div>
                   <h3 className="text-2xl font-black text-white mt-1">
-                    Found Your Own Paddock News Company
+                    Found Your Own Paddock News Network ($15,000,000)
                   </h3>
                   <p className="text-xs text-neutral-400 mt-1 leading-relaxed">
-                    Launch an independent Formula 1 media outlet inside the paddock. Write and publish race recaps, championship audits, and technical reports. When your reporting is accurate and well-written, subscribers and sponsors pay handsomely; if your reports are sloppy or factually inaccurate, readers cancel and you earn next to nothing.
+                    Acquiring an official FIA Paddock Media Broadcast & Press Syndicate license requires a <strong className="text-white">$15,000,000</strong> capital investment from your Career Bank Balance. Once founded, you can rename your company anytime, set your subscription price, hire writers and a pricing manager, and compete on the Best News Companies leaderboard.
                   </p>
                 </div>
 
@@ -968,7 +1831,7 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div className="sm:col-span-2">
                       <label className="text-xs font-bold text-neutral-300 block mb-1.5">
-                        Publication / Media Company Name
+                        Publication / Media Network Name (Can Switch Anytime Later)
                       </label>
                       <input
                         type="text"
@@ -1000,24 +1863,24 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
 
                   <div>
                     <label className="text-xs font-bold text-neutral-300 block mb-2">
-                      Editorial Focus & Revenue Model
+                      Editorial Division Focus
                     </label>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                       {[
                         {
                           id: 'investigative' as const,
-                          title: 'Investigative & Fact-Checked',
-                          desc: '+6% Accuracy Bonus on verified claims and stronger credibility retention.',
+                          title: 'Investigative & Standings Desk',
+                          desc: 'Stronger subscriber retention when reporting verified race results and championship gaps.',
                         },
                         {
                           id: 'technical' as const,
-                          title: 'Telemetry & Tech Analysis',
-                          desc: 'High subscriber conversion when citing circuit turns, lap records, and aero data.',
+                          title: 'Telemetry & Engineering Desk',
+                          desc: 'Higher reader engagement when explaining car performance, aero downforce, and circuit layouts.',
                         },
                         {
                           id: 'insider' as const,
-                          title: 'Paddock Exclusive Wire',
-                          desc: 'Higher viral readership on championship battles and driver contract stories.',
+                          title: 'Predictions & Paddock Analyst',
+                          desc: 'Attracts more subscribers when your well-reasoned Grand Prix predictions come true.',
                         },
                       ].map((opt) => (
                         <button
@@ -1041,23 +1904,58 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
                     </div>
                   </div>
 
-                  <div className="p-4 bg-neutral-950 rounded-xl border border-neutral-800 flex items-center justify-between text-xs font-mono tabular-nums">
-                    <span className="text-neutral-400">
-                      FIA Press Credential Registration Fee:
-                    </span>
-                    <span className="text-emerald-400 font-bold">
-                      {season.career.careerEarnings >= 25000
-                        ? '$25,000 (One-Time)'
-                        : '$0 (Rookie Press Grant)'}
-                    </span>
+                  <div className="p-4 bg-neutral-950 rounded-xl border border-neutral-800 space-y-2 text-xs font-mono tabular-nums">
+                    <div className="flex items-center justify-between">
+                      <span className="text-neutral-400">
+                        FIA Media Syndicate License Fee (100% Upfront):
+                      </span>
+                      <span className="text-amber-400 font-bold">
+                        {formatMoney(NEWS_COMPANY_STARTUP_COST)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between pt-2 border-t border-neutral-900">
+                      <span className="text-neutral-400">
+                        Your Current Career Bank Balance:
+                      </span>
+                      <span
+                        className={`font-bold ${
+                          canAffordNewsCompany
+                            ? 'text-emerald-400'
+                            : 'text-red-400'
+                        }`}
+                      >
+                        {formatMoney(bankBalance)}
+                      </span>
+                    </div>
                   </div>
 
                   <button
                     type="submit"
-                    className="w-full py-3.5 bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-2"
+                    disabled={!canAffordNewsCompany}
+                    className={`w-full py-3.5 font-black text-xs uppercase tracking-wider rounded-xl transition-colors flex items-center justify-center gap-2 ${
+                      canAffordNewsCompany
+                        ? 'bg-amber-500 hover:bg-amber-400 text-black cursor-pointer'
+                        : 'bg-neutral-800 text-neutral-500 cursor-not-allowed'
+                    }`}
                   >
-                    <Building2 className="w-4 h-4" />
-                    <span>Launch Paddock News Company</span>
+                    {canAffordNewsCompany ? (
+                      <>
+                        <Building2 className="w-4 h-4" />
+                        <span>
+                          Purchase Media License & Launch Company (
+                          {formatMoney(NEWS_COMPANY_STARTUP_COST)})
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <Lock className="w-4 h-4" />
+                        <span>
+                          Insufficient Funds — Need{' '}
+                          {formatMoney(NEWS_COMPANY_STARTUP_COST - bankBalance)}{' '}
+                          More From Races/Contracts
+                        </span>
+                      </>
+                    )}
                   </button>
                 </form>
               </div>
@@ -1065,375 +1963,1050 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
               <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-6 flex flex-col justify-between gap-4">
                 <div className="space-y-3">
                   <div className="text-xs font-mono text-neutral-400">
-                    How Media Monetization Works
+                    How Your Media Business Works
                   </div>
                   <h4 className="text-lg font-bold text-white">
-                    Accuracy & Quality Drive Your Payouts
+                    Pricing, Writers & Global Rankings
                   </h4>
-                  <div className="space-y-2.5 text-xs text-neutral-300 leading-relaxed">
+                  <div className="space-y-3 text-xs text-neutral-300 leading-relaxed">
                     <p>
-                      <strong className="text-emerald-400">
-                        1. Verified & Detailed Reports ($150K – $550K+):
+                      <strong className="text-purple-400">
+                        1. Control Subscription Price & Hire a Pricing Manager:
                       </strong>{' '}
-                      When your report cites accurate race winners, true championship standings, and real circuit specs with detailed analysis, readers subscribe in droves.
+                      Set your subscription price from $1 to $50/mo. Lower prices attract more subscribers faster. Expensive prices can drive readers away—unless your news is really good or you hire a Pricing Manager!
                     </p>
                     <p>
-                      <strong className="text-red-400">
-                        2. Inaccurate or Lazy Reports ($0 – $450):
+                      <strong className="text-amber-400">
+                        2. Hire Writers & Edit Their Drafts:
                       </strong>{' '}
-                      If you publish false claims (wrong race winner, fake point totals, wrong circuit data) or write a lazy 3-word blurb, FIA fact-checkers flag your story and you make little to no money.
+                      Hire staff journalists to write drafts for you. Inspect what they wrote and edit their mistakes—or write your own article from scratch.
+                    </p>
+                    <p>
+                      <strong className="text-cyan-400">
+                        3. Climb the Best News Companies List:
+                      </strong>{' '}
+                      Grow your subscriber count through compelling reports and accurate predictions to overtake Sky Sports F1, The Race, and Autosport.
                     </p>
                   </div>
                 </div>
 
                 <div className="p-4 bg-neutral-950 rounded-xl border border-neutral-800 text-xs text-neutral-400 font-mono">
-                  Starting Subscribers: <strong className="text-white">15,000</strong> · Starting Credibility: <strong className="text-emerald-400">72%</strong>
+                  Starting Subscribers: <strong className="text-white">25,000</strong> · Default Price: <strong className="text-purple-400">$8/mo</strong>
                 </div>
               </div>
             </div>
           ) : (
-            /* ACTIVE PRESS ROOM EDITOR + LIVE PADDOCK FACT SHEET */
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* Left 2 Columns: Report Editor */}
-              <div className="lg:col-span-2 bg-neutral-900 border border-neutral-800 rounded-2xl p-6 space-y-5">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-neutral-800 pb-4">
-                  <div>
-                    <div className="text-xs font-mono text-amber-400">
-                      {newsCompany.name} · Editorial Desk
+            /* ACTIVE PRESS ROOM STUDIO: SUBSCRIPTION PRICING + PRICING MANAGER + WRITERS + EDITOR */
+            <div className="space-y-6">
+              {/* SECTION 0: SUBSCRIPTION PRICE CONTROL & PRICING MANAGER DESK */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Left Card: Subscription Price Controller & Price-Quality Elasticity */}
+                <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-6 space-y-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-xs font-mono text-purple-400 font-bold flex items-center gap-1.5">
+                        <Sliders className="w-3.5 h-3.5" />
+                        <span>Paywall & Reader Elasticity Control</span>
+                      </div>
+                      <h3 className="text-lg font-black text-white mt-0.5">
+                        Subscription Price Control (${subscriptionPrice}/mo)
+                      </h3>
+                      <p className="text-xs text-neutral-400 mt-0.5">
+                        Lower prices attract more subscribers. Making it really expensive reduces subscriber growth—unless your news report is truly exceptional!
+                      </p>
                     </div>
-                    <h3 className="text-lg font-black text-white mt-0.5">
-                      Write & Publish Paddock News Report
-                    </h3>
+                    <div className="text-right font-mono shrink-0">
+                      <span className="text-2xl font-black text-purple-400 tabular-nums">
+                        ${subscriptionPrice}
+                      </span>
+                      <span className="text-xs text-neutral-400 block">
+                        per subscriber
+                      </span>
+                    </div>
                   </div>
 
-                  {/* Quick Test / Draft Helpers */}
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => fillSampleReport('accurate_high_quality')}
-                      className="px-3 py-1.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 text-xs font-bold transition-colors cursor-pointer whitespace-nowrap"
-                      title="Auto-fill a detailed, factually accurate article based on current season telemetry"
-                    >
-                      Draft Verified Scoop
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => fillSampleReport('inaccurate_bad')}
-                      className="px-3 py-1.5 rounded-lg bg-red-500/15 hover:bg-red-500/25 text-red-300 border border-red-500/30 text-xs font-bold transition-colors cursor-pointer whitespace-nowrap"
-                      title="Auto-fill an inaccurate rumor to see how fake news gets demonetized"
-                    >
-                      Draft Inaccurate Tabloid
-                    </button>
+                  <div className="space-y-2 pt-1">
+                    <input
+                      type="range"
+                      min={1}
+                      max={50}
+                      step={1}
+                      value={subscriptionPrice}
+                      onChange={(e) =>
+                        handleSubscriptionPriceChange(Number(e.target.value))
+                      }
+                      className="w-full accent-purple-500 cursor-pointer"
+                    />
+                    <div className="flex items-center justify-between text-[11px] font-mono text-neutral-400">
+                      <span>$1/mo (Mass Growth)</span>
+                      <span>$10/mo (Standard)</span>
+                      <span>$25/mo (Premium)</span>
+                      <span>$50/mo (Ultra VIP)</span>
+                    </div>
                   </div>
-                </div>
 
-                <form onSubmit={handlePublishReport} className="space-y-4">
-                  {/* Step 1: Category Beat */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {/* Quick Preset Price Buttons */}
+                  <div className="flex flex-wrap items-center gap-2">
                     {[
-                      { id: 'race_result' as const, label: 'Race Results' },
-                      { id: 'championship' as const, label: 'Standings' },
-                      { id: 'transfer' as const, label: 'Driver Market' },
-                      { id: 'technical' as const, label: 'Tech & Setup' },
-                    ].map((cat) => (
+                      { price: 3, label: '$3 Budget (+Subs)' },
+                      { price: 8, label: '$8 Standard' },
+                      { price: 15, label: '$15 Premium' },
+                      { price: 28, label: '$28 VIP Insider' },
+                      { price: 45, label: '$45 Ultra-Exclusive' },
+                    ].map((preset) => (
                       <button
-                        key={cat.id}
+                        key={preset.price}
                         type="button"
-                        onClick={() => setReportCategory(cat.id)}
-                        className={`py-2 px-3 rounded-xl text-xs font-bold border transition-colors cursor-pointer ${
-                          reportCategory === cat.id
-                            ? 'bg-red-600 text-white border-red-500'
-                            : 'bg-neutral-950 text-neutral-400 border-neutral-800 hover:text-white'
+                        onClick={() => handleSubscriptionPriceChange(preset.price)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-mono font-bold border transition-colors cursor-pointer ${
+                          subscriptionPrice === preset.price
+                            ? 'bg-purple-600 text-white border-purple-400'
+                            : 'bg-neutral-950 text-neutral-300 border-neutral-800 hover:border-neutral-700'
                         }`}
                       >
-                        {cat.label}
+                        {preset.label}
                       </button>
                     ))}
                   </div>
 
-                  {/* Step 2: Primary Fact Claim Being Reported */}
-                  <div>
-                    <label className="text-xs font-bold text-neutral-300 block mb-1.5">
-                      Primary Paddock Claim / Lead Angle (Fact-Checked on Publication)
-                    </label>
-                    <select
-                      value={selectedFactClaimId}
-                      onChange={(e) => setSelectedFactClaimId(e.target.value)}
-                      className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-amber-400"
-                    >
-                      {factClaims.map((claim) => (
-                        <option key={claim.id} value={claim.id}>
-                          {claim.label}
-                        </option>
-                      ))}
-                    </select>
-                    <p className="text-[11px] text-neutral-500 mt-1">
-                      Choose a verified FIA fact or test how readers react to unverified rumors. Your written headline and article body are also analyzed for accuracy and depth!
-                    </p>
-                  </div>
-
-                  {/* Step 3: Headline Input */}
-                  <div>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <label className="text-xs font-bold text-neutral-300">
-                        Report Headline
-                      </label>
-                      <span className="text-[11px] font-mono text-neutral-500 tabular-nums">
-                        {reportTitle.length} chars (Recommended: 25–120)
+                  {/* Live Price Impact Explanation Box */}
+                  <div className="p-3.5 rounded-xl bg-neutral-950 border border-neutral-800 space-y-1.5 text-xs">
+                    <div className="flex items-center justify-between font-mono">
+                      <span className="text-neutral-400">
+                        Current Price Elasticity Effect:
+                      </span>
+                      <span
+                        className={`font-bold ${
+                          subscriptionPrice <= 6
+                            ? 'text-emerald-400'
+                            : subscriptionPrice <= 14
+                            ? 'text-cyan-400'
+                            : 'text-amber-400'
+                        }`}
+                      >
+                        {subscriptionPrice <= 6
+                          ? `+${Math.round((8 - subscriptionPrice) * 9.5)}% Faster Subscriber Growth`
+                          : subscriptionPrice <= 14
+                          ? 'Balanced Growth & Revenue'
+                          : 'High Price — Requires Top-Tier News Quality!'}
                       </span>
                     </div>
-                    <input
-                      type="text"
-                      required
-                      value={reportTitle}
-                      onChange={(e) => setReportTitle(e.target.value)}
-                      placeholder="Write a compelling, accurate paddock headline..."
-                      className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-amber-400"
-                    />
-                  </div>
-
-                  {/* Step 4: Full Report Body */}
-                  <div>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <label className="text-xs font-bold text-neutral-300">
-                        Full Paddock Report Body
-                      </label>
-                      <span className="text-[11px] font-mono text-neutral-500 tabular-nums">
-                        {reportContent.length} chars (Recommended: 120+ chars with F1 telemetry terms)
-                      </span>
-                    </div>
-                    <textarea
-                      rows={5}
-                      required
-                      value={reportContent}
-                      onChange={(e) => setReportContent(e.target.value)}
-                      placeholder="Write your full motorsport report here. Include verified race results, championship point totals, circuit details, and technical terms (DRS, telemetry, downforce, podium, strategy) to maximize reader payouts..."
-                      className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-4 text-xs text-white leading-relaxed focus:outline-none focus:border-amber-400"
-                    />
-                  </div>
-
-                  <button
-                    type="submit"
-                    disabled={!reportTitle.trim() || !reportContent.trim()}
-                    className="w-full py-3.5 bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-black font-black text-xs uppercase tracking-wider rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-2"
-                  >
-                    <Send className="w-4 h-4" />
-                    <span>Publish Report to Paddock Wire & Collect Revenue</span>
-                  </button>
-                </form>
-
-                {/* Latest Published Audit Result Receipt */}
-                {lastPublishedResult && (
-                  <div
-                    className={`p-5 rounded-xl border space-y-3 ${
-                      lastPublishedResult.verdict === 'verified_scoop' ||
-                      lastPublishedResult.verdict === 'solid_report'
-                        ? 'bg-emerald-950/20 border-emerald-500/40'
-                        : 'bg-red-950/25 border-red-500/40'
-                    }`}
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
-                        {lastPublishedResult.verdict === 'inaccurate_flop' ||
-                        lastPublishedResult.verdict === 'mediocre' ? (
-                          <AlertTriangle className="w-5 h-5 text-red-400" />
-                        ) : (
-                          <CheckCircle className="w-5 h-5 text-emerald-400" />
-                        )}
-                        <span className="text-sm font-black text-white">
-                          {lastPublishedResult.verdictLabel}
-                        </span>
-                      </div>
-
-                      <div className="text-base font-mono font-black tabular-nums">
-                        <span
-                          className={
-                            lastPublishedResult.revenueEarned >= 10000
-                              ? 'text-emerald-400'
-                              : 'text-red-400'
-                          }
-                        >
-                          +{formatMoney(lastPublishedResult.revenueEarned)} Earned
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1 font-mono text-xs tabular-nums">
-                      <div className="p-2.5 rounded-lg bg-neutral-950 border border-neutral-800">
-                        <span className="text-[10px] text-neutral-400 block">
-                          Fact Accuracy
-                        </span>
-                        <span
-                          className={`font-bold ${
-                            lastPublishedResult.accuracyScore >= 70
-                              ? 'text-emerald-400'
-                              : 'text-red-400'
-                          }`}
-                        >
-                          {lastPublishedResult.accuracyScore}%
-                        </span>
-                      </div>
-                      <div className="p-2.5 rounded-lg bg-neutral-950 border border-neutral-800">
-                        <span className="text-[10px] text-neutral-400 block">
-                          Writing Quality
-                        </span>
-                        <span className="font-bold text-cyan-400">
-                          {lastPublishedResult.qualityScore}%
-                        </span>
-                      </div>
-                      <div className="p-2.5 rounded-lg bg-neutral-950 border border-neutral-800">
-                        <span className="text-[10px] text-neutral-400 block">
-                          Subscriber Change
-                        </span>
-                        <span
-                          className={`font-bold ${
-                            lastPublishedResult.subscriberDelta >= 0
-                              ? 'text-emerald-400'
-                              : 'text-red-400'
-                          }`}
-                        >
-                          {lastPublishedResult.subscriberDelta >= 0 ? '+' : ''}
-                          {lastPublishedResult.subscriberDelta.toLocaleString()}
-                        </span>
-                      </div>
-                      <div className="p-2.5 rounded-lg bg-neutral-950 border border-neutral-800">
-                        <span className="text-[10px] text-neutral-400 block">
-                          Credibility Shift
-                        </span>
-                        <span
-                          className={`font-bold ${
-                            lastPublishedResult.credibilityDelta >= 0
-                              ? 'text-emerald-400'
-                              : 'text-red-400'
-                          }`}
-                        >
-                          {lastPublishedResult.credibilityDelta >= 0 ? '+' : ''}
-                          {lastPublishedResult.credibilityDelta}%
-                        </span>
-                      </div>
-                    </div>
-
-                    <p className="text-xs italic text-neutral-300">
-                      {lastPublishedResult.readerReaction}
+                    <p className="text-[11px] text-neutral-400 leading-relaxed">
+                      {subscriptionPrice <= 6
+                        ? `At $${subscriptionPrice}/mo, your affordable paywall attracts budget readers easily on every report, helping you climb the subscriber leaderboard faster.`
+                        : subscriptionPrice <= 14
+                        ? `At $${subscriptionPrice}/mo, you earn solid revenue per subscriber with minimal price resistance on accurate reports.`
+                        : `At $${subscriptionPrice}/mo, you earn high revenue per subscriber—if your AI report verdict is a Verified Scoop (high truth & quality), readers will gladly pay it without losing subscribers! But if your report is mediocre or inaccurate, many subscribers will cancel.`}
                     </p>
-
-                    <div className="space-y-1 pt-2 border-t border-neutral-800/80 text-[11px] text-neutral-400 font-mono">
-                      {lastPublishedResult.factCheckNotes.map((note, idx) => (
-                        <div key={idx}>· {note}</div>
-                      ))}
-                    </div>
                   </div>
-                )}
-              </div>
-
-              {/* Right Column: Verified FIA Telemetry & Standings Fact-Sheet */}
-              <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-6 space-y-5">
-                <div>
-                  <div className="text-xs font-mono text-emerald-400 font-bold">
-                    Official FIA Reference Notebook
-                  </div>
-                  <h4 className="text-base font-black text-white mt-0.5">
-                    Verified Paddock Facts
-                  </h4>
-                  <p className="text-xs text-neutral-400 mt-1">
-                    Use these real-time championship facts in your articles so your reports pass FIA fact-checking with 90%+ accuracy.
-                  </p>
                 </div>
 
-                <div className="space-y-3 text-xs font-mono tabular-nums">
-                  <div className="p-3.5 rounded-xl bg-neutral-950 border border-neutral-800 space-y-1">
-                    <div className="text-[10px] text-neutral-500">
-                      LATEST RACE RESULT
+                {/* Right Card: Hire a Pricing Manager */}
+                <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-6 space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div>
+                      <div className="text-xs font-mono text-emerald-400 font-bold flex items-center gap-1.5">
+                        <DollarSign className="w-3.5 h-3.5" />
+                        <span>Monetization & Elasticity Specialist</span>
+                      </div>
+                      <h3 className="text-lg font-black text-white mt-0.5">
+                        Hire a Pricing Manager
+                      </h3>
+                      <p className="text-xs text-neutral-400 mt-0.5">
+                        A Pricing Manager calculates your optimal subscription price, protects against subscriber loss when charging high prices, and boosts reader conversion.
+                      </p>
                     </div>
-                    {lastRound ? (
-                      <>
-                        <div className="text-white font-bold">
-                          Winner: {groundTruth.lastWinnerName}
+                  </div>
+
+                  {activePricingManager && (
+                    <div className="p-3.5 rounded-xl bg-emerald-950/25 border border-emerald-500/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="space-y-0.5">
+                        <div className="text-xs font-bold text-white">
+                          Active Manager: {activePricingManager.name} ({activePricingManager.role})
                         </div>
-                        <div className="text-neutral-400">
-                          Circuit: {groundTruth.lastCircuitName}
+                        <div className="text-[11px] font-mono text-emerald-300">
+                          Recommended Optimal Price:{' '}
+                          <strong>${recommendedPrice}/mo</strong> · Protects{' '}
+                          {Math.round(activePricingManager.elasticityProtection * 100)}% High-Price Churn · +
+                          {Math.round(activePricingManager.conversionBonus * 100)}% Subs
                         </div>
-                        <div className="text-cyan-400">
-                          Your Finish: P{groundTruth.lastPlayerPos}
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleSubscriptionPriceChange(recommendedPrice)
+                          }
+                          className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs cursor-pointer"
+                        >
+                          Set Optimal (${recommendedPrice})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleToggleAutoOptimizePrice}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold border cursor-pointer ${
+                            newsCompany.autoOptimizePrice
+                              ? 'bg-amber-500 text-black border-amber-400'
+                              : 'bg-neutral-950 text-neutral-300 border-neutral-800'
+                          }`}
+                        >
+                          {newsCompany.autoOptimizePrice
+                            ? 'Auto-Price: ON'
+                            : 'Auto-Price: OFF'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleFirePricingManager}
+                          className="p-1.5 rounded-lg bg-neutral-950 hover:bg-red-950/60 text-neutral-400 hover:text-red-400 border border-neutral-800 cursor-pointer"
+                          title="Release Pricing Manager"
+                        >
+                          <UserMinus className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    {NEWS_PRICING_MANAGER_OPTIONS.map((pm) => {
+                      const isCurrent = activePricingManager?.id === pm.id;
+                      const canAfford = bankBalance >= pm.hiringFee;
+                      return (
+                        <div
+                          key={pm.id}
+                          className={`p-3.5 rounded-xl border flex flex-col justify-between gap-2.5 ${
+                            isCurrent
+                              ? 'bg-neutral-950 border-emerald-500/50'
+                              : 'bg-neutral-950/60 border-neutral-800'
+                          }`}
+                        >
+                          <div className="space-y-1.5">
+                            <div className="text-xs font-black text-white">
+                              {pm.name}
+                            </div>
+                            <div className="text-[10px] font-mono text-emerald-400">
+                              {pm.role}
+                            </div>
+                            <p className="text-[11px] text-neutral-400 leading-snug">
+                              {pm.bio}
+                            </p>
+                          </div>
+
+                          <div className="pt-2 border-t border-neutral-800/80 space-y-2">
+                            <div className="text-[10px] font-mono text-neutral-300 flex items-center justify-between tabular-nums">
+                              <span>Sign: {formatMoney(pm.hiringFee)}</span>
+                              <span>{formatMoney(pm.salaryPerReport)}/rep</span>
+                            </div>
+                            {isCurrent ? (
+                              <div className="py-1.5 text-center rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 font-mono font-bold text-[11px]">
+                                ACTIVE PRICING MGR
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                disabled={!canAfford}
+                                onClick={() => handleHirePricingManager(pm)}
+                                className={`w-full py-1.5 px-2.5 rounded-lg text-[11px] font-bold transition-colors ${
+                                  canAfford
+                                    ? 'bg-neutral-800 hover:bg-emerald-500 hover:text-black text-white cursor-pointer'
+                                    : 'bg-neutral-900 text-neutral-600 cursor-not-allowed'
+                                }`}
+                              >
+                                {canAfford
+                                  ? `Hire (${formatMoney(pm.hiringFee)})`
+                                  : 'Insufficient Funds'}
+                              </button>
+                            )}
+                          </div>
                         </div>
-                      </>
-                    ) : (
-                      <div className="text-neutral-300">
-                        Season Opener Upcoming: Round 1 at{' '}
-                        {groundTruth.currentCircuit.name}
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              {/* SECTION 1: HIRE & MANAGE JOURNALIST WRITERS */}
+              <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-6 space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div>
+                    <div className="text-xs font-mono text-amber-400 font-bold">
+                      Editorial Newsroom Staff · Bank Balance: {formatMoney(bankBalance)}
+                    </div>
+                    <h3 className="text-lg font-black text-white mt-0.5">
+                      Hire Journalists & Staff Writers
+                    </h3>
+                    <p className="text-xs text-neutral-400">
+                      Hire writers to draft articles and predictions for you. Junior writers are cheap but make mistakes you must edit out; senior columnists write accurate, high-level drafts that justify higher subscription prices.
+                    </p>
+                  </div>
+                  <div className="text-xs font-mono text-neutral-300 bg-neutral-950 border border-neutral-800 px-3.5 py-2 rounded-xl shrink-0 tabular-nums">
+                    Cost Per Published Report:{' '}
+                    <strong className="text-amber-400">
+                      {formatMoney(currentOperatingCost)}
+                    </strong>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                  {NEWS_WRITER_OPTIONS.map((writer) => {
+                    const isHired = hiredWriters.some((w) => w.id === writer.id);
+                    const canAfford = bankBalance >= writer.hiringFee;
+
+                    return (
+                      <div
+                        key={writer.id}
+                        className={`p-4 rounded-xl border flex flex-col justify-between gap-3 transition-colors ${
+                          isHired
+                            ? 'bg-neutral-950 border-amber-500/50'
+                            : 'bg-neutral-950/60 border-neutral-800'
+                        }`}
+                      >
+                        <div className="space-y-2">
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <div className="text-sm font-black text-white">
+                                {writer.name}
+                              </div>
+                              <div className="text-[11px] font-mono text-amber-400">
+                                {writer.role}
+                              </div>
+                            </div>
+                            {isHired && (
+                              <span className="text-[10px] font-mono font-bold text-emerald-400 bg-emerald-950/60 border border-emerald-500/30 px-2 py-0.5 rounded">
+                                ON STAFF
+                              </span>
+                            )}
+                          </div>
+
+                          <p className="text-[11px] text-neutral-400 leading-relaxed">
+                            {writer.bio}
+                          </p>
+
+                          <div className="grid grid-cols-2 gap-2 pt-1 font-mono text-[11px] tabular-nums">
+                            <div className="p-2 rounded-lg bg-neutral-900 border border-neutral-800">
+                              <span className="text-neutral-500 block text-[10px]">
+                                Accuracy Skill
+                              </span>
+                              <span
+                                className={`font-bold ${
+                                  writer.accuracyRating >= 80
+                                    ? 'text-emerald-400'
+                                    : writer.accuracyRating >= 70
+                                    ? 'text-cyan-400'
+                                    : 'text-amber-400'
+                                }`}
+                              >
+                                {writer.accuracyRating}/100
+                              </span>
+                            </div>
+                            <div className="p-2 rounded-lg bg-neutral-900 border border-neutral-800">
+                              <span className="text-neutral-500 block text-[10px]">
+                                Writing Skill
+                              </span>
+                              <span className="font-bold text-purple-400">
+                                {writer.writingRating}/100
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="pt-2 border-t border-neutral-800/80 space-y-2">
+                          <div className="flex items-center justify-between text-[11px] font-mono tabular-nums">
+                            <span className="text-neutral-400">
+                              Sign: {formatMoney(writer.hiringFee)}
+                            </span>
+                            <span className="text-neutral-300">
+                              {formatMoney(writer.salaryPerReport)}/rep
+                            </span>
+                          </div>
+
+                          {isHired ? (
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedWriterId(writer.id);
+                                  handleGenerateWriterDraft(writer);
+                                }}
+                                disabled={isGeneratingWriterDraft}
+                                className="flex-1 py-2 px-2.5 rounded-lg bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-black font-black text-[11px] flex items-center justify-center gap-1.5 cursor-pointer"
+                              >
+                                <Sparkles className="w-3.5 h-3.5" />
+                                <span>Draft Article</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleFireWriter(writer.id)}
+                                className="p-2 rounded-lg bg-neutral-900 hover:bg-red-950/60 text-neutral-400 hover:text-red-400 border border-neutral-800 cursor-pointer"
+                                title={`Release ${writer.name}`}
+                              >
+                                <UserMinus className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={!canAfford}
+                              onClick={() => handleHireWriter(writer)}
+                              className={`w-full py-2 px-3 rounded-lg text-[11px] font-bold flex items-center justify-center gap-1.5 transition-colors ${
+                                canAfford
+                                  ? 'bg-neutral-800 hover:bg-amber-500 hover:text-black text-white cursor-pointer'
+                                  : 'bg-neutral-900 text-neutral-600 cursor-not-allowed'
+                              }`}
+                            >
+                              <UserPlus className="w-3.5 h-3.5" />
+                              <span>
+                                {canAfford
+                                  ? `Hire Writer (${formatMoney(writer.hiringFee)})`
+                                  : 'Insufficient Funds'}
+                              </span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* SECTION 2: ARTICLE & PREDICTION EDITOR + TELEMETRY NOTEBOOK */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="lg:col-span-2 bg-neutral-900 border border-neutral-800 rounded-2xl p-6 space-y-5">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-neutral-800 pb-4">
+                    <div>
+                      <div className="text-xs font-mono text-amber-400">
+                        {newsCompany.name} [{newsCompany.badgeCode}] · Sub Price: ${subscriptionPrice}/mo
+                      </div>
+                      <h3 className="text-lg font-black text-white mt-0.5">
+                        Write Your Own Report or Edit Your Writer&apos;s Draft
+                      </h3>
+                      <p className="text-xs text-neutral-400 mt-0.5">
+                        Choose a hired writer to generate a draft—then inspect and edit what they wrote—or write your own article and race prediction from scratch.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Writer Assignment Bar: Write Your Own vs Hired Writers */}
+                  <div className="p-4 rounded-xl bg-neutral-950 border border-neutral-800 space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-xs font-bold text-neutral-300 flex items-center gap-1.5">
+                        <FileEdit className="w-3.5 h-3.5 text-amber-400" />
+                        <span>Author / Writer Assignment:</span>
+                      </span>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedWriterId('self');
+                            setWriterDraftSnapshot(null);
+                          }}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors cursor-pointer ${
+                            selectedWriterId === 'self'
+                              ? 'bg-amber-500 text-black border-amber-400'
+                              : 'bg-neutral-900 text-neutral-300 border-neutral-800 hover:text-white'
+                          }`}
+                        >
+                          Write My Own ({season.career.driverName})
+                        </button>
+                        {hiredWriters.map((w) => (
+                          <button
+                            key={w.id}
+                            type="button"
+                            onClick={() => setSelectedWriterId(w.id)}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors cursor-pointer ${
+                              selectedWriterId === w.id
+                                ? 'bg-amber-500 text-black border-amber-400'
+                                : 'bg-neutral-900 text-neutral-300 border-neutral-800 hover:text-white'
+                            }`}
+                          >
+                            {w.name} ({w.accuracyRating}% Acc)
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {activeSelectedWriter && (
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2 border-t border-neutral-900">
+                        <div className="text-xs text-neutral-300">
+                          Selected Staff Journalist:{' '}
+                          <strong className="text-white">
+                            {activeSelectedWriter.name}
+                          </strong>{' '}
+                          ({activeSelectedWriter.role} · Accuracy{' '}
+                          {activeSelectedWriter.accuracyRating}/100 · Writing{' '}
+                          {activeSelectedWriter.writingRating}/100)
+                        </div>
+                        <button
+                          type="button"
+                          disabled={isGeneratingWriterDraft}
+                          onClick={() =>
+                            handleGenerateWriterDraft(activeSelectedWriter)
+                          }
+                          className="px-3.5 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-black font-black text-xs flex items-center justify-center gap-1.5 shrink-0 cursor-pointer"
+                        >
+                          {isGeneratingWriterDraft ? (
+                            <>
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              <span>{activeSelectedWriter.name} is Writing...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Sparkles className="w-3.5 h-3.5" />
+                              <span>
+                                Have {activeSelectedWriter.name} Write Draft
+                              </span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Show what the writer wrote & whether the player has edited it */}
+                    {writerDraftSnapshot && (
+                      <div className="p-3.5 rounded-xl bg-neutral-900 border border-amber-500/30 space-y-2 text-xs">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="font-bold text-amber-400">
+                            Staff Writer Submission by {writerDraftSnapshot.writerName}
+                          </span>
+                          <span className="font-mono text-[11px] text-neutral-300">
+                            {reportTitle.trim() !==
+                              writerDraftSnapshot.originalTitle.trim() ||
+                            reportContent.trim() !==
+                              writerDraftSnapshot.originalContent.trim()
+                              ? '✎ Edited by You (Editor-in-Chief)'
+                              : 'Unedited Writer Draft — Review & Edit Below'}
+                          </span>
+                        </div>
+                        <p className="text-neutral-300 italic">
+                          {writerDraftSnapshot.writerNote}
+                        </p>
                       </div>
                     )}
                   </div>
 
-                  <div className="p-3.5 rounded-xl bg-neutral-950 border border-neutral-800 space-y-1">
-                    <div className="text-[10px] text-neutral-500">
-                      CHAMPIONSHIP LEADERS
+                  <form onSubmit={handlePublishReport} className="space-y-4">
+                    {/* Step 1: Category / Beat */}
+                    <div>
+                      <label className="text-xs font-bold text-neutral-300 block mb-1.5">
+                        Article Beat
+                      </label>
+                      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                        {[
+                          { id: 'race_result' as const, label: 'Race Recap' },
+                          { id: 'championship' as const, label: 'Standings' },
+                          { id: 'prediction' as const, label: 'Race Prediction' },
+                          { id: 'transfer' as const, label: 'Driver Market' },
+                          { id: 'technical' as const, label: 'Tech Analysis' },
+                        ].map((cat) => (
+                          <button
+                            key={cat.id}
+                            type="button"
+                            onClick={() => {
+                              setReportCategory(cat.id);
+                              if (cat.id === 'prediction') {
+                                setIncludePrediction(true);
+                              }
+                            }}
+                            className={`py-2 px-3 rounded-xl text-xs font-bold border transition-colors cursor-pointer whitespace-nowrap ${
+                              reportCategory === cat.id
+                                ? cat.id === 'prediction'
+                                  ? 'bg-purple-600 text-white border-purple-400'
+                                  : 'bg-red-600 text-white border-red-500'
+                                : 'bg-neutral-950 text-neutral-400 border-neutral-800 hover:text-white'
+                            }`}
+                          >
+                            {cat.label}
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                    <div className="text-amber-400 font-bold">
-                      P1 Driver: {groundTruth.leaderDriver.name} (
-                      {groundTruth.leaderDriver.points} PTS)
-                    </div>
-                    <div className="text-cyan-400 font-bold">
-                      P1 Team: {groundTruth.leaderTeam.name} (
-                      {groundTruth.leaderTeam.points} PTS)
-                    </div>
-                    <div className="text-neutral-400">
-                      Your Points: {groundTruth.playerPoints} PTS (Rating:{' '}
-                      {groundTruth.playerRating})
-                    </div>
-                  </div>
 
-                  <div className="p-3.5 rounded-xl bg-neutral-950 border border-neutral-800 space-y-1">
-                    <div className="text-[10px] text-neutral-500">
-                      CURRENT CIRCUIT SPECS
-                    </div>
-                    <div className="text-white font-bold">
-                      {groundTruth.currentCircuit.name}
-                    </div>
-                    <div className="text-neutral-400">
-                      Length: {groundTruth.currentCircuit.lengthKm} km ·{' '}
-                      {groundTruth.currentCircuit.turns} Turns
-                    </div>
-                    <div className="text-purple-400">
-                      Lap Record: {groundTruth.currentCircuit.lapRecord}
-                    </div>
-                  </div>
-                </div>
+                    {/* Step 2: Optional / Active Prediction Builder (No fixed cash amounts displayed!) */}
+                    <div className="p-4 rounded-xl bg-neutral-950 border border-neutral-800 space-y-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <label className="flex items-center gap-2 text-xs font-bold text-white cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={
+                              reportCategory === 'prediction' || includePrediction
+                            }
+                            onChange={(e) => {
+                              setIncludePrediction(e.target.checked);
+                              if (
+                                !e.target.checked &&
+                                reportCategory === 'prediction'
+                              ) {
+                                setReportCategory('race_result');
+                              }
+                            }}
+                            className="rounded accent-purple-500"
+                          />
+                          <Target className="w-4 h-4 text-purple-400" />
+                          <span>
+                            Include Official Next-Race Prediction for Round{' '}
+                            {season.currentRound + 1} ({currentCircuit.name})
+                          </span>
+                        </label>
+                        <span className="text-[11px] font-mono text-purple-400">
+                          Correct = Gain Subscribers · Wrong = Lose Subscribers
+                        </span>
+                      </div>
 
-                {/* Recent Reports Ledger */}
-                {newsCompany.publishedReports.length > 0 && (
-                  <div className="pt-3 border-t border-neutral-800 space-y-2.5">
-                    <div className="text-xs font-bold text-white">
-                      Your Published Archive ({newsCompany.publishedReports.length})
-                    </div>
-                    <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-                      {newsCompany.publishedReports.slice(0, 6).map((rep) => (
-                        <div
-                          key={rep.id}
-                          className="p-2.5 rounded-lg bg-neutral-950 border border-neutral-800 flex items-center justify-between gap-2 text-xs"
-                        >
-                          <div className="truncate">
-                            <div className="font-semibold text-white truncate">
-                              {rep.title}
-                            </div>
-                            <div className="text-[11px] text-neutral-500 font-mono tabular-nums">
-                              Acc {rep.accuracyScore}% · Qual {rep.qualityScore}%
-                            </div>
+                      {(reportCategory === 'prediction' || includePrediction) && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-neutral-900">
+                          <div>
+                            <label className="text-[11px] font-bold text-neutral-400 block mb-1">
+                              Predicted Driver
+                            </label>
+                            <select
+                              value={predictedDriverId}
+                              onChange={(e) =>
+                                setPredictedDriverId(e.target.value)
+                              }
+                              className="w-full bg-neutral-900 border border-neutral-800 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-purple-400"
+                            >
+                              {selectableDrivers.map((d) => (
+                                <option key={d.id} value={d.id}>
+                                  {d.name} — {d.points} PTS (Rating {d.rating})
+                                </option>
+                              ))}
+                            </select>
                           </div>
+
+                          <div>
+                            <label className="text-[11px] font-bold text-neutral-400 block mb-1">
+                              Predicted Finish at {currentCircuit.name}
+                            </label>
+                            <select
+                              value={predictionType}
+                              onChange={(e) =>
+                                setPredictionType(
+                                  e.target.value as 'win' | 'podium' | 'top5'
+                                )
+                              }
+                              className="w-full bg-neutral-900 border border-neutral-800 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-purple-400"
+                            >
+                              <option value="win">
+                                Win the Grand Prix (P1)
+                              </option>
+                              <option value="podium">
+                                Podium Finish (Top 3)
+                              </option>
+                              <option value="top5">
+                                Top-5 Finish (P1–P5)
+                              </option>
+                            </select>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Step 3: Headline Input (Editable whether written by player or drafted by hired writer) */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className="text-xs font-bold text-neutral-300">
+                          Report Headline (Edit Writer&apos;s Headline or Write Your Own)
+                        </label>
+                        <span className="text-[11px] font-mono text-neutral-500 tabular-nums">
+                          {reportTitle.length} chars
+                        </span>
+                      </div>
+                      <input
+                        type="text"
+                        required
+                        value={reportTitle}
+                        onChange={(e) => setReportTitle(e.target.value)}
+                        placeholder="Write or edit the headline (e.g. Why Norris and McLaren Are Favorites for the Podium at Bahrain)..."
+                        className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-amber-400"
+                      />
+                    </div>
+
+                    {/* Step 4: Full Report & Reasoning Body */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className="text-xs font-bold text-neutral-300">
+                          {reportCategory === 'prediction' || includePrediction
+                            ? 'Full Prediction Analysis & Reasons Why It Should Be Correct'
+                            : 'Full Paddock Report & Analysis (Edit Writer Draft or Write Your Own)'}
+                        </label>
+                        <span className="text-[11px] font-mono text-neutral-500 tabular-nums">
+                          {reportContent.length} chars
+                        </span>
+                      </div>
+                      <textarea
+                        rows={6}
+                        required
+                        value={reportContent}
+                        onChange={(e) => setReportContent(e.target.value)}
+                        placeholder={
+                          reportCategory === 'prediction' || includePrediction
+                            ? `Write or edit your prediction and list the concrete reasons WHY it should be correct (e.g. driver rating, championship momentum, car top speed/downforce, and how ${currentCircuit.name}'s ${currentCircuit.turns} corners suit their car)...`
+                            : 'Write your paddock report here or edit what your hired writer drafted. Our AI Editor-in-Chief checks if your claims match actual race results and championship standings, and grades how compelling and well-reasoned your article is...'
+                        }
+                        className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-4 text-xs text-white leading-relaxed focus:outline-none focus:border-amber-400"
+                      />
+                    </div>
+
+                    {aiErrorMsg && (
+                      <div className="text-xs text-amber-300 bg-amber-950/30 border border-amber-500/30 p-3 rounded-xl">
+                        {aiErrorMsg}
+                      </div>
+                    )}
+
+                    <button
+                      type="submit"
+                      disabled={
+                        isEvaluatingAI ||
+                        !reportTitle.trim() ||
+                        !reportContent.trim()
+                      }
+                      className="w-full py-3.5 bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-black font-black text-xs uppercase tracking-wider rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-2"
+                    >
+                      {isEvaluatingAI ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <span>
+                            AI Editor-in-Chief Checking Truth, Quality & Reasoning...
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <Send className="w-4 h-4" />
+                          <span>
+                            Submit to AI Editor & Publish (Sub Price: ${subscriptionPrice}/mo · Operating Cost:{' '}
+                            {formatMoney(currentOperatingCost)})
+                          </span>
+                        </>
+                      )}
+                    </button>
+                  </form>
+
+                  {/* Latest Published AI Audit Result Receipt */}
+                  {lastPublishedResult && (
+                    <div
+                      className={`p-5 rounded-xl border space-y-3 ${
+                        lastPublishedResult.revenueEarned >= 0
+                          ? 'bg-emerald-950/20 border-emerald-500/40'
+                          : 'bg-red-950/25 border-red-500/40'
+                      }`}
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          {lastPublishedResult.revenueEarned < 0 ? (
+                            <AlertTriangle className="w-5 h-5 text-red-400" />
+                          ) : (
+                            <CheckCircle className="w-5 h-5 text-emerald-400" />
+                          )}
+                          <span className="text-sm font-black text-white">
+                            AI Verdict: {lastPublishedResult.verdictLabel}
+                          </span>
+                        </div>
+
+                        <div className="text-base font-mono font-black tabular-nums">
                           <span
-                            className={`font-mono font-bold text-xs shrink-0 tabular-nums ${
-                              rep.revenueEarned >= 10000
+                            className={
+                              lastPublishedResult.revenueEarned >= 0
+                                ? 'text-emerald-400'
+                                : 'text-red-400'
+                            }
+                          >
+                            {formatSignedMoney(lastPublishedResult.revenueEarned)}{' '}
+                            {lastPublishedResult.revenueEarned >= 0
+                              ? 'Net Profit'
+                              : 'Net Loss'}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1 font-mono text-xs tabular-nums">
+                        <div className="p-2.5 rounded-lg bg-neutral-950 border border-neutral-800">
+                          <span className="text-[10px] text-neutral-400 block">
+                            Truth & Accuracy
+                          </span>
+                          <span
+                            className={`font-bold ${
+                              lastPublishedResult.accuracyScore >= 70
                                 ? 'text-emerald-400'
                                 : 'text-red-400'
                             }`}
                           >
-                            +{formatMoney(rep.revenueEarned)}
+                            {lastPublishedResult.accuracyScore}%
+                          </span>
+                        </div>
+                        <div className="p-2.5 rounded-lg bg-neutral-950 border border-neutral-800">
+                          <span className="text-[10px] text-neutral-400 block">
+                            Compelling Quality
+                          </span>
+                          <span className="font-bold text-cyan-400">
+                            {lastPublishedResult.qualityScore}%
+                          </span>
+                        </div>
+                        <div className="p-2.5 rounded-lg bg-neutral-950 border border-neutral-800">
+                          <span className="text-[10px] text-neutral-400 block">
+                            Sub Price Used
+                          </span>
+                          <span className="font-bold text-purple-400">
+                            ${lastPublishedResult.subscriptionPriceUsed ?? subscriptionPrice}/mo
+                          </span>
+                        </div>
+                        <div className="p-2.5 rounded-lg bg-neutral-950 border border-neutral-800">
+                          <span className="text-[10px] text-neutral-400 block">
+                            Subscribers Shift
+                          </span>
+                          <span
+                            className={`font-bold ${
+                              lastPublishedResult.subscriberDelta >= 0
+                                ? 'text-emerald-400'
+                                : 'text-red-400'
+                            }`}
+                          >
+                            {lastPublishedResult.subscriberDelta >= 0 ? '+' : ''}
+                            {lastPublishedResult.subscriberDelta.toLocaleString()}
+                          </span>
+                        </div>
+                      </div>
+
+                      {lastPublishedResult.isPrediction && (
+                        <div className="p-3 rounded-lg bg-purple-950/30 border border-purple-500/30 text-xs text-purple-200 font-mono">
+                          ACTIVE RACE PREDICTION LOCKED: {lastPublishedResult.predictedDriverName} to finish{' '}
+                          {lastPublishedResult.predictionType?.toUpperCase()} at{' '}
+                          {lastPublishedResult.predictionTargetCircuitName}. If your prediction comes true in the race, you will gain a surge of new subscribers (which drives your ongoing revenue). If it is wrong, you will lose subscribers!
+                        </div>
+                      )}
+
+                      <p className="text-xs italic text-neutral-300">
+                        {lastPublishedResult.readerReaction}
+                      </p>
+
+                      <div className="space-y-1 pt-2 border-t border-neutral-800/80 text-[11px] text-neutral-400 font-mono">
+                        {lastPublishedResult.factCheckNotes.map((note, idx) => (
+                          <div key={idx}>· {note}</div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Right Column: Mini Best News Companies Standings + Live Paddock Telemetry Notebook */}
+                <div className="space-y-6">
+                  {/* Compact Top News Companies Widget */}
+                  <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-5 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="text-[10px] font-mono text-cyan-400 font-bold">
+                          GLOBAL MEDIA STANDINGS
+                        </div>
+                        <h4 className="text-sm font-black text-white">
+                          Best News Companies
+                        </h4>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setActiveSubView('leaderboard')}
+                        className="text-xs font-bold text-cyan-400 hover:text-cyan-300 underline cursor-pointer"
+                      >
+                        Full Table
+                      </button>
+                    </div>
+                    <div className="space-y-1.5 text-xs font-mono tabular-nums">
+                      {rankedNewsCompanies.slice(0, 5).map((comp, i) => (
+                        <div
+                          key={comp.id}
+                          className={`flex items-center justify-between p-2 rounded-lg ${
+                            comp.isPlayer
+                              ? 'bg-amber-500/20 border border-amber-400/40 text-white font-bold'
+                              : 'bg-neutral-950 text-neutral-300'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2 truncate">
+                            <span className="text-neutral-500 w-4">
+                              #{i + 1}
+                            </span>
+                            <span className="truncate font-sans font-bold">
+                              {comp.name}
+                            </span>
+                          </div>
+                          <span className="text-cyan-400 shrink-0">
+                            {comp.subscribers.toLocaleString()} subs
                           </span>
                         </div>
                       ))}
+                      {playerLeaderboardRank && playerLeaderboardRank > 5 && (
+                        <div className="flex items-center justify-between p-2 rounded-lg bg-amber-500/20 border border-amber-400/40 text-white font-bold">
+                          <div className="flex items-center gap-2 truncate">
+                            <span className="text-amber-400">
+                              #{playerLeaderboardRank}
+                            </span>
+                            <span className="truncate font-sans font-bold">
+                              {newsCompany.name} (YOU)
+                            </span>
+                          </div>
+                          <span className="text-cyan-400 shrink-0">
+                            {newsCompany.subscribers.toLocaleString()} subs
+                          </span>
+                        </div>
+                      )}
                     </div>
                   </div>
-                )}
+
+                  <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-6 space-y-5">
+                    <div>
+                      <div className="text-xs font-mono text-emerald-400 font-bold">
+                        Live Season Reference Data
+                      </div>
+                      <h4 className="text-base font-black text-white mt-0.5">
+                        Paddock Notebook
+                      </h4>
+                      <p className="text-xs text-neutral-400 mt-1">
+                        Use these true standings and circuit specs to fact-check what your hired writers draft or to build your own prediction reasoning.
+                      </p>
+                    </div>
+
+                    <div className="space-y-3 text-xs font-mono tabular-nums">
+                      <div className="p-3.5 rounded-xl bg-neutral-950 border border-neutral-800 space-y-1">
+                        <div className="text-[10px] text-neutral-500">
+                          NEXT GRAND PRIX (ROUND {season.currentRound + 1})
+                        </div>
+                        <div className="text-white font-bold">
+                          {currentCircuit.name}
+                        </div>
+                        <div className="text-neutral-400">
+                          {currentCircuit.lengthKm} km · {currentCircuit.turns} Turns
+                        </div>
+                        <div className="text-purple-400">
+                          Lap Record: {currentCircuit.lapRecord}
+                        </div>
+                      </div>
+
+                      <div className="p-3.5 rounded-xl bg-neutral-950 border border-neutral-800 space-y-1">
+                        <div className="text-[10px] text-neutral-500">
+                          LATEST COMPLETED RACE
+                        </div>
+                        {lastRound ? (
+                          <>
+                            <div className="text-white font-bold">
+                              {lastRound.circuitName}
+                            </div>
+                            <div className="text-emerald-400">
+                              Winner:{' '}
+                              {
+                                seasonTelemetryContext.completedRacesHistory[
+                                  seasonTelemetryContext.completedRacesHistory
+                                    .length - 1
+                                ]?.winner
+                              }
+                            </div>
+                            <div className="text-cyan-400">
+                              Your Finish: P{lastRound.playerFinishedPosition}
+                            </div>
+                          </>
+                        ) : (
+                          <div className="text-neutral-400">
+                            No races completed yet — Season Opener at{' '}
+                            {currentCircuit.name}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="p-3.5 rounded-xl bg-neutral-950 border border-neutral-800 space-y-1.5">
+                        <div className="text-[10px] text-neutral-500">
+                          TOP DRIVERS & CONSTRUCTORS
+                        </div>
+                        {seasonTelemetryContext.topDriversStandings
+                          .slice(0, 4)
+                          .map((d, i) => (
+                            <div
+                              key={d.id}
+                              className="flex items-center justify-between text-neutral-300"
+                            >
+                              <span className="truncate">
+                                P{i + 1} {d.name}
+                              </span>
+                              <span className="text-amber-400 font-bold">
+                                {d.points} PTS
+                              </span>
+                            </div>
+                          ))}
+                        <div className="border-t border-neutral-900 pt-1.5 mt-1.5">
+                          {seasonTelemetryContext.constructorsStandings
+                            .slice(0, 3)
+                            .map((c, i) => (
+                              <div
+                                key={c.id}
+                                className="flex items-center justify-between text-neutral-400"
+                              >
+                                <span className="truncate">
+                                  P{i + 1} {c.name}
+                                </span>
+                                <span className="text-cyan-400 font-bold">
+                                  {c.points} PTS
+                                </span>
+                              </div>
+                            ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Recent Reports & Predictions Ledger */}
+                    {newsCompany.publishedReports.length > 0 && (
+                      <div className="pt-3 border-t border-neutral-800 space-y-2.5">
+                        <div className="text-xs font-bold text-white">
+                          Published Archive ({newsCompany.publishedReports.length})
+                        </div>
+                        <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                          {newsCompany.publishedReports.slice(0, 8).map((rep) => (
+                            <div
+                              key={rep.id}
+                              className="p-2.5 rounded-lg bg-neutral-950 border border-neutral-800 space-y-1 text-xs"
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="font-semibold text-white truncate">
+                                  {rep.title}
+                                </span>
+                                <span
+                                  className={`font-mono font-bold text-xs shrink-0 tabular-nums ${
+                                    rep.revenueEarned >= 0
+                                      ? 'text-emerald-400'
+                                      : 'text-red-400'
+                                  }`}
+                                >
+                                  {formatSignedMoney(rep.revenueEarned)}
+                                </span>
+                              </div>
+                              <div className="flex items-center justify-between text-[11px] text-neutral-500 font-mono tabular-nums">
+                                <span>
+                                  Truth {rep.accuracyScore}% ·{' '}
+                                  {rep.subscriberDelta >= 0 ? '+' : ''}
+                                  {rep.subscriberDelta.toLocaleString()} subs
+                                </span>
+                                {rep.isPrediction && (
+                                  <span
+                                    className={
+                                      rep.predictionStatus === 'correct'
+                                        ? 'text-emerald-400 font-bold'
+                                        : rep.predictionStatus === 'incorrect'
+                                        ? 'text-red-400'
+                                        : 'text-purple-400'
+                                    }
+                                  >
+                                    {rep.predictionStatus === 'correct'
+                                      ? `✓ Correct (+${(
+                                          rep.predictionSubscriberShift || 0
+                                        ).toLocaleString()} subs)`
+                                      : rep.predictionStatus === 'incorrect'
+                                      ? `✗ Wrong (${(
+                                          rep.predictionSubscriberShift || 0
+                                        ).toLocaleString()} subs)`
+                                      : '⏳ Pending Race'}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
           )}
@@ -1468,8 +3041,14 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
                   <span>{breakingArticle.timeAgo}</span>
                 </div>
                 {breakingArticle.isPlayerReport && (
-                  <span className="text-emerald-400 font-bold">
-                    Your Report · +{formatMoney(breakingArticle.revenueEarned || 0)}
+                  <span
+                    className={`font-bold ${
+                      (breakingArticle.revenueEarned || 0) >= 0
+                        ? 'text-emerald-400'
+                        : 'text-red-400'
+                    }`}
+                  >
+                    Your Report · {formatSignedMoney(breakingArticle.revenueEarned || 0)}
                   </span>
                 )}
               </div>
@@ -1506,6 +3085,7 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
                   })`,
                   icon: PenTool,
                 },
+                { id: 'prediction', label: 'Predictions', icon: Target },
                 { id: 'race_result', label: 'Race Results', icon: Flag },
                 { id: 'championship', label: 'Title Battles', icon: TrendingUp },
                 { id: 'transfer', label: 'Driver Market', icon: Users },
@@ -1603,35 +3183,58 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
                       {article.excerpt}
                     </p>
 
-                    {/* Player Report Financial & Accuracy Telemetry Strip */}
+                    {/* Player Report Financial & AI Scores Strip */}
                     {article.isPlayerReport && (
-                      <div className="mt-3 pt-2.5 border-t border-neutral-800/80 flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono tabular-nums">
-                        <div className="flex items-center gap-2 text-neutral-400">
+                      <div className="mt-3 pt-2.5 border-t border-neutral-800/80 space-y-1.5 text-[11px] font-mono tabular-nums">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 text-neutral-400">
+                            <span
+                              className={
+                                (article.accuracyScore || 0) >= 70
+                                  ? 'text-emerald-400 font-bold'
+                                  : 'text-red-400 font-bold'
+                              }
+                            >
+                              Truth {article.accuracyScore}%
+                            </span>
+                            <span>·</span>
+                            <span>Quality {article.qualityScore}%</span>
+                            <span>·</span>
+                            <span className="text-purple-400">
+                              Reason {article.reasoningScore ?? 50}%
+                            </span>
+                          </div>
                           <span
-                            className={
-                              (article.accuracyScore || 0) >= 70
-                                ? 'text-emerald-400 font-bold'
-                                : 'text-red-400 font-bold'
-                            }
+                            className={`font-bold ${
+                              (article.revenueEarned || 0) >= 0
+                                ? 'text-emerald-400'
+                                : 'text-red-400'
+                            }`}
                           >
-                            Accuracy {article.accuracyScore}%
-                          </span>
-                          <span>·</span>
-                          <span>Quality {article.qualityScore}%</span>
-                          <span>·</span>
-                          <span>
-                            {(article.views || 0).toLocaleString()} reads
+                            {formatSignedMoney(article.revenueEarned || 0)}
                           </span>
                         </div>
-                        <span
-                          className={`font-bold ${
-                            (article.revenueEarned || 0) >= 10000
-                              ? 'text-emerald-400'
-                              : 'text-red-400'
-                          }`}
-                        >
-                          +{formatMoney(article.revenueEarned || 0)}
-                        </span>
+
+                        {article.isPrediction && (
+                          <div className="flex items-center justify-between text-purple-300">
+                            <span>
+                              Prediction: {article.predictedDriverName} (
+                              {article.predictionType?.toUpperCase()} at{' '}
+                              {article.predictionTargetCircuitName})
+                            </span>
+                            <span>
+                              {article.predictionStatus === 'correct'
+                                ? `✓ CORRECT (+${(
+                                    article.predictionSubscriberShift || 0
+                                  ).toLocaleString()} subs)`
+                                : article.predictionStatus === 'incorrect'
+                                ? `✗ WRONG (${(
+                                    article.predictionSubscriberShift || 0
+                                  ).toLocaleString()} subs)`
+                                : '⏳ Pending Race'}
+                            </span>
+                          </div>
+                        )}
                       </div>
                     )}
 
@@ -1644,6 +3247,14 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
                             {article.readerReaction}
                           </p>
                         )}
+                        {article.factCheckNotes &&
+                          article.factCheckNotes.length > 0 && (
+                            <div className="space-y-1 pt-2 border-t border-neutral-800/60 text-[11px] font-mono text-neutral-400">
+                              {article.factCheckNotes.map((n, i) => (
+                                <div key={i}>· {n}</div>
+                              ))}
+                            </div>
+                          )}
                         <div className="pt-2 border-t border-neutral-800/80 flex items-center justify-between text-[11px] font-mono text-neutral-500">
                           <span>By {article.author}</span>
                           <span>{article.readTime}</span>
@@ -1703,7 +3314,7 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
               </h4>
               <p className="text-xs text-neutral-400 max-w-md mx-auto">
                 {selectedCategory === 'my_reports'
-                  ? 'Open your Paddock News Company Press Room to write your first motorsport report and start earning reader revenue.'
+                  ? 'Open your Paddock News Company Press Room to write your first motorsport report or race prediction.'
                   : `No headlines matched your filter "${searchQuery}".`}
               </p>
               <button
@@ -1757,7 +3368,7 @@ export const BreakingNewsTicker: React.FC<{
     <div
       onClick={onOpenNewsfeed}
       className="p-2.5 px-4 rounded-xl bg-neutral-950/90 border border-red-500/30 hover:border-red-500/60 transition-all flex items-center justify-between gap-3 text-xs cursor-pointer shadow-md group"
-      title="Click to open Paddock News & Press Studio"
+      title="Click to open Paddock News & AI Press Studio"
     >
       <div className="flex items-center gap-2.5 overflow-hidden">
         <span className="px-2 py-0.5 rounded bg-red-600 text-white font-black text-[10px] tracking-wider uppercase shrink-0">
