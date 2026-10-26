@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { CircuitInfo } from '../types/racing';
 import { buildCircuitScenery } from './environmentBuilder';
+import { GraphicsQuality, getGraphicsPresetConfig } from '../utils/graphicsSettings';
 
 export interface SurfaceInfo {
   offTrack: boolean;
@@ -30,16 +31,19 @@ export interface GeneratedTrack {
   checkSurfaceType: (pos: THREE.Vector3, hintProgress?: number) => SurfaceInfo;
 }
 
-export function generateTrack(circuit: CircuitInfo): GeneratedTrack {
+export function generateTrack(circuit: CircuitInfo, quality?: GraphicsQuality): GeneratedTrack {
   const group = new THREE.Group();
+  const preset = getGraphicsPresetConfig(quality);
+  const isLow = preset.id === 'low';
+  const isUltra = preset.id === 'ultra';
 
   // 1. Build smooth closed 3D Catmull-Rom spline
   const points = circuit.trackPoints.map((p) => new THREE.Vector3(p.x, p.y, p.z));
   const curve = new THREE.CatmullRomCurve3(points, true, 'catmullrom', 0.25);
   const trackLength = curve.getLength();
 
-  // 960 smooth curve subdivisions to eliminate angular polygonal corners
-  const segments = 960;
+  // Curve subdivisions scaled by graphics quality (380 on Low -> 1280 on Ultra Realistic)
+  const segments = preset.trackSegments;
   const trackWidth = 22.0; // 22 meters wide
   const curbWidth = 1.8;
   const runoffWidth = 3.6;
@@ -258,7 +262,7 @@ export function generateTrack(circuit: CircuitInfo): GeneratedTrack {
   trackGeom.setIndex(trackIndices);
   trackGeom.computeVertexNormals();
 
-  // Photorealistic asphalt texture
+  // Photorealistic asphalt texture with normal & roughness maps for Ultra Realistic preset
   let trackMat: THREE.MeshStandardMaterial;
   if (typeof document !== 'undefined') {
     const canvas = document.createElement('canvas');
@@ -266,33 +270,54 @@ export function generateTrack(circuit: CircuitInfo): GeneratedTrack {
     canvas.height = 1024;
     const ctx = canvas.getContext('2d')!;
 
-    ctx.fillStyle = '#1c1e22';
+    ctx.fillStyle = '#1b1d22';
     ctx.fillRect(0, 0, 1024, 1024);
 
     const imgData = ctx.getImageData(0, 0, 1024, 1024);
     const data = imgData.data;
     for (let p = 0; p < data.length; p += 4) {
-      const grain = (Math.random() - 0.5) * 22;
-      data[p] = Math.max(15, Math.min(60, data[p] + grain));
-      data[p + 1] = Math.max(15, Math.min(60, data[p + 1] + grain));
-      data[p + 2] = Math.max(15, Math.min(60, data[p + 2] + grain));
+      const grain = (Math.random() - 0.5) * 26;
+      data[p] = Math.max(12, Math.min(64, data[p] + grain));
+      data[p + 1] = Math.max(12, Math.min(64, data[p + 1] + grain));
+      data[p + 2] = Math.max(14, Math.min(68, data[p + 2] + grain));
     }
     ctx.putImageData(imgData, 0, 0);
 
-    // White boundary lines
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(16, 0, 20, 1024);
-    ctx.fillRect(988, 0, 20, 1024);
-
     // Rubbered racing line groove
-    const grooveGrad = ctx.createLinearGradient(260, 0, 764, 0);
+    const grooveGrad = ctx.createLinearGradient(220, 0, 804, 0);
     grooveGrad.addColorStop(0, 'rgba(8, 9, 11, 0)');
-    grooveGrad.addColorStop(0.2, 'rgba(8, 9, 11, 0.55)');
-    grooveGrad.addColorStop(0.5, 'rgba(5, 6, 8, 0.7)');
-    grooveGrad.addColorStop(0.8, 'rgba(8, 9, 11, 0.55)');
+    grooveGrad.addColorStop(0.2, 'rgba(8, 9, 12, 0.58)');
+    grooveGrad.addColorStop(0.5, 'rgba(4, 5, 7, 0.78)');
+    grooveGrad.addColorStop(0.8, 'rgba(8, 9, 12, 0.58)');
     grooveGrad.addColorStop(1, 'rgba(8, 9, 11, 0)');
     ctx.fillStyle = grooveGrad;
-    ctx.fillRect(260, 0, 504, 1024);
+    ctx.fillRect(220, 0, 584, 1024);
+
+    // Authentic Pirelli Tire Skidmarks & Rubber streaks along the racing groove
+    for (let s = 0; s < 42; s++) {
+      const sx = 280 + Math.random() * 464;
+      const sy = Math.random() * 1024;
+      const slen = 120 + Math.random() * 340;
+      ctx.strokeStyle = `rgba(5, 6, 8, ${0.22 + Math.random() * 0.28})`;
+      ctx.lineWidth = 3 + Math.random() * 5;
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.lineTo(sx + (Math.random() - 0.5) * 14, sy + slen);
+      ctx.stroke();
+    }
+
+    // Off-line tire marbles (tiny rubber bits outside the main groove)
+    for (let m = 0; m < 450; m++) {
+      const mx = Math.random() < 0.5 ? 45 + Math.random() * 160 : 820 + Math.random() * 160;
+      const my = Math.random() * 1024;
+      ctx.fillStyle = 'rgba(6, 7, 9, 0.55)';
+      ctx.fillRect(mx, my, 2.5, 3.5);
+    }
+
+    // White boundary lines
+    ctx.fillStyle = '#f1f5f9';
+    ctx.fillRect(16, 0, 20, 1024);
+    ctx.fillRect(988, 0, 20, 1024);
 
     // DRS Zone Markings & Lines
     ctx.fillStyle = 'rgba(0, 230, 118, 0.85)';
@@ -308,13 +333,11 @@ export function generateTrack(circuit: CircuitInfo): GeneratedTrack {
     ctx.strokeRect(320, 180, 140, 90);
     ctx.strokeRect(560, 680, 140, 90);
 
-    // High-visibility forward directional chevron markings ("make it easy to tell which way r supposed to go")
-    // Bold luminous arrows pointing forward in the racing direction
+    // High-visibility forward directional chevron markings
     [280, 780].forEach((yBase) => {
-      // 3 prominent forward chevrons across the track
       [-140, 0, 140].forEach((xOff) => {
         const cx = 512 + xOff;
-        ctx.fillStyle = 'rgba(255, 230, 40, 0.82)'; // Luminous racing yellow
+        ctx.fillStyle = 'rgba(255, 230, 40, 0.82)';
         ctx.strokeStyle = 'rgba(0, 0, 0, 0.9)';
         ctx.lineWidth = 4;
         ctx.beginPath();
@@ -335,13 +358,68 @@ export function generateTrack(circuit: CircuitInfo): GeneratedTrack {
     trackTexture.wrapT = THREE.RepeatWrapping;
     trackTexture.repeat.set(1, 48);
     trackTexture.colorSpace = THREE.SRGBColorSpace;
-    trackTexture.anisotropy = 16;
+    trackTexture.anisotropy = preset.anisotropy;
 
-    trackMat = new THREE.MeshStandardMaterial({
-      map: trackTexture,
-      roughness: 0.72,
-      metalness: 0.12,
-    });
+    if (isUltra) {
+      // Dedicated Asphalt Roughness Map (polished rubbered racing groove reflects sky & brake lights)
+      const roughCanvas = document.createElement('canvas');
+      roughCanvas.width = 512;
+      roughCanvas.height = 512;
+      const rCtx = roughCanvas.getContext('2d')!;
+      rCtx.fillStyle = '#b8b8b8'; // Higher roughness off-line
+      rCtx.fillRect(0, 0, 512, 512);
+      const rGrad = rCtx.createLinearGradient(110, 0, 402, 0);
+      rGrad.addColorStop(0, '#b8b8b8');
+      rGrad.addColorStop(0.25, '#686868');
+      rGrad.addColorStop(0.5, '#4c4c4c'); // Smooth rubbered sheen in the groove
+      rGrad.addColorStop(0.75, '#686868');
+      rGrad.addColorStop(1, '#b8b8b8');
+      rCtx.fillStyle = rGrad;
+      rCtx.fillRect(110, 0, 292, 512);
+      const roughTex = new THREE.CanvasTexture(roughCanvas);
+      roughTex.wrapS = THREE.RepeatWrapping;
+      roughTex.wrapT = THREE.RepeatWrapping;
+      roughTex.repeat.set(1, 48);
+
+      // Dedicated High-Frequency Asphalt Normal Map for crisp road aggregate micro-reflections
+      const normCanvas = document.createElement('canvas');
+      normCanvas.width = 256;
+      normCanvas.height = 256;
+      const nCtx = normCanvas.getContext('2d')!;
+      const nImg = nCtx.createImageData(256, 256);
+      const nData = nImg.data;
+      for (let i = 0; i < nData.length; i += 4) {
+        nData[i] = 128 + (Math.random() - 0.5) * 44;
+        nData[i + 1] = 128 + (Math.random() - 0.5) * 44;
+        nData[i + 2] = 245;
+        nData[i + 3] = 255;
+      }
+      nCtx.putImageData(nImg, 0, 0);
+      const normTex = new THREE.CanvasTexture(normCanvas);
+      normTex.wrapS = THREE.RepeatWrapping;
+      normTex.wrapT = THREE.RepeatWrapping;
+      normTex.repeat.set(8, 192);
+
+      trackMat = new THREE.MeshPhysicalMaterial({
+        map: trackTexture,
+        roughnessMap: roughTex,
+        normalMap: normTex,
+        normalScale: new THREE.Vector2(0.28, 0.28),
+        roughness: 0.54,
+        metalness: 0.22,
+        clearcoat: 0.45,
+        clearcoatRoughness: 0.14,
+        reflectivity: 0.85,
+        envMapIntensity: 1.9,
+      });
+    } else {
+      trackMat = new THREE.MeshStandardMaterial({
+        map: trackTexture,
+        roughness: preset.id === 'high' ? 0.58 : 0.72,
+        metalness: preset.id === 'high' ? 0.18 : 0.12,
+        envMapIntensity: preset.id === 'high' ? 1.25 : 0.75,
+      });
+    }
   } else {
     trackMat = new THREE.MeshStandardMaterial({
       color: 0x1c1e22,
@@ -351,7 +429,7 @@ export function generateTrack(circuit: CircuitInfo): GeneratedTrack {
   }
 
   const trackMesh = new THREE.Mesh(trackGeom, trackMat);
-  trackMesh.receiveShadow = true;
+  trackMesh.receiveShadow = preset.shadowsEnabled;
   group.add(trackMesh);
 
   // Curbs with DoubleSide
@@ -447,13 +525,41 @@ export function generateTrack(circuit: CircuitInfo): GeneratedTrack {
     groundColor = 0x1d3d1f; // Royal Monza park lawn
   }
 
+  let groundTex: THREE.CanvasTexture | undefined;
+  if (typeof document !== 'undefined' && (isUltra || preset.id === 'high')) {
+    const gCanvas = document.createElement('canvas');
+    gCanvas.width = 256;
+    gCanvas.height = 256;
+    const gCtx = gCanvas.getContext('2d');
+    if (gCtx) {
+      const baseCol = new THREE.Color(groundColor);
+      gCtx.fillStyle = `#${baseCol.getHexString()}`;
+      gCtx.fillRect(0, 0, 256, 256);
+      // Mow stripes & natural organic turf/sand grain
+      for (let s = 0; s < 256; s += 32) {
+        gCtx.fillStyle = (s / 32) % 2 === 0 ? 'rgba(255,255,255,0.035)' : 'rgba(0,0,0,0.045)';
+        gCtx.fillRect(s, 0, 16, 256);
+      }
+      for (let i = 0; i < 1600; i++) {
+        gCtx.fillStyle = Math.random() > 0.5 ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.06)';
+        gCtx.fillRect(Math.random() * 256, Math.random() * 256, 2, 2);
+      }
+      groundTex = new THREE.CanvasTexture(gCanvas);
+      groundTex.wrapS = THREE.RepeatWrapping;
+      groundTex.wrapT = THREE.RepeatWrapping;
+      groundTex.repeat.set(140, 140);
+      groundTex.colorSpace = THREE.SRGBColorSpace;
+    }
+  }
+
   const groundMat = new THREE.MeshStandardMaterial({
-    color: groundColor,
-    roughness: 0.95,
+    color: groundTex ? 0xffffff : groundColor,
+    map: groundTex,
+    roughness: 0.92,
   });
   const groundMesh = new THREE.Mesh(groundGeom, groundMat);
   groundMesh.position.y = -0.3;
-  groundMesh.receiveShadow = true;
+  groundMesh.receiveShadow = preset.shadowsEnabled;
   group.add(groundMesh);
 
   // 2. Start / Finish Gantry - Pillars placed SAFELY behind barriers (20.5m out), zero encroachment
@@ -766,7 +872,8 @@ export function generateTrack(circuit: CircuitInfo): GeneratedTrack {
   const antennaMat = new THREE.MeshStandardMaterial({ color: 0xdddddd, metalness: 0.9, roughness: 0.2 });
   const beaconMat = new THREE.MeshBasicMaterial({ color: 0xff0022 });
 
-  for (let t = 0.04; t < 0.98; t += 0.065) {
+  const buildingStep = preset.sceneryMode === 'minimal' ? 999 : preset.sceneryMode === 'standard' ? 0.14 : 0.065;
+  for (let t = 0.04; t < 0.98; t += buildingStep) {
     const pt = curve.getPointAt(t);
     const tan = curve.getTangentAt(t).normalize();
     const nextTan = curve.getTangentAt((t + 0.024) % 1.0).normalize();
@@ -791,8 +898,8 @@ export function generateTrack(circuit: CircuitInfo): GeneratedTrack {
     const building = new THREE.Mesh(bGeom, bMat);
     building.position.set(bPos.x, pt.y + bHeight * 0.5, bPos.z);
     building.lookAt(bPos.clone().add(tan));
-    building.castShadow = true;
-    building.receiveShadow = true;
+    building.castShadow = preset.shadowsEnabled;
+    building.receiveShadow = preset.shadowsEnabled;
     group.add(building);
 
     // Multiple illuminated architectural glass window bands across multiple floors
@@ -821,7 +928,7 @@ export function generateTrack(circuit: CircuitInfo): GeneratedTrack {
     const penthouse = new THREE.Mesh(new THREE.BoxGeometry(phWidth, phHeight, phDepth), rooftopMat);
     penthouse.position.set(bPos.x, pt.y + bHeight + phHeight * 0.5, bPos.z);
     penthouse.rotation.copy(building.rotation);
-    penthouse.castShadow = true;
+    penthouse.castShadow = preset.shadowsEnabled;
     group.add(penthouse);
 
     // Rooftop Communications Antenna Mast with Aircraft Warning Beacon
@@ -835,34 +942,90 @@ export function generateTrack(circuit: CircuitInfo): GeneratedTrack {
     group.add(beacon);
   }
 
-  // Authentic Photorealistic Circuit Scenery & Landmarks (Yas Hotel, Marina Yachts, Palms, Ferris Wheel, Silverstone Wing, etc.)
-  buildCircuitScenery(circuit, curve, isClearOfTrack, group);
+  // Authentic Photorealistic Circuit Scenery & Landmarks (Skipped on 'minimal' Low preset for worse devices)
+  if (preset.sceneryMode !== 'minimal') {
+    buildCircuitScenery(circuit, curve, isClearOfTrack, group);
 
-  // 5. Sky Atmosphere & Procedural Clouds (High up in the sky, y = 150m - 220m)
-  const skyGeom = new THREE.SphereGeometry(1400, 32, 16);
-  const skyColorHex = circuit.skyColor || 0x1a263d;
-  const skyMat = new THREE.MeshBasicMaterial({
-    color: skyColorHex,
-    side: THREE.BackSide,
-  });
-  const skyDome = new THREE.Mesh(skyGeom, skyMat);
-  group.add(skyDome);
+    // Overhead F1 Sponsor Bridges & Illuminated Light Arches along the circuit
+    // (Pillars placed safely 20.5m out behind barriers; overhead arch spans y = 9.8m so it reflects vividly across car bodywork & visor!)
+    const archSponsors = [
+      { bg: 0x004d2c, strip: 0xfacc15 }, // Rolex Green & Gold
+      { bg: 0xd90429, strip: 0xffffff }, // Pirelli Red & White
+      { bg: 0x0284c7, strip: 0x38bdf8 }, // Aramco Blue & Cyan
+      { bg: 0xeab308, strip: 0xd90429 }, // DHL Yellow & Red
+    ];
+    [0.20, 0.42, 0.64, 0.84].forEach((archT, idx) => {
+      const aPt = curve.getPointAt(archT);
+      const aTan = curve.getTangentAt(archT).normalize();
+      const aRight = new THREE.Vector3().crossVectors(aTan, up).normalize();
+      const leftSupportPos = aPt.clone().addScaledVector(aRight, -gantryPillarOffset);
+      const rightSupportPos = aPt.clone().addScaledVector(aRight, gantryPillarOffset);
+      // Verify both pillars are completely clear of any other loop of the track
+      if (!isClearOfTrack(leftSupportPos, 18.5) || !isClearOfTrack(rightSupportPos, 18.5)) return;
 
+      const archGroup = new THREE.Group();
+      archGroup.position.copy(aPt);
+      archGroup.lookAt(aPt.clone().add(aTan));
+
+      const pL = new THREE.Mesh(pillarGeom, metalMat);
+      pL.position.set(-gantryPillarOffset, 5.25, 0);
+      archGroup.add(pL);
+
+      const pR = new THREE.Mesh(pillarGeom, metalMat);
+      pR.position.set(gantryPillarOffset, 5.25, 0);
+      archGroup.add(pR);
+
+      const sponsorTheme = archSponsors[idx % archSponsors.length];
+      const archBeam = new THREE.Mesh(
+        new THREE.BoxGeometry(gantryPillarOffset * 2.08, 1.8, 1.8),
+        new THREE.MeshStandardMaterial({ color: sponsorTheme.bg, metalness: 0.4, roughness: 0.3 })
+      );
+      archBeam.position.set(0, 9.8, 0);
+      archGroup.add(archBeam);
+
+      // Luminous underside LED light bar (creates realistic moving specular reflection streaks across the F1 car hood & halo)
+      const ledBar = new THREE.Mesh(
+        new THREE.BoxGeometry(trackWidth * 1.35, 0.22, 0.65),
+        new THREE.MeshBasicMaterial({ color: sponsorTheme.strip })
+      );
+      ledBar.position.set(0, 8.85, 0);
+      archGroup.add(ledBar);
+
+      group.add(archGroup);
+    });
+  }
+
+  // Ensure all circuit landmarks, bridges, trees, and barriers cast & receive rich shadows on High/Ultra
+  if (preset.shadowsEnabled) {
+    group.traverse((obj) => {
+      if (obj instanceof THREE.Mesh && obj !== groundMesh) {
+        const mat = obj.material as THREE.Material;
+        if (mat && !mat.transparent) {
+          obj.castShadow = true;
+          obj.receiveShadow = true;
+        }
+      }
+    });
+  }
+
+  // 5. 3D Volumetric-Style Cloud Puffs (High up in the sky, y = 145m - 210m; visible in real-time car & road reflections)
   const cloudMat = new THREE.MeshStandardMaterial({
     color: 0xffffff,
-    roughness: 0.9,
-    metalness: 0.1,
+    roughness: 0.85,
+    metalness: 0.05,
+    emissive: circuit.timeOfDay === 'twilight' ? 0x3b1d5e : 0xdbeafe,
+    emissiveIntensity: 0.25,
     transparent: true,
-    opacity: circuit.timeOfDay === 'twilight' ? 0.45 : 0.7,
+    opacity: circuit.timeOfDay === 'twilight' ? 0.55 : 0.82,
   });
 
   const cloudPuffsGroup = new THREE.Group();
-  for (let c = 0; c < 30; c++) {
-    const angle = (c / 30) * Math.PI * 2;
-    const radius = 320 + (c % 5) * 85;
-    const cloudHeight = 160 + (c % 4) * 22;
-    const puff = new THREE.Mesh(new THREE.SphereGeometry(45 + (c % 3) * 15, 8, 8), cloudMat);
-    puff.scale.set(2.4, 0.45, 1.4);
+  for (let c = 0; c < 36; c++) {
+    const angle = (c / 36) * Math.PI * 2;
+    const radius = 280 + (c % 5) * 90;
+    const cloudHeight = 145 + (c % 4) * 20;
+    const puff = new THREE.Mesh(new THREE.SphereGeometry(48 + (c % 3) * 16, 10, 10), cloudMat);
+    puff.scale.set(2.5, 0.42, 1.5);
     puff.position.set(Math.cos(angle) * radius, cloudHeight, Math.sin(angle) * radius);
     cloudPuffsGroup.add(puff);
   }

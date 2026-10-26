@@ -765,6 +765,7 @@ export class PhysicsEngine {
       this.track.setStartLights(this.lightsLit, false);
 
       // Instant start if throttle pressed OR after 1.8 seconds
+      this.playerCar.setBraking(input.brake > 0.05);
       if ((input.throttle > 0.05 && this.countdownTimer > 0.35) || this.countdownTimer > 1.8) {
         this.lightsExtinguished = true;
         this.track.setStartLights(5, true);
@@ -940,7 +941,7 @@ export class PhysicsEngine {
         this.playerCrashWaitTimer = Math.max(0, this.playerCrashWaitTimer - dt);
         // Engine stalled from heavy impact - car is completely stopped
         this.playerSpeedKmh = Math.max(0, this.playerSpeedKmh - 220 * dt * 3.6);
-        this.playerCar.setBraking(true);
+        this.playerCar.setBraking(input.brake > 0.05);
         this.playerCar.updateSparks(50, true, dt);
 
         if (this.playerCrashWaitTimer <= 0) {
@@ -1025,10 +1026,9 @@ export class PhysicsEngine {
         const brakesNorm = Math.max(0.2, (this.brakesScore - 70) / 25);
         const brakePower = (18 + brakesNorm * 36) * gripMultiplier;
         this.playerSpeedKmh = Math.max(0, this.playerSpeedKmh - brakePower * effectiveBrake * dt * 3.6);
-        this.playerCar.setBraking(true);
-      } else {
-        this.playerCar.setBraking(false);
       }
+      // Brake light strictly turns on ONLY when the player is actively pressing brake
+      this.playerCar.setBraking(input.brake > 0.05);
 
       this.playerSpeedKmh = Math.max(0, this.playerSpeedKmh);
     } else {
@@ -1041,7 +1041,7 @@ export class PhysicsEngine {
       } else {
         this.playerSpeedKmh = Math.min(0, this.playerSpeedKmh + 15 * dt * 3.6);
       }
-      this.playerCar.setBraking(false);
+      this.playerCar.setBraking(input.brake > 0.05);
     }
 
     // DISTINCT HANDLING & CORNERING / WEAVING DYNAMICS (Uncapped ratings):
@@ -1146,7 +1146,7 @@ export class PhysicsEngine {
           this.playerCrashWaitTimer = waitDuration;
           this.playerCrashWaitMax = waitDuration;
           this.playerSpeedKmh = 0;
-          this.playerCar.setBraking(true);
+          this.playerCar.setBraking(input.brake > 0.05);
           soundEngine.playCrash(1.0);
           inputManager.rumble(1.0, 1.0, 400);
           this.collisionTrauma = 1.0;
@@ -1721,9 +1721,11 @@ export class PhysicsEngine {
       } else {
         // Responsive racing line and obstacle braking
         const isBrakingForObstacle = directlyBlockedCarSpeed !== null && minDistanceToCarAhead < 30.0;
+        const speedExcess = ai.speedKmh - desiredSpeed;
         const baseBrake = isBrakingForObstacle ? 52.0 : (this.difficulty === 'legend' ? 42.0 : 32.0);
         ai.speedKmh -= baseBrake * dt * 3.6;
-        ai.builtCar.setBraking(true);
+        // Only illuminate AI brake light when genuinely braking hard for a corner or obstacle (not tiny speed micro-adjustments)
+        ai.builtCar.setBraking(isBrakingForObstacle || speedExcess > 8.0);
 
         if (directlyBlockedCarSpeed !== null && minDistanceToCarAhead < 4.5) {
           ai.speedKmh = Math.max(25, Math.min(ai.speedKmh, directlyBlockedCarSpeed));

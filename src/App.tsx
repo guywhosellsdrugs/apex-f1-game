@@ -401,6 +401,15 @@ export default function App() {
 
     const seasonWins = season.completedRounds.filter((r) => r.playerFinishedPosition === 1).length;
     const seasonPodiums = season.completedRounds.filter((r) => r.playerFinishedPosition <= 3).length;
+    const avgFinish =
+      season.completedRounds.length > 0
+        ? Number(
+            (
+              season.completedRounds.reduce((acc, r) => acc + r.playerFinishedPosition, 0) /
+              season.completedRounds.length
+            ).toFixed(1)
+          )
+        : 10;
     const isWorldChamp = playerRank === 1;
     const isConstructorsChamp = teamRank === 1;
 
@@ -408,15 +417,22 @@ export default function App() {
       seasonNumber: season.career.seasonNumber || 1,
       year: 2026 + (season.career.seasonNumber || 1) - 1,
       teamName: currentTeam.name,
+      teamId: season.selectedTeamId,
       finalDriverRank: playerRank,
       driverPoints: season.driverPoints[season.selectedDriverId] || 0,
       constructorRank: teamRank,
       constructorPoints: season.constructorPoints[season.selectedTeamId] || 0,
       wins: seasonWins,
       podiums: seasonPodiums,
+      fastestLaps: seasonWins,
+      avgFinishPosition: avgFinish,
+      driverRatingEnd: season.career.driverRating,
       isWorldChampion: isWorldChamp,
       isConstructorsChampion: isConstructorsChamp,
       totalEarnings: season.completedRounds.reduce((acc, r) => acc + r.prizeMoneyAwarded, 0),
+      driverPointsSnapshot: { ...season.driverPoints },
+      constructorPointsSnapshot: { ...season.constructorPoints },
+      completedRoundsSnapshot: [...season.completedRounds],
     };
 
     setSeason((prev) => ({
@@ -440,6 +456,7 @@ export default function App() {
         ...prev.career,
         seasonNumber: (prev.career.seasonNumber || 1) + 1,
         seasonHistory: [...(prev.career.seasonHistory || []), historyEntry],
+        offSeasonActionsUsed: [],
         championships: isWorldChamp ? prev.career.championships + 1 : prev.career.championships,
         constructorsChampionships: isConstructorsChamp
           ? (prev.career.constructorsChampionships || 0) + 1
@@ -845,9 +862,9 @@ export default function App() {
     const p1LeadSec = finalStandingsDetails?.[0]?.leadOverP2Seconds || (finalStandingsDetails && finalStandingsDetails.length > 1 ? finalStandingsDetails[1].gapToLeaderSeconds : undefined);
     const playerDetail = finalStandingsDetails?.find((s) => s.driver.id === playerDriver.id);
 
-    // Resolve any pending Paddock News Company predictions for this round:
-    // Correct predictions gain subscribers (which organically drives subscriber income);
-    // Incorrect predictions lose subscribers and trigger subscriber refund losses!
+    // Resolve any pending Paddock News Company predictions and VIRAL RUMORS for this round:
+    // Regular predictions yield modest subscriber shifts & income, UNLESS it was spread as a
+    // VIRAL RUMOR (`isViralRumor: true`) and turns out TRUE—which awards a massive viral jackpot!
     let updatedNewsCompany = season.career.newsCompany || null;
     if (updatedNewsCompany && updatedNewsCompany.publishedReports?.length) {
       let totalSubShiftFromPredictions = 0;
@@ -871,7 +888,7 @@ export default function App() {
               : 5;
           const isOutcomeCorrect = drvRank >= 1 && drvRank <= targetThreshold;
           const hasCompellingReasoning =
-            (rep.reasoningScore ?? 50) >= 55 && rep.accuracyScore >= 55;
+            (rep.reasoningScore ?? 50) >= 52 && rep.accuracyScore >= 52;
 
           const subPrice = updatedNewsCompany!.subscriptionPrice ?? 8;
           const mgrProtection = updatedNewsCompany!.pricingManager
@@ -882,15 +899,71 @@ export default function App() {
             : 0;
           const lowPriceBoost = subPrice < 8 ? 1 + (8 - subPrice) * 0.08 : 1.0;
 
+          if (rep.isViralRumor) {
+            if (isOutcomeCorrect) {
+              // VIRAL RUMOR TURNED OUT TRUE -> MASSIVE WINDFALL!
+              const difficultyScale =
+                rep.predictionType === 'win'
+                  ? 1.55
+                  : rep.predictionType === 'podium'
+                  ? 1.2
+                  : 0.95;
+              const gainedSubscribers = Math.round(
+                (24000 + (rep.overallScore || 75) * 190) *
+                  difficultyScale *
+                  lowPriceBoost *
+                  (1 + mgrConversion)
+              );
+              const viralJackpotCash = Math.round(
+                (380000 + gainedSubscribers * Math.max(8, subPrice) * 1.25) *
+                  difficultyScale
+              );
+              totalSubShiftFromPredictions += gainedSubscribers;
+              totalCredibilityShift += 14;
+              netSubscriberRoundDeltaCash += viralJackpotCash;
+
+              return {
+                ...rep,
+                predictionStatus: 'correct' as const,
+                predictionSubscriberShift: gainedSubscribers,
+                viralRumorStatus: 'true' as const,
+                viralRumorPayoutDelta: viralJackpotCash,
+                viralRumorSubscriberDelta: gainedSubscribers,
+                subscriberDelta: rep.subscriberDelta + gainedSubscribers,
+                revenueEarned: rep.revenueEarned + viralJackpotCash,
+              };
+            } else {
+              // VIRAL RUMOR TURNED OUT FALSE -> TABLOID BACKLASH!
+              const lostSubscribers = -Math.min(
+                Math.max(0, updatedNewsCompany!.subscribers - 500),
+                Math.round(7500 * (1 - mgrProtection * 0.4))
+              );
+              const backlashLoss = -65000;
+              totalSubShiftFromPredictions += lostSubscribers;
+              totalCredibilityShift -= 14;
+              netSubscriberRoundDeltaCash += backlashLoss;
+
+              return {
+                ...rep,
+                predictionStatus: 'incorrect' as const,
+                predictionSubscriberShift: lostSubscribers,
+                viralRumorStatus: 'false' as const,
+                viralRumorPayoutDelta: backlashLoss,
+                viralRumorSubscriberDelta: lostSubscribers,
+                subscriberDelta: rep.subscriberDelta + lostSubscribers,
+                revenueEarned: rep.revenueEarned + backlashLoss,
+              };
+            }
+          }
+
           if (isOutcomeCorrect && hasCompellingReasoning) {
             const difficultyScale =
               rep.predictionType === 'win'
-                ? 1.5
+                ? 1.35
                 : rep.predictionType === 'podium'
-                ? 1.15
+                ? 1.1
                 : 0.85;
-            const reasonFactor = 0.75 + ((rep.reasoningScore ?? 75) / 100) * 0.6;
-            // Because the prediction was RIGHT and well-reasoned, even expensive prices barely dampen subscriber sign-ups!
+            const reasonFactor = 0.75 + ((rep.reasoningScore ?? 75) / 100) * 0.5;
             const highPriceDampen =
               subPrice > 22
                 ? Math.max(
@@ -899,22 +972,22 @@ export default function App() {
                   )
                 : 1.0;
             const gainedSubscribers = Math.round(
-              14500 *
+              2200 *
                 difficultyScale *
                 reasonFactor *
                 lowPriceBoost *
                 highPriceDampen *
                 (1 + mgrConversion)
             );
-            // Organic subscription revenue from the new subscribers based on your subscriptionPrice
+            // Modest organic subscription income for normal predictions
             const organicSubIncome = Math.round(
               gainedSubscribers *
                 subPrice *
-                0.5 *
-                (0.65 + (updatedNewsCompany!.credibility / 100) * 0.6)
+                0.08 *
+                (0.65 + (updatedNewsCompany!.credibility / 100) * 0.5)
             );
             totalSubShiftFromPredictions += gainedSubscribers;
-            totalCredibilityShift += 8;
+            totalCredibilityShift += 5;
             netSubscriberRoundDeltaCash += organicSubIncome;
 
             return {
@@ -925,7 +998,6 @@ export default function App() {
               revenueEarned: rep.revenueEarned + organicSubIncome,
             };
           } else {
-            // Incorrect prediction -> Lose subscribers (more if subscription price is expensive, mitigated by Pricing Manager)!
             const overpriceAnger =
               subPrice > 10
                 ? 1 + (subPrice - 10) * 0.045 * (1 - mgrProtection)
@@ -934,17 +1006,17 @@ export default function App() {
               Math.max(0, updatedNewsCompany!.subscribers - 500),
               Math.round(
                 (rep.predictionType === 'win'
-                  ? 14000
+                  ? 2600
                   : rep.predictionType === 'podium'
-                  ? 11000
-                  : 8500) * overpriceAnger
+                  ? 2000
+                  : 1500) * overpriceAnger
               )
             );
             const cancellationRefundLoss = -Math.round(
-              Math.abs(lostSubscribers) * Math.max(4, subPrice * 0.55)
+              Math.abs(lostSubscribers) * Math.max(2, subPrice * 0.35)
             );
             totalSubShiftFromPredictions += lostSubscribers;
-            totalCredibilityShift -= 9;
+            totalCredibilityShift -= 7;
             netSubscriberRoundDeltaCash += cancellationRefundLoss;
 
             return {
@@ -1618,14 +1690,26 @@ export default function App() {
             </div>
 
             {season.seasonFinished ? (
-              <button
-                onClick={handleStartNextSeason}
-                className="w-full py-3.5 bg-gradient-to-r from-amber-500 via-red-600 to-amber-500 hover:from-amber-400 hover:to-red-500 text-white font-black text-sm uppercase rounded-xl transition-all shadow-xl flex items-center justify-center gap-2 cursor-pointer animate-pulse"
-              >
-                <Trophy className="w-5 h-5 text-amber-300" />
-                <span>Begin Season {(season.career.seasonNumber || 1) + 1} ({2026 + (season.career.seasonNumber || 1)}) & Archive Record</span>
-                <ArrowRight className="w-4 h-4" />
-              </button>
+              <div className="space-y-2.5">
+                <button
+                  onClick={() => {
+                    setShowPodiumModal(false);
+                    setShowRaceHighlights(false);
+                  }}
+                  className="w-full py-3 bg-neutral-800 hover:bg-neutral-700 text-amber-300 border border-amber-400/40 font-black text-xs uppercase rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <span>Enter Off-Season Paddock, Winter R&D & Post-Season Media</span>
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={handleStartNextSeason}
+                  className="w-full py-3.5 bg-gradient-to-r from-amber-500 via-red-600 to-amber-500 hover:from-amber-400 hover:to-red-500 text-white font-black text-sm uppercase rounded-xl transition-all shadow-xl flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <Trophy className="w-5 h-5 text-amber-300" />
+                  <span>Begin Season {(season.career.seasonNumber || 1) + 1} ({2026 + (season.career.seasonNumber || 1)}) & Archive Record</span>
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              </div>
             ) : (
               <button
                 onClick={() => {

@@ -46,7 +46,7 @@ export const NEWS_WRITER_OPTIONS: NewsWriterStaff[] = [
     role: 'Junior Paddock Blogger',
     specialty: 'race_result',
     hiringFee: 450000,
-    salaryPerReport: 35000,
+    salaryPerReport: 4500,
     accuracyRating: 56,
     writingRating: 60,
     bio: 'Low-cost junior blogger. Writes fast drafts, but frequently mixes up point gaps or exaggerates claims—you should carefully edit what he writes before publishing or risk losing money!',
@@ -57,7 +57,7 @@ export const NEWS_WRITER_OPTIONS: NewsWriterStaff[] = [
     role: 'Telemetry & Tech Reporter',
     specialty: 'technical',
     hiringFee: 1400000,
-    salaryPerReport: 85000,
+    salaryPerReport: 9500,
     accuracyRating: 78,
     writingRating: 76,
     bio: 'Former F2 data engineer who writes grounded technical and race reports. Adding your own championship context to her drafts produces high-scoring scoops.',
@@ -68,7 +68,7 @@ export const NEWS_WRITER_OPTIONS: NewsWriterStaff[] = [
     role: 'Senior F1 Correspondent',
     specialty: 'championship',
     hiringFee: 3200000,
-    salaryPerReport: 145000,
+    salaryPerReport: 15000,
     accuracyRating: 89,
     writingRating: 87,
     bio: 'Seasoned paddock journalist with strong factual precision and compelling narrative structure across title fights and driver market stories.',
@@ -79,7 +79,7 @@ export const NEWS_WRITER_OPTIONS: NewsWriterStaff[] = [
     role: 'Chief Motorsport Columnist',
     specialty: 'prediction',
     hiringFee: 5800000,
-    salaryPerReport: 220000,
+    salaryPerReport: 22000,
     accuracyRating: 96,
     writingRating: 95,
     bio: 'Elite FIA columnist. Crafts razor-sharp race analyses and well-reasoned Grand Prix predictions backed by real car telemetry and standings data.',
@@ -92,7 +92,7 @@ export const NEWS_PRICING_MANAGER_OPTIONS: NewsPricingManager[] = [
     name: 'Liam Chen',
     role: 'Junior Subscription Analyst',
     hiringFee: 650000,
-    salaryPerReport: 30000,
+    salaryPerReport: 3500,
     elasticityProtection: 0.2,
     conversionBonus: 0.12,
     bio: 'Tracks reader price sensitivity and reduces subscriber pushback by 20% when raising subscription fees, while boosting reader sign-ups by +12%.',
@@ -102,7 +102,7 @@ export const NEWS_PRICING_MANAGER_OPTIONS: NewsPricingManager[] = [
     name: 'Sofia Lindqvist',
     role: 'Senior Media Economist',
     hiringFee: 1850000,
-    salaryPerReport: 75000,
+    salaryPerReport: 7500,
     elasticityProtection: 0.38,
     conversionBonus: 0.22,
     bio: 'Former motorsport paywall strategist. Protects against 38% of high-price churn and boosts subscriber conversion by +22% across every published issue.',
@@ -112,7 +112,7 @@ export const NEWS_PRICING_MANAGER_OPTIONS: NewsPricingManager[] = [
     name: 'Victor Vance-Sterling',
     role: 'Chief Monetization Director',
     hiringFee: 4200000,
-    salaryPerReport: 140000,
+    salaryPerReport: 12500,
     elasticityProtection: 0.55,
     conversionBonus: 0.35,
     bio: 'World-class media monetization executive. Absorbs 55% of high-price subscriber resistance, adds +35% subscriber growth, and can auto-optimize your subscription price.',
@@ -140,7 +140,7 @@ export const RIVAL_NEWS_COMPANIES: CompetitorNewsNetwork[] = [
     subscribers: 385000,
     subscriptionPrice: 14,
     credibility: 94,
-    estRevenuePerIssue: 5390000,
+    estRevenuePerIssue: 195000,
   },
   {
     id: 'rival_therace',
@@ -150,7 +150,7 @@ export const RIVAL_NEWS_COMPANIES: CompetitorNewsNetwork[] = [
     subscribers: 275000,
     subscriptionPrice: 10,
     credibility: 91,
-    estRevenuePerIssue: 2750000,
+    estRevenuePerIssue: 112000,
   },
   {
     id: 'rival_autosport',
@@ -160,7 +160,7 @@ export const RIVAL_NEWS_COMPANIES: CompetitorNewsNetwork[] = [
     subscribers: 215000,
     subscriptionPrice: 12,
     credibility: 89,
-    estRevenuePerIssue: 2580000,
+    estRevenuePerIssue: 98000,
   },
   {
     id: 'rival_motorsport',
@@ -170,7 +170,7 @@ export const RIVAL_NEWS_COMPANIES: CompetitorNewsNetwork[] = [
     subscribers: 160000,
     subscriptionPrice: 8,
     credibility: 85,
-    estRevenuePerIssue: 1280000,
+    estRevenuePerIssue: 54000,
   },
   {
     id: 'rival_bbc',
@@ -180,7 +180,7 @@ export const RIVAL_NEWS_COMPANIES: CompetitorNewsNetwork[] = [
     subscribers: 120000,
     subscriptionPrice: 6,
     credibility: 88,
-    estRevenuePerIssue: 720000,
+    estRevenuePerIssue: 34000,
   },
   {
     id: 'rival_f1tech',
@@ -190,17 +190,17 @@ export const RIVAL_NEWS_COMPANIES: CompetitorNewsNetwork[] = [
     subscribers: 74000,
     subscriptionPrice: 15,
     credibility: 92,
-    estRevenuePerIssue: 1110000,
+    estRevenuePerIssue: 42000,
   },
   {
     id: 'rival_insider',
     name: 'Pitlane Insider Gazette',
     badgeCode: 'INSIDER',
-    focusLabel: 'Driver Transfers & Rumors',
+    focusLabel: 'Driver Transfers & Viral Rumors',
     subscribers: 42000,
     subscriptionPrice: 5,
     credibility: 68,
-    estRevenuePerIssue: 210000,
+    estRevenuePerIssue: 12500,
   },
 ];
 
@@ -238,6 +238,10 @@ export interface NewsArticle {
   predictionTargetCircuitName?: string;
   predictionStatus?: 'pending' | 'correct' | 'incorrect';
   predictionSubscriberShift?: number;
+  isViralRumor?: boolean;
+  viralRumorStatus?: 'pending' | 'true' | 'false';
+  viralRumorPayoutDelta?: number;
+  viralRumorSubscriberDelta?: number;
 }
 
 interface NewsfeedProps {
@@ -358,6 +362,10 @@ export function generatePaddockNews(season: SeasonState): NewsArticle[] {
         predictionTargetCircuitName: rep.predictionTargetCircuitName,
         predictionStatus: rep.predictionStatus,
         predictionSubscriberShift: rep.predictionSubscriberShift,
+        isViralRumor: rep.isViralRumor,
+        viralRumorStatus: rep.viralRumorStatus,
+        viralRumorPayoutDelta: rep.viralRumorPayoutDelta,
+        viralRumorSubscriberDelta: rep.viralRumorSubscriberDelta,
       });
     });
   }
@@ -416,6 +424,103 @@ export function generatePaddockNews(season: SeasonState): NewsArticle[] {
     name: 'Red Bull Racing',
     points: 0,
   };
+
+  // =========================================================================
+  // POST-SEASON & OFF-SEASON F1 MEDIA COVERAGE (When a season is over or during Winter Off-Season)
+  // =========================================================================
+  const seasonYear = 2026 + (season.career.seasonNumber || 1) - 1;
+  const lastArchivedSeason =
+    season.career.seasonHistory && season.career.seasonHistory.length > 0
+      ? season.career.seasonHistory[season.career.seasonHistory.length - 1]
+      : null;
+
+  if (season.seasonFinished) {
+    const seasonWins = completedRounds.filter(
+      (r) => r.playerFinishedPosition === 1
+    ).length;
+    const seasonPodiums = completedRounds.filter(
+      (r) => r.playerFinishedPosition <= 3
+    ).length;
+    const playerGrade =
+      playerRank === 1
+        ? 'A+ (World Champion)'
+        : playerRank <= 3
+        ? 'A (Title Contender)'
+        : playerRank <= 6
+        ? 'B+ (Front-Runner)'
+        : playerRank <= 10
+        ? 'B (Points Finisher)'
+        : 'C+ (Developing Talent)';
+
+    articles.push({
+      id: `post_season_champion_${seasonYear}`,
+      category: 'championship',
+      categoryLabel: `${seasonYear} Post-Season Special`,
+      categoryColor: 'text-amber-400',
+      source: 'Sky Sports F1 Syndicate',
+      sourceBadge: 'SKY',
+      title: `SEASON FINALE VERDICT: ${p1Driver.name} Crowned ${seasonYear} FIA Formula 1 World Champion as ${p1Constructor.name} Seals Constructors' Cup!`,
+      excerpt: `The chequered flag has fallen on a breathtaking 10-round ${seasonYear} Formula 1 campaign. Here is how the championship was won—and what comes next in the off-season.`,
+      content: `After 10 high-intensity Grand Prix weekends, ${p1Driver.name} (${p1Driver.points} PTS) has officially been crowned the ${seasonYear} FIA World Drivers' Champion ahead of ${p2Driver.name} (${p2Driver.points} PTS). In the Constructors' Championship, ${p1Constructor.name} amassed ${p1Constructor.points} points to hold off ${p2Constructor.name} (${p2Constructor.points} PTS) and claim the coveted FIA Column-1 prize purse. Paddock attention now shifts immediately to the FIA Awards Gala, off-season free agency, and winter wind-tunnel development.`,
+      author: 'Martin Brundle & Karun Chandhok',
+      timeAgo: 'Post-Season Special',
+      relatedDriverId: p1Driver.id,
+      relatedTeamId: p1Constructor.id,
+      importance: 'breaking',
+      readTime: '4 min read',
+    });
+
+    articles.push({
+      id: `post_season_player_review_${seasonYear}`,
+      category: 'race_result',
+      categoryLabel: 'End-of-Season Driver Report Card',
+      categoryColor: 'text-emerald-400',
+      source: 'The Race Media Network',
+      sourceBadge: 'THE RACE',
+      title: `${seasonYear} SEASON REPORT CARD: Grading ${playerDriverName}'s P${playerRank} Campaign (${playerEntry.points} PTS, ${seasonWins} Wins, ${seasonPodiums} Podiums)`,
+      excerpt: `Our paddock analysts break down ${playerDriverName}'s full ${seasonYear} telemetry for ${playerTeamName} and award an official end-of-season grade of ${playerGrade}.`,
+      content: `Competing for ${playerTeamName} across all 10 rounds of the ${seasonYear} championship, ${playerDriverName} concluded the season ranked P${playerRank} in the World Drivers' Standings with ${playerEntry.points} points, ${seasonWins} Grand Prix victories, and ${seasonPodiums} podium finishes. With a current driver rating of ${season.career.driverRating} and paddock reputation at ${season.career.reputation}%, rival team principals have praised ${playerDriverName}'s racecraft and braking consistency heading into the winter off-season.`,
+      author: 'Edd Straw',
+      timeAgo: 'Off-Season Analysis',
+      relatedDriverId: playerDriverId,
+      relatedTeamId: playerTeamId,
+      importance: 'featured',
+      readTime: '3 min read',
+    });
+
+    articles.push({
+      id: `post_season_winter_rd_${seasonYear}`,
+      category: 'technical',
+      categoryLabel: 'Off-Season & Winter Testing',
+      categoryColor: 'text-cyan-400',
+      source: 'F1 Technical Engineering Review',
+      sourceBadge: 'TECH',
+      title: `WINTER OFF-SEASON NOTEBOOK: How ${playerTeamName} & Rivals Are Spending Their Wind-Tunnel & Dyno Allocations for ${seasonYear + 1}`,
+      excerpt: `The race tracks may be quiet after the Round 10 finale, but factory CFD clusters and power unit dynos in Maranello, Woking, Milton Keynes, and Banbury are running 24/7.`,
+      content: `Now that the ${seasonYear} season is officially over, teams have entered the critical off-season development window. Engineers are focusing on underfloor venturi stability, low-drag DRS flap efficiency, and MGU-K thermal recovery ahead of pre-season testing for the ${seasonYear + 1} championship. Open the Off-Season Center in the Season Hub to run winter R&D upgrades or negotiate $0-buyout free-agent contracts before launching ${seasonYear + 1}!`,
+      author: 'Giorgio Piola',
+      timeAgo: 'Winter Off-Season',
+      relatedTeamId: playerTeamId,
+      importance: 'featured',
+      readTime: '3 min read',
+    });
+  } else if (lastArchivedSeason && completedRounds.length === 0) {
+    articles.push({
+      id: `offseason_wrapup_${lastArchivedSeason.year}`,
+      category: 'championship',
+      categoryLabel: `${lastArchivedSeason.year} Off-Season Retrospective`,
+      categoryColor: 'text-amber-400',
+      source: 'Autosport Grand Prix Press',
+      sourceBadge: 'AUTOSPORT',
+      title: `LOOKING BACK AT ${lastArchivedSeason.year}: Can ${playerDriverName} Build on Last Season's P${lastArchivedSeason.finalDriverRank} Finish (${lastArchivedSeason.driverPoints} PTS)?`,
+      excerpt: `After a dramatic ${lastArchivedSeason.year} season that saw ${playerDriverName} record ${lastArchivedSeason.wins} wins and ${lastArchivedSeason.podiums} podiums for ${lastArchivedSeason.teamName}, media outlets weigh in on the new ${seasonYear} campaign.`,
+      content: `Throughout the winter off-season, pundits have debated the lessons of the ${lastArchivedSeason.year} FIA World Championship. ${playerDriverName} finished P${lastArchivedSeason.finalDriverRank} in the Drivers' standings (${lastArchivedSeason.driverPoints} PTS) while ${lastArchivedSeason.teamName} placed P${lastArchivedSeason.constructorRank} in Constructors (${lastArchivedSeason.constructorPoints} PTS). You can inspect the full round-by-round telemetry from ${lastArchivedSeason.year} anytime in the Performance Analytics tab.`,
+      author: 'Jonathan Noble',
+      timeAgo: 'Pre-Season Wire',
+      importance: 'featured',
+      readTime: '3 min read',
+    });
+  }
 
   // A. RECENT RACE RESULTS & RECAPS
   if (completedRounds.length > 0) {
@@ -602,11 +707,12 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
   const [renameNameInput, setRenameNameInput] = useState('');
   const [renameBadgeInput, setRenameBadgeInput] = useState('');
 
-  // Writing Report, Staff Writer Drafts & Prediction State
+  // Writing Report, Staff Writer Drafts, Prediction & Viral Rumor State
   const [reportCategory, setReportCategory] = useState<
     'race_result' | 'championship' | 'transfer' | 'technical' | 'prediction'
   >('race_result');
   const [includePrediction, setIncludePrediction] = useState<boolean>(false);
+  const [isViralRumor, setIsViralRumor] = useState<boolean>(false);
   const [predictedDriverId, setPredictedDriverId] = useState<string>(
     season.selectedDriverId || 'verstappen'
   );
@@ -666,9 +772,10 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
     const list: CompetitorNewsNetwork[] = RIVAL_NEWS_COMPANIES.map((r) => ({
       ...r,
       // Slight organic growth as season progresses
-      subscribers: r.subscribers + completedRounds.length * 2400,
-      estRevenuePerIssue:
-        (r.subscribers + completedRounds.length * 2400) * r.subscriptionPrice,
+      subscribers: r.subscribers + completedRounds.length * 1600,
+      estRevenuePerIssue: Math.round(
+        (r.subscribers + completedRounds.length * 1600) * r.subscriptionPrice * 0.036
+      ),
     }));
 
     if (newsCompany) {
@@ -685,7 +792,9 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
         subscribers: newsCompany.subscribers,
         subscriptionPrice,
         credibility: newsCompany.credibility,
-        estRevenuePerIssue: newsCompany.subscribers * subscriptionPrice,
+        estRevenuePerIssue: Math.round(
+          newsCompany.subscribers * subscriptionPrice * 0.036
+        ),
         isPlayer: true,
       });
     }
@@ -1012,7 +1121,7 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
 
   // Calculate per-report operating cost (Base press wire fee + active writer payroll + pricing manager salary)
   const currentOperatingCost = useMemo(() => {
-    const baseDistributionCost = 55000; // $55,000 FIA press wire & syndicate distribution
+    const baseDistributionCost = 6500; // $6,500 FIA press wire & syndicate distribution
     const writersPayroll = hiredWriters.reduce(
       (sum, w) => sum + w.salaryPerReport,
       0
@@ -1470,13 +1579,14 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
     const lowPriceAttractionMultiplier =
       effectivePrice < 8 ? 1 + (8 - effectivePrice) * 0.095 : 1.0;
 
+    const activeIsPredictionOrRumor =
+      reportCategory === 'prediction' || includePrediction || isViralRumor;
+
     if (
       verdict === 'verified_scoop' ||
       (accuracy >= 75 && overallScore >= 75)
     ) {
       verdict = 'verified_scoop';
-      // Because the news is REALLY GOOD, high subscription prices barely hurt subscriber growth!
-      // Only prices above $22 have a mild dampening, further reduced by a Pricing Manager.
       const highPriceResistance =
         effectivePrice > 22
           ? Math.max(
@@ -1485,54 +1595,57 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
             )
           : 1.0;
 
-      const baseNewSubs = (4800 + overallScore * 95) * reasonQualityBoost;
+      const baseNewSubs = (850 + overallScore * 16) * reasonQualityBoost;
       subscriberDelta = Math.round(
         baseNewSubs *
           lowPriceAttractionMultiplier *
           highPriceResistance *
           (1 + managerConversion)
       );
-      credibilityDelta = 7;
+      credibilityDelta = isViralRumor ? 2 : 6;
 
       const effectiveSubs = Math.max(
         1000,
         newsCompany.subscribers + subscriberDelta
       );
-      // Subscribers pay your subscriptionPrice (scaled by credibility & engagement)
+      // Normal reports earn modest grounded revenue; big money comes from spreading a Viral Rumor that turns out TRUE!
       grossSubscriberRevenue = Math.round(
-        effectiveSubs * effectivePrice * 0.52 * credibilityFactor
+        effectiveSubs *
+          effectivePrice *
+          (isViralRumor ? 0.022 : 0.036) *
+          credibilityFactor
       );
-      views = Math.round(effectiveSubs * 3.5);
+      views = Math.round(effectiveSubs * (isViralRumor ? 6.5 : 2.8));
     } else if (
       verdict === 'solid_report' ||
       (accuracy >= 60 && overallScore >= 55)
     ) {
       verdict = 'solid_report';
-      // Solid (but not extraordinary) news: if price is expensive (> $12), subscriber growth drops or turns negative!
       const rawOverpricePenalty =
         effectivePrice > 12
-          ? (effectivePrice - 12) * 260 * (1 - managerProtection)
+          ? (effectivePrice - 12) * 85 * (1 - managerProtection)
           : 0;
       const baseNewSubs =
-        (2100 + overallScore * 42) *
+        (420 + overallScore * 9) *
         reasonQualityBoost *
         lowPriceAttractionMultiplier *
         (1 + managerConversion);
 
       subscriberDelta = Math.round(baseNewSubs - rawOverpricePenalty);
-      credibilityDelta = 3;
+      credibilityDelta = isViralRumor ? 0 : 3;
 
       const effectiveSubs = Math.max(
         1000,
         newsCompany.subscribers + subscriberDelta
       );
       grossSubscriberRevenue = Math.round(
-        effectiveSubs * effectivePrice * 0.34 * credibilityFactor
+        effectiveSubs *
+          effectivePrice *
+          (isViralRumor ? 0.018 : 0.025) *
+          credibilityFactor
       );
-      views = Math.round(effectiveSubs * 2.1);
+      views = Math.round(effectiveSubs * (isViralRumor ? 4.8 : 1.9));
     } else if (accuracy < 50 || verdict === 'inaccurate_flop') {
-      // INACCURATE / FALSE NEWS -> Lose subscribers AND lose money!
-      // If subscription price is high, angry subscribers leave even faster and demand bigger refunds!
       verdict = 'inaccurate_flop';
       const expensiveAngerMultiplier =
         effectivePrice > 10
@@ -1541,34 +1654,38 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
 
       subscriberDelta = -Math.min(
         Math.max(0, newsCompany.subscribers - 500),
-        Math.round((5500 + (50 - accuracy) * 180) * expensiveAngerMultiplier)
+        Math.round((1800 + (50 - accuracy) * 55) * expensiveAngerMultiplier)
       );
-      credibilityDelta = -14;
+      credibilityDelta = -12;
       grossSubscriberRevenue = 0;
       retractionAndRefundLoss = Math.round(
-        85000 + Math.abs(subscriberDelta) * Math.max(8, effectivePrice * 0.9)
+        14000 + Math.abs(subscriberDelta) * Math.max(4, effectivePrice * 0.6)
       );
-      views = Math.max(1200, Math.round(newsCompany.subscribers * 0.25));
+      views = Math.max(900, Math.round(newsCompany.subscribers * 0.25));
     } else {
-      // Mediocre / weak reasoning -> Lose subscribers (especially if subscription price is high!)
       verdict = 'mediocre';
       const overpriceChurn =
         effectivePrice > 8
-          ? Math.round((effectivePrice - 8) * 320 * (1 - managerProtection))
+          ? Math.round((effectivePrice - 8) * 110 * (1 - managerProtection))
           : 0;
       subscriberDelta = -Math.min(
         Math.max(0, newsCompany.subscribers - 500),
-        Math.round(2200 + (60 - overallScore) * 65 + overpriceChurn)
+        Math.round(750 + (60 - overallScore) * 24 + overpriceChurn)
       );
-      credibilityDelta = -6;
+      credibilityDelta = -5;
       grossSubscriberRevenue = Math.round(
-        newsCompany.subscribers * Math.min(4, effectivePrice * 0.08)
+        newsCompany.subscribers * Math.min(1.5, effectivePrice * 0.012)
       );
-      retractionAndRefundLoss = 35000;
-      views = Math.max(2000, Math.round(newsCompany.subscribers * 0.5));
+      retractionAndRefundLoss = 6500;
+      views = Math.max(1200, Math.round(newsCompany.subscribers * 0.45));
     }
 
-    // Add a fact-check note explaining how the subscription price affected subscribers
+    if (isViralRumor && targetDrv) {
+      factCheckNotes.push(
+        `🔥 VIRAL PADDOCK RUMOR SPREAD: Rumored ${targetDrv.rawName} to finish ${predictionType.toUpperCase()} at ${currentCircuit.name}. Upfront earnings are modest, but if this rumor turns out TRUE in the race, you will cash in a massive viral windfall (+$400k to +$1.1M & +25,000+ subscribers)!`
+      );
+    }
+
     if (effectivePrice <= 5 && verdict !== 'inaccurate_flop') {
       factCheckNotes.push(
         `Low $${effectivePrice}/mo subscription price attracted extra budget-conscious paddock readers.`
@@ -1583,7 +1700,7 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
       );
     }
 
-    // Net Profit or Net Financial Loss (can be negative!)
+    // Net Profit or Net Financial Loss (normal articles make modest profit; viral rumors explode if true after the race)
     const netRevenueEarned =
       grossSubscriberRevenue - currentOperatingCost - retractionAndRefundLoss;
 
@@ -1599,7 +1716,7 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
       id: `player_rep_${Date.now()}`,
       title: cleanTitle,
       content: cleanBody,
-      category: activeIsPrediction ? 'prediction' : reportCategory,
+      category: activeIsPredictionOrRumor ? 'prediction' : reportCategory,
       roundPublished: season.currentRound,
       timestamp: Date.now(),
       authorName: wasDraftedByWriter
@@ -1611,7 +1728,9 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
       reasoningScore: reasoning,
       overallScore,
       verdict,
-      verdictLabel,
+      verdictLabel: isViralRumor
+        ? `🔥 Viral Rumor · ${verdictLabel}`
+        : verdictLabel,
       factCheckNotes,
       readerReaction,
       views,
@@ -1620,18 +1739,22 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
       revenueEarned: netRevenueEarned,
       subscriberDelta,
       credibilityDelta,
-      isPrediction: activeIsPrediction,
-      predictedDriverId: activeIsPrediction ? predictedDriverId : undefined,
+      isPrediction: activeIsPredictionOrRumor,
+      predictedDriverId: activeIsPredictionOrRumor
+        ? predictedDriverId
+        : undefined,
       predictedDriverName:
-        activeIsPrediction && targetDrv ? targetDrv.rawName : undefined,
-      predictionType: activeIsPrediction ? predictionType : undefined,
-      predictionTargetRound: activeIsPrediction
+        activeIsPredictionOrRumor && targetDrv ? targetDrv.rawName : undefined,
+      predictionType: activeIsPredictionOrRumor ? predictionType : undefined,
+      predictionTargetRound: activeIsPredictionOrRumor
         ? season.currentRound
         : undefined,
-      predictionTargetCircuitName: activeIsPrediction
+      predictionTargetCircuitName: activeIsPredictionOrRumor
         ? currentCircuit.name
         : undefined,
-      predictionStatus: activeIsPrediction ? 'pending' : undefined,
+      predictionStatus: activeIsPredictionOrRumor ? 'pending' : undefined,
+      isViralRumor,
+      viralRumorStatus: isViralRumor ? 'pending' : undefined,
     };
 
     onPublishNewsReport(published);
@@ -1655,7 +1778,7 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
       editorialFocus: editorialFocusInput,
       foundedRound: season.currentRound,
       credibility: 75,
-      subscribers: 25000,
+      subscribers: 8500,
       subscriptionPrice: 8,
       pricingManager: null,
       autoOptimizePrice: false,
@@ -2813,22 +2936,24 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
                       </div>
                     </div>
 
-                    {/* Step 2: Optional / Active Prediction Builder (No fixed cash amounts displayed!) */}
+                    {/* Step 2: Optional / Active Prediction Builder + VIRAL RUMOR Toggle */}
                     <div className="p-4 rounded-xl bg-neutral-950 border border-neutral-800 space-y-3">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <label className="flex items-center gap-2 text-xs font-bold text-white cursor-pointer">
                           <input
                             type="checkbox"
                             checked={
-                              reportCategory === 'prediction' || includePrediction
+                              reportCategory === 'prediction' ||
+                              includePrediction ||
+                              isViralRumor
                             }
                             onChange={(e) => {
                               setIncludePrediction(e.target.checked);
-                              if (
-                                !e.target.checked &&
-                                reportCategory === 'prediction'
-                              ) {
-                                setReportCategory('race_result');
+                              if (!e.target.checked) {
+                                setIsViralRumor(false);
+                                if (reportCategory === 'prediction') {
+                                  setReportCategory('race_result');
+                                }
                               }
                             }}
                             className="rounded accent-purple-500"
@@ -2844,11 +2969,52 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
                         </span>
                       </div>
 
-                      {(reportCategory === 'prediction' || includePrediction) && (
+                      {/* Viral Rumor Mode Toggle */}
+                      <div
+                        className={`p-3 rounded-xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                          isViralRumor
+                            ? 'bg-amber-500/15 border-amber-400/50'
+                            : 'bg-neutral-900/70 border-neutral-800'
+                        }`}
+                      >
+                        <label className="flex items-start sm:items-center gap-2.5 text-xs cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={isViralRumor}
+                            onChange={(e) => {
+                              setIsViralRumor(e.target.checked);
+                              if (e.target.checked) {
+                                setIncludePrediction(true);
+                              }
+                            }}
+                            className="mt-0.5 sm:mt-0 rounded accent-amber-500"
+                          />
+                          <div>
+                            <div className="font-black text-amber-300 flex items-center gap-1.5">
+                              <Zap className="w-3.5 h-3.5 text-amber-400" />
+                              <span>
+                                Spread as a High-Stakes VIRAL PADDOCK RUMOR
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-neutral-400 mt-0.5">
+                              Regular paddock articles earn modest subscription profits. Spread a bold Viral Rumor about the next race—if the rumor turns out <strong className="text-emerald-400">TRUE</strong> after the Grand Prix, your outlet cashes in a massive viral windfall! If false, expect a backlash.
+                            </p>
+                          </div>
+                        </label>
+                        <span className="text-[10px] font-mono font-bold uppercase px-2.5 py-1 rounded bg-amber-500/20 text-amber-300 border border-amber-400/30 shrink-0">
+                          {isViralRumor ? '🔥 Viral Rumor Armed' : 'Standard Issue'}
+                        </span>
+                      </div>
+
+                      {(reportCategory === 'prediction' ||
+                        includePrediction ||
+                        isViralRumor) && (
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-neutral-900">
                           <div>
                             <label className="text-[11px] font-bold text-neutral-400 block mb-1">
-                              Predicted Driver
+                              {isViralRumor
+                                ? 'Rumored Driver Subject'
+                                : 'Predicted Driver'}
                             </label>
                             <select
                               value={predictedDriverId}
@@ -2867,7 +3033,9 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
 
                           <div>
                             <label className="text-[11px] font-bold text-neutral-400 block mb-1">
-                              Predicted Finish at {currentCircuit.name}
+                              {isViralRumor
+                                ? `Rumored Shock Outcome at ${currentCircuit.name}`
+                                : `Predicted Finish at ${currentCircuit.name}`}
                             </label>
                             <select
                               value={predictionType}

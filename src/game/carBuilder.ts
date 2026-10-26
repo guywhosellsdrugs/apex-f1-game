@@ -1,5 +1,118 @@
 import * as THREE from 'three';
 import { Team, Driver } from '../types/racing';
+import { GraphicsQuality, getGraphicsPresetConfig } from '../utils/graphicsSettings';
+
+let cachedCarbonTexture: THREE.CanvasTexture | null = null;
+let cachedContactShadowTexture: THREE.CanvasTexture | null = null;
+
+function getCarbonWeaveTexture(): THREE.CanvasTexture | null {
+  if (typeof document === 'undefined') return null;
+  if (cachedCarbonTexture) return cachedCarbonTexture;
+  const canvas = document.createElement('canvas');
+  canvas.width = 64;
+  canvas.height = 64;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+  ctx.fillStyle = '#121318';
+  ctx.fillRect(0, 0, 64, 64);
+  for (let y = 0; y < 64; y += 8) {
+    for (let x = 0; x < 64; x += 8) {
+      const shift = (y / 8) % 2 === 0 ? 0 : 4;
+      ctx.fillStyle = '#1e2028';
+      ctx.fillRect((x + shift) % 64, y, 4, 4);
+      ctx.fillStyle = '#0b0c10';
+      ctx.fillRect((x + shift + 4) % 64, y + 4, 4, 4);
+    }
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(14, 14);
+  cachedCarbonTexture = tex;
+  return tex;
+}
+
+function getCarContactShadowTexture(): THREE.CanvasTexture | null {
+  if (typeof document === 'undefined') return null;
+  if (cachedContactShadowTexture) return cachedContactShadowTexture;
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 512;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+  ctx.clearRect(0, 0, 256, 512);
+  const grad = ctx.createRadialGradient(128, 256, 20, 128, 256, 230);
+  grad.addColorStop(0, 'rgba(0, 0, 0, 0.82)');
+  grad.addColorStop(0.55, 'rgba(0, 0, 0, 0.52)');
+  grad.addColorStop(0.85, 'rgba(0, 0, 0, 0.16)');
+  grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 256, 512);
+  const tex = new THREE.CanvasTexture(canvas);
+  cachedContactShadowTexture = tex;
+  return tex;
+}
+
+let cachedFlakeNormalTex: THREE.CanvasTexture | null = null;
+function getMetallicFlakeNormalTexture(): THREE.CanvasTexture | null {
+  if (typeof document === 'undefined') return null;
+  if (cachedFlakeNormalTex) return cachedFlakeNormalTex;
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+  const img = ctx.createImageData(128, 128);
+  const d = img.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const nx = 128 + (Math.random() - 0.5) * 18;
+    const ny = 128 + (Math.random() - 0.5) * 18;
+    d[i] = nx;
+    d[i + 1] = ny;
+    d[i + 2] = 255;
+    d[i + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(24, 24);
+  cachedFlakeNormalTex = tex;
+  return tex;
+}
+
+let cachedTireTex: THREE.CanvasTexture | null = null;
+function getTireRubberTexture(): THREE.CanvasTexture | null {
+  if (typeof document === 'undefined') return null;
+  if (cachedTireTex) return cachedTireTex;
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+  ctx.fillStyle = '#18191d';
+  ctx.fillRect(0, 0, 256, 256);
+  // Subtle heat-cycled slick center band & graining texture
+  const grad = ctx.createLinearGradient(0, 0, 256, 0);
+  grad.addColorStop(0, '#121316');
+  grad.addColorStop(0.2, '#1f2025');
+  grad.addColorStop(0.5, '#15161a');
+  grad.addColorStop(0.8, '#1f2025');
+  grad.addColorStop(1, '#121316');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 256, 256);
+  for (let i = 0; i < 900; i++) {
+    const x = Math.random() * 256;
+    const y = Math.random() * 256;
+    ctx.fillStyle = Math.random() > 0.5 ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.12)';
+    ctx.fillRect(x, y, 2, 6);
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  cachedTireTex = tex;
+  return tex;
+}
 
 export interface BuiltCar {
   root: THREE.Group;
@@ -23,42 +136,113 @@ export interface BuiltCar {
   setPositionTag: (position: number, name: string, isTeammate?: boolean, isPlayer?: boolean) => void;
 }
 
-export function buildF1Car(team: Team, driver?: Driver): BuiltCar {
+export function buildF1Car(team: Team, driver?: Driver, quality?: GraphicsQuality): BuiltCar {
   const root = new THREE.Group();
+  const preset = getGraphicsPresetConfig(quality);
+  const isLow = preset.id === 'low';
+  const isUltra = preset.id === 'ultra';
+  const radialSegs = preset.carGeometrySegments;
 
-  // 1. High-Fidelity Materials with Metallic Flake & Gloss Clearcoat
+  // Soft Ambient Occlusion Contact Shadow Pad directly under chassis (High & Ultra)
+  if (!isLow) {
+    const contactShadowTex = getCarContactShadowTexture();
+    if (contactShadowTex) {
+      const aoPlane = new THREE.Mesh(
+        new THREE.PlaneGeometry(2.35, 5.4),
+        new THREE.MeshBasicMaterial({
+          map: contactShadowTex,
+          transparent: true,
+          depthWrite: false,
+          opacity: isUltra ? 0.88 : 0.65,
+        })
+      );
+      aoPlane.rotation.x = -Math.PI / 2;
+      aoPlane.position.set(0, 0.02, -0.15);
+      root.add(aoPlane);
+    }
+  }
+
+  // 1. High-Fidelity Materials scaled by Graphics Quality Preset
   const primaryColor = new THREE.Color(team.primaryColor || '#E80020');
   const secondaryColor = new THREE.Color(team.secondaryColor || '#1A1A1A');
   const accentColor = new THREE.Color(team.accentColor || '#FFFFFF');
+  const carbonTex = isUltra || preset.id === 'high' ? getCarbonWeaveTexture() : null;
+  const flakeNormalTex = isUltra ? getMetallicFlakeNormalTexture() : null;
+  const tireTex = isUltra || preset.id === 'high' ? getTireRubberTexture() : null;
 
-  const carPaintMat = new THREE.MeshPhysicalMaterial({
-    color: primaryColor,
-    metalness: 0.88,
-    roughness: 0.12,
-    clearcoat: 1.0,
-    clearcoatRoughness: 0.03,
-    reflectivity: 0.95,
-  });
+  const carPaintMat: THREE.Material = isLow
+    ? new THREE.MeshLambertMaterial({ color: primaryColor })
+    : preset.usePhysicalClearcoat
+    ? new THREE.MeshPhysicalMaterial({
+        color: primaryColor,
+        metalness: isUltra ? 0.68 : 0.62,
+        roughness: isUltra ? 0.035 : 0.06,
+        normalMap: flakeNormalTex || undefined,
+        normalScale: isUltra ? new THREE.Vector2(0.02, 0.02) : undefined,
+        clearcoat: 1.0,
+        clearcoatRoughness: 0.0,
+        reflectivity: 1.0,
+        ior: isUltra ? 1.7 : 1.55,
+        sheen: isUltra ? 0.25 : 0,
+        sheenRoughness: 0.15,
+        sheenColor: primaryColor,
+        envMapIntensity: preset.envMapIntensity,
+      })
+    : new THREE.MeshStandardMaterial({
+        color: primaryColor,
+        metalness: 0.75,
+        roughness: 0.12,
+        envMapIntensity: preset.envMapIntensity,
+      });
 
-  const secondaryPaintMat = new THREE.MeshPhysicalMaterial({
-    color: secondaryColor,
-    metalness: 0.82,
-    roughness: 0.16,
-    clearcoat: 0.95,
-    clearcoatRoughness: 0.05,
-  });
+  const secondaryPaintMat: THREE.Material = isLow
+    ? new THREE.MeshLambertMaterial({ color: secondaryColor })
+    : preset.usePhysicalClearcoat
+    ? new THREE.MeshPhysicalMaterial({
+        color: secondaryColor,
+        metalness: isUltra ? 0.72 : 0.65,
+        roughness: isUltra ? 0.04 : 0.08,
+        normalMap: flakeNormalTex || undefined,
+        normalScale: isUltra ? new THREE.Vector2(0.018, 0.018) : undefined,
+        clearcoat: 1.0,
+        clearcoatRoughness: 0.0,
+        reflectivity: 1.0,
+        envMapIntensity: preset.envMapIntensity,
+      })
+    : new THREE.MeshStandardMaterial({
+        color: secondaryColor,
+        metalness: 0.7,
+        roughness: 0.14,
+        envMapIntensity: preset.envMapIntensity,
+      });
 
-  const accentPaintMat = new THREE.MeshPhysicalMaterial({
-    color: accentColor,
-    metalness: 0.75,
-    roughness: 0.18,
-    clearcoat: 1.0,
-  });
+  const accentPaintMat: THREE.Material = isLow
+    ? new THREE.MeshLambertMaterial({ color: accentColor })
+    : preset.usePhysicalClearcoat
+    ? new THREE.MeshPhysicalMaterial({
+        color: accentColor,
+        metalness: 0.65,
+        roughness: isUltra ? 0.04 : 0.08,
+        clearcoat: 1.0,
+        clearcoatRoughness: 0.0,
+        reflectivity: 1.0,
+        envMapIntensity: preset.envMapIntensity,
+      })
+    : new THREE.MeshStandardMaterial({
+        color: accentColor,
+        metalness: 0.65,
+        roughness: 0.14,
+        envMapIntensity: preset.envMapIntensity,
+      });
 
   const carbonMat = new THREE.MeshStandardMaterial({
-    color: 0x111114,
-    metalness: 0.55,
-    roughness: 0.4,
+    color: 0x121318,
+    map: carbonTex || undefined,
+    bumpMap: isUltra && carbonTex ? carbonTex : undefined,
+    bumpScale: isUltra ? 0.01 : 0,
+    metalness: isUltra ? 0.72 : 0.58,
+    roughness: isUltra ? 0.16 : 0.28,
+    envMapIntensity: preset.envMapIntensity * 0.95,
   });
 
   const matteBlackMat = new THREE.MeshStandardMaterial({
@@ -66,16 +250,30 @@ export function buildF1Car(team: Team, driver?: Driver): BuiltCar {
     roughness: 0.85,
   });
 
-  const tireRubberMat = new THREE.MeshStandardMaterial({
-    color: 0x18181c,
-    roughness: 0.92,
-    metalness: 0.04,
-  });
+  const tireRubberMat = isUltra
+    ? new THREE.MeshPhysicalMaterial({
+        color: 0x16171b,
+        map: tireTex || undefined,
+        bumpMap: tireTex || undefined,
+        bumpScale: 0.008,
+        roughness: 0.52,
+        metalness: 0.08,
+        clearcoat: 0.25,
+        clearcoatRoughness: 0.25,
+        envMapIntensity: preset.envMapIntensity * 0.8,
+      })
+    : new THREE.MeshStandardMaterial({
+        color: 0x18181c,
+        map: tireTex || undefined,
+        roughness: 0.82,
+        metalness: 0.05,
+      });
 
   const wheelRimMat = new THREE.MeshStandardMaterial({
-    color: 0x24242a,
-    metalness: 0.95,
-    roughness: 0.18,
+    color: 0x32343d,
+    metalness: 0.96,
+    roughness: isUltra ? 0.04 : 0.12,
+    envMapIntensity: preset.envMapIntensity * 1.15,
   });
 
   const brakeDiscMat = new THREE.MeshStandardMaterial({
@@ -87,49 +285,60 @@ export function buildF1Car(team: Team, driver?: Driver): BuiltCar {
   });
 
   const haloMat = new THREE.MeshStandardMaterial({
-    color: 0x141418,
+    color: 0x16171d,
+    map: carbonTex || undefined,
     metalness: 0.88,
-    roughness: 0.2,
+    roughness: isUltra ? 0.06 : 0.14,
+    envMapIntensity: preset.envMapIntensity,
   });
 
   const helmetColor = driver?.color ? new THREE.Color(driver.color) : accentColor;
-  const helmetMat = new THREE.MeshPhysicalMaterial({
-    color: helmetColor,
-    metalness: 0.65,
-    roughness: 0.14,
-    clearcoat: 1.0,
-  });
+  const helmetMat: THREE.Material = isLow
+    ? new THREE.MeshLambertMaterial({ color: helmetColor })
+    : new THREE.MeshPhysicalMaterial({
+        color: helmetColor,
+        metalness: 0.65,
+        roughness: 0.04,
+        clearcoat: 1.0,
+        clearcoatRoughness: 0.0,
+        envMapIntensity: preset.envMapIntensity * 1.1,
+      });
 
-  const visorMat = new THREE.MeshPhysicalMaterial({
-    color: 0x08080f,
-    metalness: 0.98,
-    roughness: 0.03,
-    reflectivity: 1.0,
-    clearcoat: 1.0,
-  });
+  const visorMat: THREE.Material = isLow
+    ? new THREE.MeshBasicMaterial({ color: 0x08080f })
+    : new THREE.MeshPhysicalMaterial({
+        color: 0x08080f,
+        metalness: 0.98,
+        roughness: 0.02,
+        reflectivity: 1.0,
+        clearcoat: 1.0,
+        iridescence: isUltra ? 0.65 : 0.2,
+        iridescenceIOR: 1.35,
+        envMapIntensity: preset.envMapIntensity * 1.2,
+      });
 
-  // 2. Main Monocoque & Sleek 2026 Aerodynamic Nose (High-Segment Smooth Sculpted Geometry)
-  // Tapered Nose Cone (front extends in -Z) - 36 radial segments for smooth curvature
-  const noseGeom = new THREE.CylinderGeometry(0.18, 0.52, 2.45, 36, 8);
+  // 2. Main Monocoque & Sleek 2026 Aerodynamic Nose (Scaled Smooth Sculpted Geometry)
+  const noseGeom = new THREE.CylinderGeometry(0.18, 0.52, 2.45, radialSegs, isLow ? 3 : isUltra ? 12 : 8);
   noseGeom.rotateX(Math.PI / 2);
   noseGeom.computeVertexNormals();
   const noseMesh = new THREE.Mesh(noseGeom, carPaintMat);
   noseMesh.position.set(0, 0.33, -1.35);
   noseMesh.scale.set(0.92, 0.82, 1.0);
-  noseMesh.castShadow = true;
+  noseMesh.castShadow = preset.shadowsEnabled;
   root.add(noseMesh);
 
-  // Aerodynamic nose tip cone - 32 segments
-  const noseTipGeom = new THREE.ConeGeometry(0.17, 0.35, 32);
+  // Aerodynamic nose tip cone
+  const noseTipGeom = new THREE.ConeGeometry(0.17, 0.35, radialSegs);
   noseTipGeom.computeVertexNormals();
   const noseTip = new THREE.Mesh(noseTipGeom, secondaryPaintMat);
   noseTip.rotateX(-Math.PI / 2);
   noseTip.position.set(0, 0.32, -2.62);
-  noseTip.castShadow = true;
+  noseTip.castShadow = preset.shadowsEnabled;
   root.add(noseTip);
 
   // Smooth Sculpted Cockpit Monocoque & Engine Cover (Subdivided with rounded shoulders & tapered front)
-  const cockpitGeom = new THREE.BoxGeometry(0.84, 0.56, 1.98, 10, 8, 14);
+  const cockpitSub = isLow ? 4 : isUltra ? 14 : 10;
+  const cockpitGeom = new THREE.BoxGeometry(0.84, 0.56, 1.98, cockpitSub, cockpitSub, cockpitSub + 4);
   {
     const pos = cockpitGeom.attributes.position;
     for (let i = 0; i < pos.count; i++) {
@@ -258,7 +467,7 @@ export function buildF1Car(team: Team, driver?: Driver): BuiltCar {
   intakeR.position.set(0.64, 0.36, -0.74);
   root.add(intakeR);
 
-  // Rear view mirrors
+  // Rear view mirrors with real mirror-reflective glass lenses
   const mirrorGeom = new THREE.BoxGeometry(0.16, 0.08, 0.06);
   const mirrorL = new THREE.Mesh(mirrorGeom, carPaintMat);
   mirrorL.position.set(-0.52, 0.58, -0.42);
@@ -266,6 +475,22 @@ export function buildF1Car(team: Team, driver?: Driver): BuiltCar {
   const mirrorR = new THREE.Mesh(mirrorGeom, carPaintMat);
   mirrorR.position.set(0.52, 0.58, -0.42);
   root.add(mirrorR);
+
+  if (!isLow) {
+    const mirrorGlassMat = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      metalness: 1.0,
+      roughness: 0.0,
+      envMapIntensity: preset.envMapIntensity * 1.25,
+    });
+    const mirrorLensGeom = new THREE.PlaneGeometry(0.14, 0.064);
+    const lensL = new THREE.Mesh(mirrorLensGeom, mirrorGlassMat);
+    lensL.position.set(-0.52, 0.58, -0.388);
+    root.add(lensL);
+    const lensR = new THREE.Mesh(mirrorLensGeom, mirrorGlassMat);
+    lensR.position.set(0.52, 0.58, -0.388);
+    root.add(lensR);
+  }
 
   // Ground Effect Venturi Floor & Diffuser
   const floorGeom = new THREE.BoxGeometry(1.92, 0.06, 3.45);
@@ -511,13 +736,52 @@ export function buildF1Car(team: Team, driver?: Driver): BuiltCar {
   driverGroup.add(steeringWheel);
   root.add(driverGroup);
 
-  // 7. Flashing Rain / Safety Rear Tail Light & Exhaust
-  const tailLight = new THREE.Mesh(
-    new THREE.BoxGeometry(0.18, 0.1, 0.06),
-    new THREE.MeshBasicMaterial({ color: 0xff0000 })
+  // 7. Rear Brake Light Cluster (Central FIA Brake Light + Rear Wing Endplate LED Strips)
+  // Starts COMPLETELY OFF (dark lens) and ONLY turns on when the car is actively braking!
+  const brakeLightHousing = new THREE.Mesh(
+    new THREE.BoxGeometry(0.16, 0.12, 0.08),
+    carbonMat
   );
-  tailLight.position.set(0, 0.32, 2.05);
+  brakeLightHousing.position.set(0, 0.32, 2.02);
+  root.add(brakeLightHousing);
+
+  const tailLightMat = new THREE.MeshStandardMaterial({
+    color: 0x180205,
+    emissive: 0x000000,
+    emissiveIntensity: 0,
+    roughness: 0.2,
+    metalness: 0.3,
+  });
+  const tailLight = new THREE.Mesh(
+    new THREE.BoxGeometry(0.13, 0.09, 0.03),
+    tailLightMat
+  );
+  tailLight.position.set(0, 0.32, 2.055);
   root.add(tailLight);
+
+  // Dual Rear Wing Endplate Vertical LED Brake Strips (modern F1 specification)
+  const wingBrakeStrips: THREE.Mesh[] = [];
+  [-0.5, 0.5].forEach((wx) => {
+    const stripMat = new THREE.MeshStandardMaterial({
+      color: 0x180205,
+      emissive: 0x000000,
+      emissiveIntensity: 0,
+      roughness: 0.2,
+      metalness: 0.3,
+    });
+    const strip = new THREE.Mesh(new THREE.BoxGeometry(0.022, 0.28, 0.022), stripMat);
+    strip.position.set(wx, 0.88, 2.09);
+    root.add(strip);
+    wingBrakeStrips.push(strip);
+  });
+
+  // Dynamic Rear Brake Diffuser & Asphalt Glow Light (Only active on High/Ultra when braking)
+  let brakeGlowLight: THREE.PointLight | null = null;
+  if (!isLow) {
+    brakeGlowLight = new THREE.PointLight(0xff0018, 0, isUltra ? 4.2 : 2.8, 2.0);
+    brakeGlowLight.position.set(0, 0.34, 2.22);
+    root.add(brakeGlowLight);
+  }
 
   // Central Titanium Exhaust Pipe - 24 segments
   const exhaustPipe = new THREE.Mesh(
@@ -681,22 +945,49 @@ export function buildF1Car(team: Team, driver?: Driver): BuiltCar {
   };
 
   const setBraking = (braking: boolean) => {
+    // 1. Rear Brake Light & Rear Wing Endplate LED Strips: ONLY turn on when braking!
+    const tlMat = tailLight.material as THREE.MeshStandardMaterial;
+    if (braking) {
+      tlMat.color.setHex(0xff0818);
+      tlMat.emissive.setHex(0xff0015);
+      tlMat.emissiveIntensity = isUltra ? 4.5 : 2.8;
+    } else {
+      tlMat.color.setHex(0x180205);
+      tlMat.emissive.setHex(0x000000);
+      tlMat.emissiveIntensity = 0;
+    }
+
+    for (const strip of wingBrakeStrips) {
+      const sMat = strip.material as THREE.MeshStandardMaterial;
+      if (braking) {
+        sMat.color.setHex(0xff0818);
+        sMat.emissive.setHex(0xff0015);
+        sMat.emissiveIntensity = isUltra ? 4.0 : 2.4;
+      } else {
+        sMat.color.setHex(0x180205);
+        sMat.emissive.setHex(0x000000);
+        sMat.emissiveIntensity = 0;
+      }
+    }
+
+    if (brakeGlowLight) {
+      brakeGlowLight.intensity = braking ? (isUltra ? 2.6 : 1.4) : 0;
+    }
+
+    // 2. Glowing Carbon-Ceramic Brake Discs inside the wheels
     for (const disc of brakeDiscs) {
       const mat = disc.material as THREE.MeshStandardMaterial;
       if (braking) {
         mat.emissive.setHex(0xff3300);
-        mat.emissiveIntensity = 2.4;
+        mat.emissiveIntensity = isUltra ? 3.2 : 2.4;
       } else {
-        mat.emissiveIntensity = Math.max(0, mat.emissiveIntensity - 0.08);
+        mat.emissiveIntensity = Math.max(0, mat.emissiveIntensity - 0.12);
       }
     }
   };
 
-  const flashTailLight = (time: number) => {
-    const flash = Math.sin(time * 16) > 0;
-    const mat = tailLight.material as THREE.MeshBasicMaterial;
-    mat.color.setHex(flash ? 0xff0000 : 0x220000);
-  };
+  // Kept for interface compatibility; brake light is now strictly controlled by setBraking(braking)
+  const flashTailLight = (_time: number) => {};
 
   const updateSparks = (speedKmh: number, onCurb: boolean, delta: number) => {
     const positions = sparkGeom.attributes.position.array as Float32Array;
@@ -839,6 +1130,19 @@ export function buildF1Car(team: Team, driver?: Driver): BuiltCar {
 
     tagTexture.needsUpdate = true;
   };
+
+  // Enable full self-shadowing across all car bodywork, wings, halo, suspension & tires on High/Ultra
+  if (preset.shadowsEnabled) {
+    root.traverse((obj) => {
+      if (obj instanceof THREE.Mesh) {
+        // Skip translucent AO ground pad
+        const mat = obj.material as THREE.Material;
+        if (mat && mat.transparent && !mat.depthWrite) return;
+        obj.castShadow = true;
+        obj.receiveShadow = true;
+      }
+    });
+  }
 
   return {
     root,

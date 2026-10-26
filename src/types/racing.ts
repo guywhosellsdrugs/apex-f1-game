@@ -219,6 +219,7 @@ export interface CustomerTeamPUOffer {
 export interface SeasonHistoryEntry {
   seasonNumber: number;
   year: number;
+  teamId?: string;
   teamName: string;
   finalDriverRank: number;
   driverPoints: number;
@@ -226,9 +227,15 @@ export interface SeasonHistoryEntry {
   constructorPoints: number;
   wins: number;
   podiums: number;
+  fastestLaps?: number;
+  avgFinishPosition?: number;
+  driverRatingEnd?: number;
   isWorldChampion: boolean;
   isConstructorsChampion: boolean;
   totalEarnings: number;
+  driverPointsSnapshot?: Record<string, number>;
+  constructorPointsSnapshot?: Record<string, number>;
+  completedRoundsSnapshot?: RaceResult[];
 }
 
 export interface NewsWriterStaff {
@@ -285,6 +292,10 @@ export interface PublishedNewsReport {
   predictionTargetCircuitName?: string;
   predictionStatus?: 'pending' | 'correct' | 'incorrect';
   predictionSubscriberShift?: number;
+  isViralRumor?: boolean;
+  viralRumorStatus?: 'pending' | 'true' | 'false';
+  viralRumorPayoutDelta?: number;
+  viralRumorSubscriberDelta?: number;
 }
 
 export interface NewsCompanyConfig {
@@ -324,6 +335,7 @@ export interface CareerProfile {
   seasonNumber: number; // Season 1, Season 2, etc.
   seasonHistory: SeasonHistoryEntry[];
   difficultyLocked?: 'rookie' | 'pro' | 'legend';
+  offSeasonActionsUsed?: string[];
 }
 
 export interface TeamContractOffer {

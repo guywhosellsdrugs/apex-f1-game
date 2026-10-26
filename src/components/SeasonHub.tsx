@@ -85,6 +85,13 @@ import {
   getDistanceUnitLabel,
   onUnitSystemChange,
 } from '../utils/units';
+import {
+  GraphicsQuality,
+  GRAPHICS_PRESET_LABELS,
+  getStoredGraphicsQuality,
+  setStoredGraphicsQuality,
+  onGraphicsQualityChange,
+} from '../utils/graphicsSettings';
 
 interface SeasonHubProps {
   season: SeasonState;
@@ -141,15 +148,27 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
   onUpdateNewsCompany,
   onPublishNewsReport,
 }) => {
-  const [activeTab, setActiveTab] = useState<'weekend' | 'newsfeed' | 'analytics' | 'contracts' | 'myteam' | 'standings' | 'calendar' | 'records'>('weekend');
+  const [activeTab, setActiveTab] = useState<'weekend' | 'newsfeed' | 'analytics' | 'offseason' | 'contracts' | 'myteam' | 'standings' | 'calendar' | 'records'>('weekend');
   const [selectedLaps, setSelectedLaps] = useState<number>(season.lapCount || 5);
   const [unitSystem, setUnitSystem] = useState<UnitSystem>(getStoredUnitSystem());
+  const [graphicsQuality, setGraphicsQuality] = useState<GraphicsQuality>(getStoredGraphicsQuality());
 
   React.useEffect(() => {
     return onUnitSystemChange((newUnit) => {
       setUnitSystem(newUnit);
     });
   }, []);
+
+  React.useEffect(() => {
+    return onGraphicsQualityChange((newQuality) => {
+      setGraphicsQuality(newQuality);
+    });
+  }, []);
+
+  const handleChangeGraphicsQuality = (q: GraphicsQuality) => {
+    setGraphicsQuality(q);
+    setStoredGraphicsQuality(q);
+  };
 
   const toggleUnits = () => {
     const nextUnit = unitSystem === 'metric' ? 'imperial' : 'metric';
@@ -1047,6 +1066,22 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
           </button>
 
           <button
+            onClick={() => setActiveTab('offseason')}
+            className={`px-4 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-2 ${
+              activeTab === 'offseason'
+                ? 'bg-amber-500 text-black font-black shadow-md'
+                : season.seasonFinished
+                ? 'bg-amber-500/20 text-amber-300 border border-amber-400/50 animate-pulse'
+                : 'text-neutral-400 hover:text-white hover:bg-neutral-800'
+            }`}
+          >
+            <Wind className="w-3.5 h-3.5" />
+            <span>
+              {season.seasonFinished ? '★ Off-Season Hub (Active)' : 'Off-Season & Winter R&D'}
+            </span>
+          </button>
+
+          <button
             onClick={() => setActiveTab('calendar')}
             className={`px-4 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-2 ${
               activeTab === 'calendar'
@@ -1108,6 +1143,29 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Graphics Quality Preset Selector for Worse Devices vs Ultra Realistic */}
+          <div className="hidden xl:flex items-center gap-1 bg-neutral-950 border border-neutral-800 rounded-lg p-1">
+            <span className="text-[10px] font-mono text-neutral-400 px-1.5 font-bold">
+              GFX:
+            </span>
+            {(['low', 'medium', 'high', 'ultra'] as GraphicsQuality[]).map((q) => (
+              <button
+                key={q}
+                onClick={() => handleChangeGraphicsQuality(q)}
+                className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase transition-colors cursor-pointer ${
+                  graphicsQuality === q
+                    ? q === 'ultra'
+                      ? 'bg-amber-500 text-black'
+                      : 'bg-red-600 text-white'
+                    : 'text-neutral-400 hover:text-white'
+                }`}
+                title={GRAPHICS_PRESET_LABELS[q].subtitle}
+              >
+                {q === 'ultra' ? 'Ultra Realistic' : q}
+              </button>
+            ))}
+          </div>
+
           {/* American vs Metric Measurements Toggle Switch */}
           <button
             onClick={toggleUnits}
@@ -1137,6 +1195,35 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
           </button>
         </div>
       </nav>
+
+      {/* Active Off-Season Banner when Season is Finished */}
+      {season.seasonFinished && (
+        <div className="bg-amber-500/15 border-b border-amber-400/40 px-6 py-2.5 flex flex-wrap items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2.5">
+            <Trophy className="w-4 h-4 text-amber-400 shrink-0" />
+            <span className="text-white font-bold">
+              SEASON {season.career.seasonNumber || 1} ({2026 + (season.career.seasonNumber || 1) - 1}) COMPLETE — WELCOME TO THE FIA WINTER OFF-SEASON!
+            </span>
+            <span className="text-neutral-300">
+              Read post-season F1 media recaps, run Winter R&D upgrades, or start Season {(season.career.seasonNumber || 1) + 1}.
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setActiveTab('offseason')}
+              className="px-3 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-black font-black uppercase text-[11px] cursor-pointer"
+            >
+              Open Off-Season Hub
+            </button>
+            <button
+              onClick={() => setActiveTab('newsfeed')}
+              className="px-3 py-1 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-white font-bold text-[11px] cursor-pointer"
+            >
+              Post-Season Media Wire
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Notifications Banner */}
       {notificationMsg && (
@@ -1257,6 +1344,42 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
                     <span>Quit Career to Change</span>
                     <ArrowRight className="w-3 h-3" />
                   </button>
+                </div>
+              </div>
+
+              {/* 3D Graphics Quality Selector (Low for Worse Devices up to Ultra Realistic) */}
+              <div className="flex flex-col gap-2 p-3.5 bg-neutral-950/80 rounded-xl border border-neutral-800">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Cpu className="w-4 h-4 text-cyan-400" />
+                    <label className="text-xs font-bold uppercase tracking-wider text-neutral-300">
+                      3D Engine Graphics Quality Preset
+                    </label>
+                  </div>
+                  <span className="text-xs font-mono text-amber-400 font-bold">
+                    {GRAPHICS_PRESET_LABELS[graphicsQuality].label}
+                  </span>
+                </div>
+                <p className="text-[11px] text-neutral-400">
+                  {GRAPHICS_PRESET_LABELS[graphicsQuality].subtitle}
+                </p>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
+                  {(['low', 'medium', 'high', 'ultra'] as GraphicsQuality[]).map((q) => (
+                    <button
+                      key={q}
+                      type="button"
+                      onClick={() => handleChangeGraphicsQuality(q)}
+                      className={`py-2 px-2.5 rounded-lg font-bold text-xs transition-all cursor-pointer border ${
+                        graphicsQuality === q
+                          ? q === 'ultra'
+                            ? 'bg-amber-500 text-black border-amber-300 shadow-md'
+                            : 'bg-red-600 text-white border-red-400 shadow-md'
+                          : 'bg-neutral-900 text-neutral-400 border-neutral-800 hover:text-white'
+                      }`}
+                    >
+                      {GRAPHICS_PRESET_LABELS[q].label}
+                    </button>
+                  ))}
                 </div>
               </div>
 
@@ -1459,6 +1582,234 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
           season={season}
           onStartRaceClick={() => setActiveTab('weekend')}
         />
+      )}
+
+      {/* TAB: OFF-SEASON & WINTER R&D HUB */}
+      {activeTab === 'offseason' && (
+        <div className="space-y-6">
+          {/* Top Off-Season Header */}
+          <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-6 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2 text-xs text-amber-400 font-mono font-bold uppercase">
+                <Wind className="w-4 h-4" />
+                <span>FIA Winter Off-Season & Factory Development Hub</span>
+                <span>·</span>
+                <span>
+                  Season {season.career.seasonNumber || 1} ({2026 + (season.career.seasonNumber || 1) - 1})
+                </span>
+              </div>
+              <h2 className="text-2xl font-black text-white mt-1">
+                Off-Season Paddock, Winter Testing & Post-Season Gala
+              </h2>
+              <p className="text-xs text-neutral-400 mt-1 max-w-2xl">
+                {season.seasonFinished
+                  ? 'The 10-round Formula 1 season is officially complete! Review the post-season media coverage, run winter R&D upgrades, or launch the next championship season.'
+                  : `You are currently at Round ${season.currentRound + 1} of 10. You can preview Winter Off-Season R&D programs now or return after the Round 10 Abu Dhabi finale for the full Off-Season Gala!`}
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2.5">
+              <button
+                onClick={() => setActiveTab('newsfeed')}
+                className="px-4 py-2.5 rounded-xl bg-neutral-950 hover:bg-neutral-800 text-white border border-neutral-700 text-xs font-bold flex items-center gap-2 cursor-pointer"
+              >
+                <Newspaper className="w-4 h-4 text-red-400" />
+                <span>Read Post-Season Media Coverage</span>
+              </button>
+              <button
+                onClick={() => setActiveTab('analytics')}
+                className="px-4 py-2.5 rounded-xl bg-neutral-950 hover:bg-neutral-800 text-cyan-300 border border-cyan-500/30 text-xs font-bold flex items-center gap-2 cursor-pointer"
+              >
+                <BarChart3 className="w-4 h-4 text-cyan-400" />
+                <span>Previous Years Analytics</span>
+              </button>
+              {onStartNextSeason && (
+                <button
+                  onClick={() => {
+                    onStartNextSeason();
+                    setActiveTab('weekend');
+                    setNotificationMsg(
+                      `Launched Season ${(season.career.seasonNumber || 1) + 1} (${2026 + (season.career.seasonNumber || 1)})! Previous season telemetry archived in Performance Analytics.`
+                    );
+                  }}
+                  className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider flex items-center gap-2 cursor-pointer shadow-lg"
+                >
+                  <Trophy className="w-4 h-4" />
+                  <span>
+                    {season.seasonFinished
+                      ? `Launch Season ${(season.career.seasonNumber || 1) + 1} (${2026 + (season.career.seasonNumber || 1)})`
+                      : `Advance to Season ${(season.career.seasonNumber || 1) + 1} Now`}
+                  </span>
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* 3-Column Off-Season Programs Grid */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Program 1: FIA Post-Season Awards & Media Summary */}
+            <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-6 flex flex-col justify-between space-y-4">
+              <div className="space-y-3">
+                <div className="text-xs font-mono font-bold text-amber-400 uppercase">
+                  1. FIA Awards Gala & Season Recap
+                </div>
+                <h3 className="text-lg font-black text-white">
+                  Season {season.career.seasonNumber || 1} Classification
+                </h3>
+                <p className="text-xs text-neutral-400 leading-relaxed">
+                  International F1 media outlets (Sky Sports F1, The Race, Autosport, F1 Technical) publish dedicated post-season championship analysis and driver report cards once the season concludes.
+                </p>
+                <div className="p-3.5 rounded-xl bg-neutral-950 border border-neutral-800 space-y-2 text-xs font-mono tabular-nums">
+                  <div className="flex justify-between">
+                    <span className="text-neutral-400">Your Driver Points:</span>
+                    <span className="text-white font-bold">
+                      {season.driverPoints[season.selectedDriverId] || 0} PTS
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-neutral-400">Constructor Points:</span>
+                    <span className="text-cyan-400 font-bold">
+                      {season.constructorPoints[season.selectedTeamId] || 0} PTS
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-neutral-400">Driver Rating:</span>
+                    <span className="text-emerald-400 font-bold">
+                      {season.career.driverRating} OVR
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-neutral-400">Available Bank Balance:</span>
+                    <span className="text-amber-400 font-bold">
+                      {formatMoney(season.career.careerEarnings)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={() => setActiveTab('newsfeed')}
+                className="w-full py-2.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-white text-xs font-bold transition-colors cursor-pointer"
+              >
+                Open Post-Season Paddock News →
+              </button>
+            </div>
+
+            {/* Program 2: Winter Wind-Tunnel & Chassis R&D (For Custom Team or Career Preparation) */}
+            <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-6 flex flex-col justify-between space-y-4">
+              <div className="space-y-3">
+                <div className="text-xs font-mono font-bold text-cyan-400 uppercase">
+                  2. Winter Wind-Tunnel & Aero R&D
+                </div>
+                <h3 className="text-lg font-black text-white">
+                  Factory Winter Upgrade Package
+                </h3>
+                <p className="text-xs text-neutral-400 leading-relaxed">
+                  {season.career.customTeam
+                    ? `Invest $4,500,000 in off-season CFD wind-tunnel testing for ${season.career.customTeam.name} to permanently boost Engine Power (+2), Cornering Downforce (+2), and Braking (+2) for the upcoming season.`
+                    : 'Own your own 11th Constructor in the My Team tab to unlock full factory wind-tunnel, chassis, and power unit dyno R&D during the winter off-season.'}
+                </p>
+                {season.career.customTeam && (
+                  <div className="p-3.5 rounded-xl bg-neutral-950 border border-neutral-800 space-y-1.5 text-xs font-mono tabular-nums">
+                    <div className="flex justify-between">
+                      <span className="text-neutral-400">Engine Power Rating:</span>
+                      <span className="text-amber-400 font-bold">
+                        {season.career.customTeam.enginePower} / 100
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-neutral-400">Aero Handling Bonus:</span>
+                      <span className="text-cyan-400 font-bold">
+                        +{season.career.customTeam.handlingBonus}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-neutral-400">Carbon Brakes Bonus:</span>
+                      <span className="text-emerald-400 font-bold">
+                        +{season.career.customTeam.brakesBonus}
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
+              {season.career.customTeam ? (
+                <button
+                  onClick={() => {
+                    if (!season.career.customTeam || !onUpdateCustomTeam) return;
+                    const cost = 4500000;
+                    if (season.career.careerEarnings < cost) {
+                      setNotificationMsg('Insufficient funds for the $4,500,000 Winter Wind-Tunnel R&D Package.');
+                      return;
+                    }
+                    const ct = season.career.customTeam;
+                    onUpdateCustomTeam(
+                      {
+                        ...ct,
+                        enginePower: Math.min(100, (ct.enginePower || 86) + 2),
+                        handlingBonus: Math.min(25, (ct.handlingBonus || 5) + 2),
+                        brakesBonus: Math.min(25, (ct.brakesBonus || 5) + 2),
+                      },
+                      cost
+                    );
+                    setNotificationMsg(
+                      `WINTER R&D COMPLETE: ${ct.name} gained +2 Engine Power, +2 Aero Handling, and +2 Braking Efficiency!`
+                    );
+                  }}
+                  className="w-full py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-black uppercase tracking-wider transition-colors cursor-pointer"
+                >
+                  Run Winter Wind-Tunnel R&D ($4,500,000)
+                </button>
+              ) : (
+                <button
+                  onClick={() => setActiveTab('myteam')}
+                  className="w-full py-2.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-cyan-300 text-xs font-bold transition-colors cursor-pointer"
+                >
+                  Open My Team (11th Constructor) →
+                </button>
+              )}
+            </div>
+
+            {/* Program 3: Off-Season Driver Contracts & Previous Years Analytics */}
+            <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-6 flex flex-col justify-between space-y-4">
+              <div className="space-y-3">
+                <div className="text-xs font-mono font-bold text-purple-400 uppercase">
+                  3. Driver Market & Telemetry Archive
+                </div>
+                <h3 className="text-lg font-black text-white">
+                  Off-Season Seat Negotiations
+                </h3>
+                <p className="text-xs text-neutral-400 leading-relaxed">
+                  Review contract offers across all 10 official F1 constructors or compare multi-year constructor championship trajectories from 2024, 2025, and every completed career season.
+                </p>
+                <div className="p-3.5 rounded-xl bg-neutral-950 border border-neutral-800 space-y-1.5 text-xs font-mono tabular-nums">
+                  <div className="flex justify-between">
+                    <span className="text-neutral-400">Current Team:</span>
+                    <span className="text-white font-bold">{playerTeam.name}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-neutral-400">Archived Seasons:</span>
+                    <span className="text-purple-400 font-bold">
+                      {(season.career.seasonHistory?.length || 0) + 2} Seasons Available
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => setActiveTab('contracts')}
+                  className="py-2.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-white text-xs font-bold transition-colors cursor-pointer"
+                >
+                  Driver Contracts
+                </button>
+                <button
+                  onClick={() => setActiveTab('analytics')}
+                  className="py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition-colors cursor-pointer"
+                >
+                  Past Years Charts
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
         {/* TAB 2: DRIVER CONTRACTS & TEAM SWITCHING */}
