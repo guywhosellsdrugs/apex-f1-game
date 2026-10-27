@@ -1,4 +1,12 @@
-export type GraphicsQuality = 'low' | 'medium' | 'high' | 'ultra';
+export type GraphicsQuality = 'dynamic' | 'low' | 'medium' | 'high' | 'ultra';
+
+export const GRAPHICS_QUALITY_OPTIONS: GraphicsQuality[] = [
+  'dynamic',
+  'low',
+  'medium',
+  'high',
+  'ultra',
+];
 
 export interface GraphicsPresetConfig {
   id: GraphicsQuality;
@@ -27,6 +35,30 @@ export interface GraphicsPresetConfig {
 const STORAGE_KEY = 'apex26_graphics_quality_v1';
 
 export const GRAPHICS_PRESETS: Record<GraphicsQuality, GraphicsPresetConfig> = {
+  dynamic: {
+    id: 'dynamic',
+    label: 'Dynamic (Smart 60 FPS Clear Auto-Tuner)',
+    shortLabel: 'Dynamic (60FPS Auto)',
+    badge: 'SMART 60FPS CLEAR',
+    description:
+      'Keeps screen resolution sharp and clear (1.0x–1.25x) while checking FPS right from race start. Automatically toggles Live Reflections vs. Dynamic Shadows (or vice versa) and micro-tunes draw distance to keep 60 FPS with zero startup lag.',
+    maxPixelRatio: 1.25,
+    antialias: true,
+    shadowsEnabled: true,
+    shadowMapSize: 1024,
+    useSoftShadows: true,
+    useEnvironmentReflections: true,
+    envMapIntensity: 1.75,
+    trackSegments: 720,
+    asphaltTextureSize: 1024,
+    anisotropy: 8,
+    sceneryMode: 'standard',
+    carGeometrySegments: 24,
+    usePhysicalClearcoat: true,
+    enableRimAndFillLights: true,
+    enableSpeedParticlesAndSparks: true,
+    cameraSmoothingHz: 28,
+  },
   low: {
     id: 'low',
     label: 'Low (60Hz Monitors / Worse Devices)',
@@ -125,20 +157,67 @@ export const GRAPHICS_PRESETS: Record<GraphicsQuality, GraphicsPresetConfig> = {
   },
 };
 
+export interface DynamicGpuProfile {
+  qualityScore: number; // 0.15 to 1.00
+  preferShadowsOverReflections: boolean; // Whether this GPU runs faster with Shadows ON + Refl OFF vs Refl ON + Shadows OFF
+}
+
+const DYNAMIC_GPU_PROFILE_KEY = 'apex26_dynamic_gpu_profile_v2';
+
+export function getStoredDynamicGpuProfile(): DynamicGpuProfile {
+  if (typeof window === 'undefined') {
+    return { qualityScore: 0.65, preferShadowsOverReflections: true };
+  }
+  try {
+    const raw = localStorage.getItem(DYNAMIC_GPU_PROFILE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (typeof parsed.qualityScore === 'number') {
+        return {
+          qualityScore: Math.max(0.15, Math.min(1.0, parsed.qualityScore)),
+          preferShadowsOverReflections:
+            typeof parsed.preferShadowsOverReflections === 'boolean'
+              ? parsed.preferShadowsOverReflections
+              : true,
+        };
+      }
+    }
+  } catch {
+    // Ignore storage error
+  }
+  // Start at a safe, fast 65% profile on the very first run so the race launch is 100% lag-free, then ramp up if 60 FPS holds!
+  return { qualityScore: 0.65, preferShadowsOverReflections: true };
+}
+
+export function setStoredDynamicGpuProfile(profile: DynamicGpuProfile): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(DYNAMIC_GPU_PROFILE_KEY, JSON.stringify(profile));
+  } catch {
+    // Ignore storage error
+  }
+}
+
 type Listener = (quality: GraphicsQuality) => void;
 const listeners = new Set<Listener>();
 
 export function getStoredGraphicsQuality(): GraphicsQuality {
-  if (typeof window === 'undefined') return 'high';
+  if (typeof window === 'undefined') return 'dynamic';
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw === 'low' || raw === 'medium' || raw === 'high' || raw === 'ultra') {
+    if (
+      raw === 'dynamic' ||
+      raw === 'low' ||
+      raw === 'medium' ||
+      raw === 'high' ||
+      raw === 'ultra'
+    ) {
       return raw;
     }
   } catch {
     // Ignore storage error
   }
-  return 'ultra';
+  return 'dynamic';
 }
 
 export function setStoredGraphicsQuality(quality: GraphicsQuality): void {
@@ -163,6 +242,10 @@ export const GRAPHICS_PRESET_LABELS: Record<
   GraphicsQuality,
   { label: string; subtitle: string }
 > = {
+  dynamic: {
+    label: GRAPHICS_PRESETS.dynamic.shortLabel,
+    subtitle: GRAPHICS_PRESETS.dynamic.description,
+  },
   low: {
     label: GRAPHICS_PRESETS.low.shortLabel,
     subtitle: GRAPHICS_PRESETS.low.description,
@@ -183,6 +266,7 @@ export const GRAPHICS_PRESET_LABELS: Record<
 
 export function getGraphicsPresetConfig(quality?: GraphicsQuality): GraphicsPresetConfig {
   const q = quality || getStoredGraphicsQuality();
-  return GRAPHICS_PRESETS[q] || GRAPHICS_PRESETS.ultra;
+  return GRAPHICS_PRESETS[q] || GRAPHICS_PRESETS.dynamic;
 }
+
 

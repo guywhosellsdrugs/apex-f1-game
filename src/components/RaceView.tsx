@@ -19,11 +19,14 @@ import { multiplayerService, RoomPublicState } from '../services/multiplayerServ
 import { recordCircuitLapTime } from '../services/firebase';
 import {
   GraphicsQuality,
+  GRAPHICS_QUALITY_OPTIONS,
   GRAPHICS_PRESETS,
   getStoredGraphicsQuality,
   setStoredGraphicsQuality,
   onGraphicsQualityChange,
   getGraphicsPresetConfig,
+  getStoredDynamicGpuProfile,
+  setStoredDynamicGpuProfile,
 } from '../utils/graphicsSettings';
 
 interface RaceViewProps {
@@ -88,6 +91,16 @@ export const RaceView: React.FC<RaceViewProps> = ({
   const [controllerState, setControllerState] = useState({ connected: false, id: '' });
   const [yellowFlagActive, setYellowFlagActive] = useState(false);
   const [graphicsQuality, setGraphicsQuality] = useState<GraphicsQuality>(getStoredGraphicsQuality());
+  const [liveFps, setLiveFps] = useState<number>(60);
+  const [frameTimeMs, setFrameTimeMs] = useState<number>(16.7);
+  const [dynamicQualityPct, setDynamicQualityPct] = useState<number>(() =>
+    Math.round(getStoredDynamicGpuProfile().qualityScore * 100)
+  );
+  const [dynamicRenderScale, setDynamicRenderScale] = useState<number>(1.0);
+  const [dynamicReflectionEvery, setDynamicReflectionEvery] = useState<number>(0);
+  const [dynamicFeatureCombo, setDynamicFeatureCombo] = useState<string>(
+    'Shadows ON · Refl OFF'
+  );
 
   useEffect(() => {
     return onGraphicsQualityChange((q) => setGraphicsQuality(q));
@@ -421,7 +434,9 @@ export const RaceView: React.FC<RaceViewProps> = ({
     let broadcastLensPass: ShaderPass | null = null;
 
     if (gfxPreset.useEnvironmentReflections) {
-      const cubeRes = gfxPreset.id === 'ultra' ? 256 : gfxPreset.id === 'high' ? 192 : 128;
+      // Dynamic uses a fast 128x128 cubemap so live 360° reflections never lag the GPU
+      const cubeRes =
+        gfxPreset.id === 'ultra' ? 256 : gfxPreset.id === 'high' ? 192 : 128;
       cubeRenderTarget = new THREE.WebGLCubeRenderTarget(cubeRes, {
         generateMipmaps: true,
         minFilter: THREE.LinearMipmapLinearFilter,
@@ -432,6 +447,7 @@ export const RaceView: React.FC<RaceViewProps> = ({
       scene.add(carCubeCamera);
     }
 
+    // Only allocate heavy 4x MSAA HalfFloat Post-Processing Composer in Ultra mode (keeps Dynamic race start 100% lag-free and sharp!)
     if (gfxPreset.id === 'ultra') {
       // Multi-sampled HDR Post-Processing Composer (RenderPass -> UnrealBloomPass -> Broadcast Lens ShaderPass -> OutputPass)
       const pixelRatio = renderer.getPixelRatio();
@@ -711,7 +727,14 @@ export const RaceView: React.FC<RaceViewProps> = ({
     const currentCamPos = new THREE.Vector3();
     const currentLookAt = new THREE.Vector3();
 
-    // 7. Render Loop with 60Hz Monitor Frame-Pacing Stabilization, Dead-Reckoning, and Real-Time 3D Reflections
+    // Pre-warm WebGL shaders before the countdown starts so Frame 1 has zero shader-compile stutter
+    try {
+      renderer.compile(scene, camera);
+    } catch {
+      // Ignore if context is still initializing
+    }
+
+    // 7. Render Loop with 60Hz Monitor Frame-Pacing Stabilization, Live FPS Counter & Smart 60 FPS Clear Governor
     let lastTime = performance.now();
     let animFrameId: number;
     let lastUiUpdateTime = 0;
@@ -719,12 +742,189 @@ export const RaceView: React.FC<RaceViewProps> = ({
     let raceCompleteNotified = false;
     let frameCount = 0;
 
+    // Smart 60 FPS Clear Governor:
+    // - Keeps screen resolution crisp & clear (1.0x–1.25x native clarity, never blurry!)
+    // - Eliminates race-start lag by starting from the learned GPU profile (defaulting to a fast 65% Hybrid profile with live CubeCamera deferred during initial grid load)
+    // - Independently toggles Shadows ON + Reflections OFF vs Reflections ON + Shadows OFF (or Both ON / Both OFF) to hold a locked 60 FPS
+    const storedGpuProfile = getStoredDynamicGpuProfile();
+    let fpsSampleFrames = 0;
+    let lastFpsSampleTime = performance.now();
+    let dynamicQualityFactor = storedGpuProfile.qualityScore;
+    let preferShadowsOverReflections = storedGpuProfile.preferShadowsOverReflections;
+    let appliedPixelRatio = renderer.getPixelRatio();
+    let dynamicReflectionCadence = 0; // 0 = live CubeCamera off (uses pre-baked sky/horizon PMREM reflection with 0 GPU cost)
+    let shadowComboAvgFps = 60;
+    let reflComboAvgFps = 60;
+
+    const applyContinuousDynamicQuality = (q: number, persistProfile = false) => {
+      const clampedQ = Math.max(0.15, Math.min(1.0, q));
+      dynamicQualityFactor = clampedQ;
+
+      // 1. Keep Screen Resolution Crisp & Clear!
+      // Instead of dropping resolution to a blurry 0.55x when the GPU struggles, we keep pixel ratio sharp (1.0x native at >= 35%, 0.92x floor in extreme emergencies, up to 1.25x at 100%)
+      // and shed heavy GPU passes (CubeCamera 6-face reflections or Shadow Map depth pass) first!
+      const devicePR = window.devicePixelRatio || 1;
+      const desiredScale =
+        clampedQ >= 0.85
+          ? Math.min(devicePR, 1.25)
+          : clampedQ >= 0.35
+          ? Math.min(devicePR, 1.0)
+          : Math.min(devicePR, 0.92);
+      const targetScale = Math.round(desiredScale / 0.04) * 0.04;
+      if (Math.abs(targetScale - appliedPixelRatio) >= 0.035) {
+        appliedPixelRatio = Number(targetScale.toFixed(2));
+        renderer.setPixelRatio(appliedPixelRatio);
+      }
+
+      // 2. Smart Independent Feature Matrix:
+      //    - [78% – 100%]: BOTH ON (Shadows ON + Live 360° Reflections ON, cadence 3 to 10 frames)
+      //    - [58% – 77%]:  HYBRID A — Preferred feature ON, secondary heavy feature OFF
+      //                    (Default: Shadows ON + Live Reflections OFF [uses fast cached sky/horizon reflection],
+      //                     or Reflections ON + Shadows OFF if GPU benchmarked faster with reflections)
+      //    - [46% – 57%]:  HYBRID B — Alternate single feature ON (tests the opposite combo: e.g. Reflections ON [every 8f] + Shadows OFF, or Shadows ON + Reflections OFF)
+      //    - [15% – 45%]:  60 FPS CLEAR MODE — Both Live Reflections OFF & Dynamic Shadows OFF (cars keep contact shadow + cached sky reflection while screen stays 1.0x crystal clear!)
+      let enableShadows = false;
+      let reflCadence = 0;
+      let comboLabel = '60FPS Clear (Shd OFF · Refl OFF)';
+
+      if (clampedQ >= 0.78) {
+        enableShadows = true;
+        reflCadence = Math.max(
+          3,
+          Math.min(10, Math.round(10 - ((clampedQ - 0.78) / 0.22) * 7))
+        );
+        comboLabel = `Shadows ON · Refl ON (${reflCadence}f)`;
+      } else if (clampedQ >= 0.58) {
+        if (preferShadowsOverReflections) {
+          enableShadows = true;
+          reflCadence = 0; // Turn off live 6-face CubeCamera, keep crisp shadows!
+          comboLabel = 'Shadows ON · Refl OFF';
+        } else {
+          enableShadows = false; // Turn off shadow depth pass, keep live reflections!
+          reflCadence = 6;
+          comboLabel = 'Refl ON (6f) · Shadows OFF';
+        }
+      } else if (clampedQ >= 0.46) {
+        if (preferShadowsOverReflections) {
+          // Try the inverse hybrid: Reflections ON (every 8 frames) + Dynamic Shadows OFF
+          enableShadows = false;
+          reflCadence = 8;
+          comboLabel = 'Refl ON (8f) · Shadows OFF';
+        } else {
+          enableShadows = true;
+          reflCadence = 0;
+          comboLabel = 'Shadows ON · Refl OFF';
+        }
+      } else {
+        // Maximum FPS protection while keeping 1.0x crisp resolution
+        enableShadows = false;
+        reflCadence = 0;
+        comboLabel = '60FPS Clear (Shd OFF · Refl OFF)';
+      }
+
+      dynamicReflectionCadence = reflCadence;
+
+      if (renderer.shadowMap.enabled !== enableShadows) {
+        renderer.shadowMap.enabled = enableShadows;
+        sunLight.castShadow = enableShadows;
+        renderer.shadowMap.needsUpdate = true;
+      }
+      if (enableShadows) {
+        sunLight.shadow.radius = 1.0 + clampedQ * 1.1;
+      }
+
+      // 3. Continuous Camera Draw Distance (900m at 15% up to 2200m at 100%)
+      const targetFar = Math.round(900 + clampedQ * 1300);
+      if (Math.abs(camera.far - targetFar) > 45) {
+        camera.far = targetFar;
+        camera.updateProjectionMatrix();
+      }
+
+      // 4. Rim / Specular Fill Light (Active when >= 50%)
+      if (rimLight) {
+        const rimFactor = Math.max(0, Math.min(1, (clampedQ - 0.45) / 0.55));
+        rimLight.visible = rimFactor > 0.02;
+        rimLight.intensity = rimFactor * 1.1;
+      }
+
+      setDynamicQualityPct(Math.round(clampedQ * 100));
+      setDynamicRenderScale(Number(appliedPixelRatio.toFixed(2)));
+      setDynamicReflectionEvery(dynamicReflectionCadence);
+      setDynamicFeatureCombo(comboLabel);
+
+      if (persistProfile) {
+        setStoredDynamicGpuProfile({
+          qualityScore: Number(clampedQ.toFixed(3)),
+          preferShadowsOverReflections,
+        });
+      }
+    };
+
+    if (gfxPreset.id === 'dynamic') {
+      // Start at the learned GPU profile (or 0.65 fast hybrid on first boot) so the 20-car race start never lags on Frame 1!
+      applyContinuousDynamicQuality(dynamicQualityFactor, false);
+    }
+
     const renderLoop = (time: number) => {
       animFrameId = requestAnimationFrame(renderLoop);
       frameCount++;
+      fpsSampleFrames++;
 
       const rawDelta = (time - lastTime) / 1000;
       lastTime = time;
+
+      // Fast 110ms FPS check starting right at Frame 3 (~50ms after race launch) so Dynamic reacts immediately if FPS dips at race start
+      const fpsElapsed = time - lastFpsSampleTime;
+      const sampleWindowMs = gfxPreset.id === 'dynamic' && frameCount < 45 ? 90 : 120;
+      if (fpsElapsed >= sampleWindowMs && fpsSampleFrames >= 2) {
+        const exactFps = (fpsSampleFrames * 1000) / fpsElapsed;
+        const measuredFps = Math.min(240, Math.max(1, Math.round(exactFps)));
+        const measuredMs = Number(
+          (fpsElapsed / Math.max(1, fpsSampleFrames)).toFixed(1)
+        );
+        setLiveFps(measuredFps);
+        setFrameTimeMs(measuredMs);
+        fpsSampleFrames = 0;
+        lastFpsSampleTime = time;
+
+        // Track which hybrid mode (Shadows ON/Refl OFF vs Refl ON/Shadows OFF) runs faster on this PC's GPU
+        if (renderer.shadowMap.enabled && dynamicReflectionCadence === 0) {
+          shadowComboAvgFps = shadowComboAvgFps * 0.7 + exactFps * 0.3;
+        } else if (!renderer.shadowMap.enabled && dynamicReflectionCadence > 0) {
+          reflComboAvgFps = reflComboAvgFps * 0.7 + exactFps * 0.3;
+          // If Reflections-only consistently beats Shadows-only by > 4 FPS, remember that preference for this GPU
+          if (reflComboAvgFps > shadowComboAvgFps + 4 && preferShadowsOverReflections) {
+            preferShadowsOverReflections = false;
+          } else if (shadowComboAvgFps > reflComboAvgFps + 4 && !preferShadowsOverReflections) {
+            preferShadowsOverReflections = true;
+          }
+        }
+
+        // Smart 60 FPS Governor: Checks from Frame 3 onwards and immediately sheds reflections or shadows if FPS is below 58
+        if (gfxPreset.id === 'dynamic' && frameCount >= 3) {
+          const targetFps = 60.0;
+          const fpsDeficit = targetFps - exactFps; // positive when lagging (< 60 FPS)
+
+          if (fpsDeficit > 1.5 || measuredMs > 17.4) {
+            // GPU struggling (< 58.5 FPS): immediately step down quality to turn off reflections or shadows while keeping resolution sharp
+            const emergencyBoost = exactFps < 48 || measuredMs > 21 ? 0.14 : 0.04;
+            const dropAmount = Math.min(
+              0.28,
+              Math.max(0.035, (fpsDeficit / 60) * 0.65 + emergencyBoost)
+            );
+            applyContinuousDynamicQuality(dynamicQualityFactor - dropAmount, true);
+          } else if (
+            frameCount > 35 &&
+            exactFps >= 58.8 &&
+            measuredMs <= 16.9 &&
+            dynamicQualityFactor < 1.0
+          ) {
+            // Holding steady ~60 FPS after the race start grid settles: gently step quality upward (+1.5%) to test enabling shadows/reflections
+            applyContinuousDynamicQuality(dynamicQualityFactor + 0.015, true);
+          }
+        }
+      }
+
       // 60Hz monitor frame-pacing lock: if running near 60Hz (16.67ms ± 3.5ms), snap delta smoothly to 1/60s to eliminate browser timer jitter on 60Hz displays
       const clampedDelta = Math.min(0.05, Math.max(0.001, rawDelta));
       const delta = Math.abs(clampedDelta - 1 / 60) < 0.0035 ? 1 / 60 : clampedDelta;
@@ -908,12 +1108,23 @@ export const RaceView: React.FC<RaceViewProps> = ({
       camera.position.copy(currentCamPos);
       camera.lookAt(currentLookAt);
 
-      // Update real-time 360° CubeCamera + PMREM environment reflections (Medium, High & Ultra)
-      // Three.js MeshStandardMaterial & MeshPhysicalMaterial require CubeUVReflectionMapping (via pmremGenerator.fromCubemap)
-      // Temporarily disable distance fog during the capture so trees, buildings, overhead bridges, curbs, sky & rival cars reflect with 100% clarity!
+      // Update real-time 360° CubeCamera + PMREM environment reflections (Dynamic smart cadence, Medium, High & Ultra)
+      // On Dynamic mode, skip live CubeCamera capture during the first 25 frames of the race countdown so the race starts at an instant 60 FPS with zero Frame-1 stall (cars already reflect the pre-baked sky/horizon PMREM texture!)
       if (carCubeCamera && cubeRenderTarget && pmremGenerator && gfxPreset.useEnvironmentReflections) {
-        const reflectionInterval = gfxPreset.id === 'ultra' ? 2 : gfxPreset.id === 'high' ? 3 : 5;
-        if (frameCount === 1 || frameCount % reflectionInterval === 0) {
+        const reflectionInterval =
+          gfxPreset.id === 'dynamic'
+            ? dynamicReflectionCadence
+            : gfxPreset.id === 'ultra'
+            ? 2
+            : gfxPreset.id === 'high'
+            ? 3
+            : 6;
+        const shouldCaptureCube =
+          gfxPreset.id === 'dynamic'
+            ? frameCount > 25 && reflectionInterval > 0 && frameCount % reflectionInterval === 0
+            : frameCount === 1 || (reflectionInterval > 0 && frameCount % reflectionInterval === 0);
+
+        if (shouldCaptureCube) {
           playerCar.root.visible = false;
           scene.fog = null;
           carCubeCamera.position.set(carPos.x, carPos.y + 0.68, carPos.z);
@@ -930,7 +1141,7 @@ export const RaceView: React.FC<RaceViewProps> = ({
         }
       }
 
-      if (composer && broadcastLensPass) {
+      if (composer && broadcastLensPass && gfxPreset.id === 'ultra') {
         broadcastLensPass.uniforms.uSpeedFactor.value = Math.min(1.0, Math.abs(speed) / 340);
         composer.render(delta);
       } else {
@@ -1180,38 +1391,94 @@ export const RaceView: React.FC<RaceViewProps> = ({
         />
       )}
 
-      {/* Top-Right Graphics Quality Selector & Exit to Paddock Bar */}
-      <div className="absolute top-4 right-4 z-40 flex items-center gap-2">
-        <div className="flex items-center gap-1 bg-black/75 border border-white/10 backdrop-blur rounded-lg px-2 py-1">
-          <span className="text-[10px] font-mono text-neutral-400 uppercase mr-1 hidden sm:inline">
-            Graphics:
-          </span>
-          {(['low', 'medium', 'high', 'ultra'] as GraphicsQuality[]).map((q) => (
-            <button
-              key={q}
-              onClick={() => setStoredGraphicsQuality(q)}
-              className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold transition-colors cursor-pointer ${
-                graphicsQuality === q
-                  ? q === 'ultra'
-                    ? 'bg-amber-500 text-black'
-                    : q === 'low'
-                    ? 'bg-emerald-500 text-black'
-                    : 'bg-red-600 text-white'
-                  : 'text-neutral-400 hover:text-white'
+      {/* Top-Right Live FPS Counter, Dynamic Graphics Selector & Exit to Paddock Bar */}
+      <div className="absolute top-4 right-4 z-40 flex flex-col items-end gap-1.5">
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {/* Live Real-Time FPS & Frame-Time Counter */}
+          <div
+            className="flex items-center gap-2 bg-black/80 border border-white/15 backdrop-blur-md rounded-lg px-2.5 py-1 font-mono text-[11px] shadow-lg"
+            title="Live Frame Rate (FPS) & Frame Render Time (ms)"
+          >
+            <span
+              className={`w-2 h-2 rounded-full ${
+                liveFps >= 55
+                  ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]'
+                  : liveFps >= 40
+                  ? 'bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.8)]'
+                  : 'bg-red-500 animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.9)]'
               }`}
-              title={GRAPHICS_PRESETS[q].description}
+            />
+            <span
+              className={`font-black tabular-nums ${
+                liveFps >= 55
+                  ? 'text-emerald-400'
+                  : liveFps >= 40
+                  ? 'text-amber-400'
+                  : 'text-red-400'
+              }`}
             >
-              {GRAPHICS_PRESETS[q].shortLabel}
-            </button>
-          ))}
-        </div>
+              {liveFps} FPS
+            </span>
+            <span className="text-neutral-500">·</span>
+            <span className="text-neutral-300 tabular-nums text-[10px]">
+              {frameTimeMs.toFixed(1)}ms
+            </span>
+            {graphicsQuality === 'dynamic' && (
+              <>
+                <span className="text-neutral-500">·</span>
+                <div
+                  className="flex items-center gap-1.5"
+                  title={`Smart 60 FPS Governor: ${dynamicQualityPct}% · Crisp ${dynamicRenderScale}x Resolution · ${dynamicFeatureCombo} · Reflections ${
+                    dynamicReflectionEvery > 0 ? `every ${dynamicReflectionEvery}f` : 'cached sky probe'
+                  }`}
+                >
+                  <span className="text-cyan-300 font-bold text-[10px] tabular-nums">
+                    DYN {dynamicQualityPct}% · {dynamicFeatureCombo}
+                  </span>
+                  <div className="w-12 h-1.5 bg-neutral-800 rounded-full overflow-hidden hidden sm:block">
+                    <div
+                      className="h-full bg-gradient-to-r from-emerald-400 via-cyan-400 to-amber-400 transition-all duration-150"
+                      style={{ width: `${dynamicQualityPct}%` }}
+                    />
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
 
-        <button
-          onClick={onExitToPaddock}
-          className="px-3 py-1.5 bg-black/75 hover:bg-black/95 text-neutral-300 hover:text-white text-xs font-semibold rounded-lg border border-white/10 backdrop-blur transition-colors cursor-pointer"
-        >
-          Exit to Paddock
-        </button>
+          <div className="flex items-center gap-1 bg-black/75 border border-white/10 backdrop-blur rounded-lg px-2 py-1">
+            <span className="text-[10px] font-mono text-neutral-400 uppercase mr-1 hidden sm:inline">
+              Graphics:
+            </span>
+            {GRAPHICS_QUALITY_OPTIONS.map((q) => (
+              <button
+                key={q}
+                onClick={() => setStoredGraphicsQuality(q)}
+                className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold transition-colors cursor-pointer ${
+                  graphicsQuality === q
+                    ? q === 'ultra'
+                      ? 'bg-amber-500 text-black'
+                      : q === 'dynamic'
+                      ? 'bg-cyan-400 text-black'
+                      : q === 'low'
+                      ? 'bg-emerald-500 text-black'
+                      : 'bg-red-600 text-white'
+                    : 'text-neutral-400 hover:text-white'
+                }`}
+                title={GRAPHICS_PRESETS[q].description}
+              >
+                {GRAPHICS_PRESETS[q].shortLabel}
+              </button>
+            ))}
+          </div>
+
+          <button
+            onClick={onExitToPaddock}
+            className="px-3 py-1.5 bg-black/75 hover:bg-black/95 text-neutral-300 hover:text-white text-xs font-semibold rounded-lg border border-white/10 backdrop-blur transition-colors cursor-pointer"
+          >
+            Exit to Paddock
+          </button>
+        </div>
       </div>
     </div>
   );

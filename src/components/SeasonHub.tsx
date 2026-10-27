@@ -87,6 +87,7 @@ import {
 } from '../utils/units';
 import {
   GraphicsQuality,
+  GRAPHICS_QUALITY_OPTIONS,
   GRAPHICS_PRESET_LABELS,
   getStoredGraphicsQuality,
   setStoredGraphicsQuality,
@@ -108,6 +109,16 @@ interface SeasonHubProps {
   gamepadName: string | null;
   onTestRumble: () => void;
   onStartNextSeason?: () => void;
+  onCompleteOffSeasonTask?: (
+    taskId: string,
+    rewards?: {
+      cashDelta?: number;
+      reputationDelta?: number;
+      ratingDelta?: number;
+      interviewQuote?: string;
+      interviewSummary?: string;
+    }
+  ) => void;
   onQuitCareer?: () => void;
   onSellCustomTeam?: (saleValue?: number) => void;
   onOpenMultiplayer?: () => void;
@@ -136,6 +147,7 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
   gamepadName,
   onTestRumble,
   onStartNextSeason,
+  onCompleteOffSeasonTask,
   onQuitCareer,
   onSellCustomTeam,
   onOpenMultiplayer,
@@ -152,6 +164,40 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
   const [selectedLaps, setSelectedLaps] = useState<number>(season.lapCount || 5);
   const [unitSystem, setUnitSystem] = useState<UnitSystem>(getStoredUnitSystem());
   const [graphicsQuality, setGraphicsQuality] = useState<GraphicsQuality>(getStoredGraphicsQuality());
+
+  // Off-Season Mandatory Press Interview State
+  const [interviewQ1, setInterviewQ1] = useState<'confident' | 'humble' | 'hungry'>('confident');
+  const [interviewQ2, setInterviewQ2] = useState<'praise_team' | 'demand_upgrades' | 'focus_racecraft'>('praise_team');
+  const [interviewQ3, setInterviewQ3] = useState<'title_charge' | 'race_wins' | 'consistent_podiums'>('title_charge');
+
+  const offSeasonCompletedTasks = season.career.offSeasonActionsUsed || [];
+  const isInterviewDone = offSeasonCompletedTasks.includes('interview_completed');
+  const isGalaDone = offSeasonCompletedTasks.includes('gala_attended');
+  const isShakedownDone = offSeasonCompletedTasks.includes('shakedown_completed');
+  const completedMandatoryCount =
+    (isInterviewDone ? 1 : 0) + (isGalaDone ? 1 : 0) + (isShakedownDone ? 1 : 0);
+  const canLaunchNextSeason = season.seasonFinished && completedMandatoryCount === 3;
+
+  const [hubFps, setHubFps] = useState<number>(60);
+
+  React.useEffect(() => {
+    let frameCount = 0;
+    let lastStamp = performance.now();
+    let rafId: number;
+    const tickFps = (now: number) => {
+      frameCount++;
+      const elapsed = now - lastStamp;
+      if (elapsed >= 500) {
+        const currentFps = Math.min(240, Math.max(1, Math.round((frameCount * 1000) / elapsed)));
+        setHubFps(currentFps);
+        frameCount = 0;
+        lastStamp = now;
+      }
+      rafId = requestAnimationFrame(tickFps);
+    };
+    rafId = requestAnimationFrame(tickFps);
+    return () => cancelAnimationFrame(rafId);
+  }, []);
 
   React.useEffect(() => {
     return onUnitSystemChange((newUnit) => {
@@ -1143,12 +1189,39 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Graphics Quality Preset Selector for Worse Devices vs Ultra Realistic */}
+          {/* Live FPS Counter Badge */}
+          <div
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-neutral-950 border border-neutral-800 font-mono text-[11px] font-bold"
+            title="Live Frame Rate (FPS)"
+          >
+            <span
+              className={`w-2 h-2 rounded-full ${
+                hubFps >= 55
+                  ? 'bg-emerald-400'
+                  : hubFps >= 40
+                  ? 'bg-amber-400'
+                  : 'bg-red-500 animate-pulse'
+              }`}
+            />
+            <span
+              className={
+                hubFps >= 55
+                  ? 'text-emerald-400'
+                  : hubFps >= 40
+                  ? 'text-amber-400'
+                  : 'text-red-400'
+              }
+            >
+              {hubFps} FPS
+            </span>
+          </div>
+
+          {/* Graphics Quality Preset Selector (Dynamic Auto-Adjust + Low to Ultra Realistic) */}
           <div className="hidden xl:flex items-center gap-1 bg-neutral-950 border border-neutral-800 rounded-lg p-1">
             <span className="text-[10px] font-mono text-neutral-400 px-1.5 font-bold">
               GFX:
             </span>
-            {(['low', 'medium', 'high', 'ultra'] as GraphicsQuality[]).map((q) => (
+            {GRAPHICS_QUALITY_OPTIONS.map((q) => (
               <button
                 key={q}
                 onClick={() => handleChangeGraphicsQuality(q)}
@@ -1156,12 +1229,14 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
                   graphicsQuality === q
                     ? q === 'ultra'
                       ? 'bg-amber-500 text-black'
+                      : q === 'dynamic'
+                      ? 'bg-cyan-500 text-black'
                       : 'bg-red-600 text-white'
                     : 'text-neutral-400 hover:text-white'
                 }`}
                 title={GRAPHICS_PRESET_LABELS[q].subtitle}
               >
-                {q === 'ultra' ? 'Ultra Realistic' : q}
+                {q === 'ultra' ? 'Ultra' : q === 'dynamic' ? 'Dynamic' : q}
               </button>
             ))}
           </div>
@@ -1363,8 +1438,8 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
                 <p className="text-[11px] text-neutral-400">
                   {GRAPHICS_PRESET_LABELS[graphicsQuality].subtitle}
                 </p>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
-                  {(['low', 'medium', 'high', 'ultra'] as GraphicsQuality[]).map((q) => (
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 pt-1">
+                  {GRAPHICS_QUALITY_OPTIONS.map((q) => (
                     <button
                       key={q}
                       type="button"
@@ -1373,6 +1448,8 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
                         graphicsQuality === q
                           ? q === 'ultra'
                             ? 'bg-amber-500 text-black border-amber-300 shadow-md'
+                            : q === 'dynamic'
+                            ? 'bg-cyan-500 text-black border-cyan-300 shadow-md'
                             : 'bg-red-600 text-white border-red-400 shadow-md'
                           : 'bg-neutral-900 text-neutral-400 border-neutral-800 hover:text-white'
                       }`}
@@ -1408,63 +1485,108 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
                 </div>
               </div>
 
-              {/* Qualifying & Grid Position Indicator */}
-              <div className="p-3.5 rounded-xl bg-neutral-950/90 border border-neutral-800 flex flex-col sm:flex-row items-center justify-between gap-3">
-                <div className="flex items-center gap-2.5">
-                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-black text-xs ${qualifyingGridSlot ? 'bg-purple-500/20 text-purple-300 border border-purple-500/40' : 'bg-neutral-800 text-neutral-400'}`}>
-                    {qualifyingGridSlot ? `P${qualifyingGridSlot}` : 'Q'}
+              {season.seasonFinished ? (
+                <div className="p-5 rounded-2xl bg-amber-500/10 border-2 border-amber-400/50 flex flex-col gap-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-black uppercase tracking-wider text-amber-400 flex items-center gap-2">
+                      <Trophy className="w-4 h-4" />
+                      <span>
+                        Season {season.career.seasonNumber || 1} Complete — Mandatory Off-Season Duties ({completedMandatoryCount}/3 Done)
+                      </span>
+                    </span>
+                    <span className="text-[11px] font-mono font-bold px-2.5 py-0.5 rounded bg-black/60 text-amber-300 border border-amber-400/30">
+                      {canLaunchNextSeason ? 'READY FOR NEXT SEASON' : 'ACTION REQUIRED'}
+                    </span>
                   </div>
-                  <div>
-                    <div className="text-xs font-bold text-white flex items-center gap-2">
-                      <span>Qualifying Session (1 Flying Lap)</span>
-                      {qualifyingGridSlot && (
-                        <span className="text-[10px] bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded font-mono font-bold border border-purple-400/30">
-                          {qualifyingGridSlot === 1 ? '👑 POLE POSITION' : `STARTING P${qualifyingGridSlot}`}
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-[11px] text-neutral-400 mt-0.5">
-                      {qualifyingGridSlot
-                        ? `You qualified P${qualifyingGridSlot}. You can re-qualify or proceed directly to Grand Prix.`
-                        : 'Optional: Complete 1 fast flying lap to determine your Grand Prix starting grid slot!'}
-                    </p>
+                  <p className="text-xs text-neutral-200 leading-relaxed">
+                    You cannot start Season {(season.career.seasonNumber || 1) + 1} right away! Per FIA regulations, you must complete your{' '}
+                    <strong className="text-white">Post-Season Press Conference Interviews</strong>, attend the{' '}
+                    <strong className="text-white">FIA Prize Giving Gala</strong>, and finish your{' '}
+                    <strong className="text-white">Pre-Season Simulator Shakedown</strong> in the Off-Season Hub first.
+                  </p>
+                  <div className="flex flex-col sm:flex-row items-center gap-3 pt-1">
+                    <button
+                      onClick={() => setActiveTab('offseason')}
+                      className="flex-1 w-full py-3.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black font-black text-sm uppercase tracking-wider rounded-xl shadow-lg flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                      <Wind className="w-4 h-4" />
+                      <span>
+                        Open Off-Season Hub ({completedMandatoryCount}/3 Duties Completed)
+                      </span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        setPracticeSelectedCircuit(currentCircuit);
+                        setShowPracticeModal(true);
+                      }}
+                      className="w-full sm:w-auto px-5 py-3.5 bg-neutral-800 hover:bg-neutral-700 text-amber-300 font-black text-xs uppercase tracking-wider rounded-xl border border-amber-400/30 flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                      <Gauge className="w-4 h-4 text-amber-400" />
+                      <span>Winter Practice</span>
+                    </button>
                   </div>
                 </div>
+              ) : (
+                <>
+                  {/* Qualifying & Grid Position Indicator */}
+                  <div className="p-3.5 rounded-xl bg-neutral-950/90 border border-neutral-800 flex flex-col sm:flex-row items-center justify-between gap-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-black text-xs ${qualifyingGridSlot ? 'bg-purple-500/20 text-purple-300 border border-purple-500/40' : 'bg-neutral-800 text-neutral-400'}`}>
+                        {qualifyingGridSlot ? `P${qualifyingGridSlot}` : 'Q'}
+                      </div>
+                      <div>
+                        <div className="text-xs font-bold text-white flex items-center gap-2">
+                          <span>Qualifying Session (1 Flying Lap)</span>
+                          {qualifyingGridSlot && (
+                            <span className="text-[10px] bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded font-mono font-bold border border-purple-400/30">
+                              {qualifyingGridSlot === 1 ? '👑 POLE POSITION' : `STARTING P${qualifyingGridSlot}`}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-neutral-400 mt-0.5">
+                          {qualifyingGridSlot
+                            ? `You qualified P${qualifyingGridSlot}. You can re-qualify or proceed directly to Grand Prix.`
+                            : 'Optional: Complete 1 fast flying lap to determine your Grand Prix starting grid slot!'}
+                        </p>
+                      </div>
+                    </div>
 
-                {onStartQualifying && (
-                  <button
-                    onClick={onStartQualifying}
-                    className="w-full sm:w-auto px-4 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-black text-xs uppercase tracking-wider rounded-lg shadow-md shadow-purple-950/40 transition-all flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap"
-                  >
-                    <Timer className="w-4 h-4 text-purple-200" />
-                    <span>{qualifyingGridSlot ? 'RE-QUALIFY' : 'START QUALIFYING'}</span>
-                  </button>
-                )}
-              </div>
+                    {onStartQualifying && (
+                      <button
+                        onClick={onStartQualifying}
+                        className="w-full sm:w-auto px-4 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-black text-xs uppercase tracking-wider rounded-lg shadow-md shadow-purple-950/40 transition-all flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap"
+                      >
+                        <Timer className="w-4 h-4 text-purple-200" />
+                        <span>{qualifyingGridSlot ? 'RE-QUALIFY' : 'START QUALIFYING'}</span>
+                      </button>
+                    )}
+                  </div>
 
-              {/* Launch Race & Practice Buttons */}
-              <div className="flex flex-col sm:flex-row items-center gap-3">
-                <button
-                  onClick={() => onStartRace(selectedLaps)}
-                  className="flex-1 w-full py-4 bg-gradient-to-r from-red-600 to-red-500 hover:from-red-500 hover:to-red-400 text-white font-black text-base md:text-lg tracking-wider uppercase rounded-xl shadow-xl shadow-red-600/25 transition-all transform active:scale-[0.99] flex items-center justify-center gap-2 cursor-pointer"
-                >
-                  <Play className="w-5 h-5 fill-white" />
-                  <span>
-                    START GRAND PRIX {qualifyingGridSlot ? `(P${qualifyingGridSlot})` : ''}
-                  </span>
-                </button>
+                  {/* Launch Race & Practice Buttons */}
+                  <div className="flex flex-col sm:flex-row items-center gap-3">
+                    <button
+                      onClick={() => onStartRace(selectedLaps)}
+                      className="flex-1 w-full py-4 bg-gradient-to-r from-red-600 to-red-500 hover:from-red-500 hover:to-red-400 text-white font-black text-base md:text-lg tracking-wider uppercase rounded-xl shadow-xl shadow-red-600/25 transition-all transform active:scale-[0.99] flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                      <Play className="w-5 h-5 fill-white" />
+                      <span>
+                        START GRAND PRIX {qualifyingGridSlot ? `(P${qualifyingGridSlot})` : ''}
+                      </span>
+                    </button>
 
-                <button
-                  onClick={() => {
-                    setPracticeSelectedCircuit(currentCircuit);
-                    setShowPracticeModal(true);
-                  }}
-                  className="w-full sm:w-auto px-6 py-4 bg-neutral-800 hover:bg-neutral-750 text-amber-300 hover:text-white font-black text-sm tracking-wider uppercase rounded-xl border border-amber-400/30 transition-all flex items-center justify-center gap-2 cursor-pointer"
-                >
-                  <Gauge className="w-5 h-5 text-amber-400" />
-                  <span>FREE PRACTICE</span>
-                </button>
-              </div>
+                    <button
+                      onClick={() => {
+                        setPracticeSelectedCircuit(currentCircuit);
+                        setShowPracticeModal(true);
+                      }}
+                      className="w-full sm:w-auto px-6 py-4 bg-neutral-800 hover:bg-neutral-750 text-amber-300 hover:text-white font-black text-sm tracking-wider uppercase rounded-xl border border-amber-400/30 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                      <Gauge className="w-5 h-5 text-amber-400" />
+                      <span>FREE PRACTICE</span>
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
 
             {/* Current Team & Driver Card */}
@@ -1592,19 +1714,19 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
             <div>
               <div className="flex items-center gap-2 text-xs text-amber-400 font-mono font-bold uppercase">
                 <Wind className="w-4 h-4" />
-                <span>FIA Winter Off-Season & Factory Development Hub</span>
+                <span>FIA Winter Off-Season & Mandatory Media Duties Hub</span>
                 <span>·</span>
                 <span>
                   Season {season.career.seasonNumber || 1} ({2026 + (season.career.seasonNumber || 1) - 1})
                 </span>
               </div>
               <h2 className="text-2xl font-black text-white mt-1">
-                Off-Season Paddock, Winter Testing & Post-Season Gala
+                Off-Season Press Conference, FIA Gala & Winter R&D
               </h2>
               <p className="text-xs text-neutral-400 mt-1 max-w-2xl">
                 {season.seasonFinished
-                  ? 'The 10-round Formula 1 season is officially complete! Review the post-season media coverage, run winter R&D upgrades, or launch the next championship season.'
-                  : `You are currently at Round ${season.currentRound + 1} of 10. You can preview Winter Off-Season R&D programs now or return after the Round 10 Abu Dhabi finale for the full Off-Season Gala!`}
+                  ? `Season ${season.career.seasonNumber || 1} is complete! Complete all 3 mandatory off-season duties below (Press Conference Interviews, FIA Prize Gala, and Pre-Season Simulator Shakedown) to unlock Season ${(season.career.seasonNumber || 1) + 1}.`
+                  : `Season ${season.career.seasonNumber || 1} is currently active (Round ${season.currentRound + 1} of 10). Skipping seasons is prohibited by FIA Career Rules—finish all 10 rounds to enter the Off-Season!`}
               </p>
             </div>
 
@@ -1614,7 +1736,7 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
                 className="px-4 py-2.5 rounded-xl bg-neutral-950 hover:bg-neutral-800 text-white border border-neutral-700 text-xs font-bold flex items-center gap-2 cursor-pointer"
               >
                 <Newspaper className="w-4 h-4 text-red-400" />
-                <span>Read Post-Season Media Coverage</span>
+                <span>Paddock Media Coverage</span>
               </button>
               <button
                 onClick={() => setActiveTab('analytics')}
@@ -1623,25 +1745,318 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
                 <BarChart3 className="w-4 h-4 text-cyan-400" />
                 <span>Previous Years Analytics</span>
               </button>
-              {onStartNextSeason && (
+
+              {!season.seasonFinished ? (
+                <div className="px-4 py-2.5 rounded-xl bg-neutral-950 border border-neutral-800 text-neutral-400 text-xs font-mono font-bold flex items-center gap-2">
+                  <Lock className="w-4 h-4 text-amber-400" />
+                  <span>Complete Round 10 ({10 - season.completedRounds.length} Races Left) — No Skipping Seasons</span>
+                </div>
+              ) : canLaunchNextSeason && onStartNextSeason ? (
                 <button
                   onClick={() => {
                     onStartNextSeason();
                     setActiveTab('weekend');
                     setNotificationMsg(
-                      `Launched Season ${(season.career.seasonNumber || 1) + 1} (${2026 + (season.career.seasonNumber || 1)})! Previous season telemetry archived in Performance Analytics.`
+                      `Launched Season ${(season.career.seasonNumber || 1) + 1} (${2026 + (season.career.seasonNumber || 1)})! Paddock media will continue discussing Season ${season.career.seasonNumber || 1} until Round 1 at Bahrain concludes.`
                     );
                   }}
-                  className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider flex items-center gap-2 cursor-pointer shadow-lg"
+                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-amber-400 hover:from-emerald-400 hover:to-amber-300 text-black font-black text-xs uppercase tracking-wider flex items-center gap-2 cursor-pointer shadow-lg"
                 >
                   <Trophy className="w-4 h-4" />
                   <span>
-                    {season.seasonFinished
-                      ? `Launch Season ${(season.career.seasonNumber || 1) + 1} (${2026 + (season.career.seasonNumber || 1)})`
-                      : `Advance to Season ${(season.career.seasonNumber || 1) + 1} Now`}
+                    Launch Season {(season.career.seasonNumber || 1) + 1} ({2026 + (season.career.seasonNumber || 1)}) →
                   </span>
                 </button>
+              ) : (
+                <div className="px-4 py-2.5 rounded-xl bg-amber-500/15 border border-amber-400/40 text-amber-300 text-xs font-mono font-bold flex items-center gap-2">
+                  <Lock className="w-4 h-4 text-amber-400" />
+                  <span>
+                    Complete Mandatory Off-Season Duties ({completedMandatoryCount}/3) to Unlock Season {(season.career.seasonNumber || 1) + 1}
+                  </span>
+                </div>
               )}
+            </div>
+          </div>
+
+          {/* MANDATORY OFF-SEASON DUTIES & INTERVIEWS PANEL */}
+          <div className="bg-neutral-900 border-2 border-amber-500/40 rounded-2xl p-6 space-y-5">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-neutral-800 pb-4">
+              <div>
+                <span className="text-[11px] font-mono font-black uppercase tracking-wider text-amber-400">
+                  Mandatory Post-Season Protocol · Cannot Skip to Next Season Without Completing
+                </span>
+                <h3 className="text-xl font-black text-white mt-0.5">
+                  Required Off-Season Duties ({completedMandatoryCount} / 3 Completed)
+                </h3>
+                <p className="text-xs text-neutral-400 mt-0.5">
+                  {season.seasonFinished
+                    ? 'Complete your press interviews, attend the FIA Gala, and finish your pre-season shakedown below to unlock the next championship season.'
+                    : `These mandatory off-season activities unlock immediately after Round 10 (Abu Dhabi GP). You are currently on Round ${season.currentRound + 1} of 10.`}
+                </p>
+              </div>
+              <div className="flex items-center gap-2 font-mono text-xs">
+                <span className={`px-2.5 py-1 rounded-lg border font-bold ${isInterviewDone ? 'bg-emerald-500/20 border-emerald-400/40 text-emerald-300' : 'bg-neutral-950 border-neutral-800 text-neutral-400'}`}>
+                  {isInterviewDone ? '✓ 1. Interviews' : '○ 1. Interviews'}
+                </span>
+                <span className={`px-2.5 py-1 rounded-lg border font-bold ${isGalaDone ? 'bg-emerald-500/20 border-emerald-400/40 text-emerald-300' : 'bg-neutral-950 border-neutral-800 text-neutral-400'}`}>
+                  {isGalaDone ? '✓ 2. FIA Gala' : '○ 2. FIA Gala'}
+                </span>
+                <span className={`px-2.5 py-1 rounded-lg border font-bold ${isShakedownDone ? 'bg-emerald-500/20 border-emerald-400/40 text-emerald-300' : 'bg-neutral-950 border-neutral-800 text-neutral-400'}`}>
+                  {isShakedownDone ? '✓ 3. Shakedown' : '○ 3. Shakedown'}
+                </span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+              {/* Duty 1: Mandatory Post-Season Press Conference Interviews */}
+              <div className={`p-5 rounded-2xl border flex flex-col justify-between gap-4 ${isInterviewDone ? 'bg-emerald-950/20 border-emerald-500/40' : 'bg-neutral-950 border-neutral-800'}`}>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-mono font-black uppercase tracking-wider text-amber-400">
+                      Duty 1 · Mandatory Media Press Conference
+                    </span>
+                    {isInterviewDone && (
+                      <span className="text-[10px] font-mono font-black text-emerald-400 bg-emerald-500/20 px-2 py-0.5 rounded">
+                        COMPLETED ✓
+                      </span>
+                    )}
+                  </div>
+                  <h4 className="text-base font-black text-white">
+                    FIA Post-Season Press Interviews
+                  </h4>
+                  <p className="text-xs text-neutral-400 leading-relaxed">
+                    Answer questions from Sky Sports F1, The Race, and Autosport regarding your Season {season.career.seasonNumber || 1} performance. Your quotes will be published across the Paddock Newsfeed until Round 1 of next season ends!
+                  </p>
+
+                  {!isInterviewDone ? (
+                    <div className="space-y-2.5 pt-1 text-xs">
+                      <div>
+                        <label className="text-[10px] font-mono uppercase text-neutral-400 block mb-1">
+                          Q1 (Sky Sports F1): How do you rate your Season {season.career.seasonNumber || 1} campaign?
+                        </label>
+                        <select
+                          value={interviewQ1}
+                          onChange={(e) => setInterviewQ1(e.target.value as any)}
+                          disabled={!season.seasonFinished}
+                          className="w-full bg-neutral-900 border border-neutral-700 rounded-lg px-2.5 py-1.5 text-xs text-white"
+                        >
+                          <option value="confident">"We proved our pace against the best on the grid and extracted maximum points."</option>
+                          <option value="humble">"It was a grueling 10-race battle—proud of the crew, but we left points on the table."</option>
+                          <option value="hungry">"This season was just the foundation. Nobody in the paddock has seen our true ceiling yet."</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="text-[10px] font-mono uppercase text-neutral-400 block mb-1">
+                          Q2 (The Race): Where is {playerTeam.name} focusing this winter?
+                        </label>
+                        <select
+                          value={interviewQ2}
+                          onChange={(e) => setInterviewQ2(e.target.value as any)}
+                          disabled={!season.seasonFinished}
+                          className="w-full bg-neutral-900 border border-neutral-700 rounded-lg px-2.5 py-1.5 text-xs text-white"
+                        >
+                          <option value="praise_team">"Our factory aero and powertrain engineers are working flat-out on cornering downforce."</option>
+                          <option value="demand_upgrades">"We need more straight-line DRS speed and braking stability if we want to dominate next year."</option>
+                          <option value="focus_racecraft">"Late-braking racecraft and tire management under pressure will be our biggest weapons."</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="text-[10px] font-mono uppercase text-neutral-400 block mb-1">
+                          Q3 (Autosport): What is your target for Season {(season.career.seasonNumber || 1) + 1}?
+                        </label>
+                        <select
+                          value={interviewQ3}
+                          onChange={(e) => setInterviewQ3(e.target.value as any)}
+                          disabled={!season.seasonFinished}
+                          className="w-full bg-neutral-900 border border-neutral-700 rounded-lg px-2.5 py-1.5 text-xs text-white"
+                        >
+                          <option value="title_charge">"Nothing less than the FIA World Championship trophy. We are coming for P1 from Bahrain."</option>
+                          <option value="race_wins">"Fighting for Grand Prix victories and podiums on every single circuit on the calendar."</option>
+                          <option value="consistent_podiums">"Relentless points finishes and shocking the front-running constructors every weekend."</option>
+                        </select>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-3 rounded-xl bg-neutral-900 border border-emerald-500/30 text-xs text-emerald-200 italic">
+                      "{season.career.lastOffSeasonInterviewQuote || 'We proved our pace this season and we are coming out swinging at Bahrain.'}"
+                    </div>
+                  )}
+                </div>
+
+                <button
+                  disabled={!season.seasonFinished || isInterviewDone}
+                  onClick={() => {
+                    if (!season.seasonFinished || isInterviewDone || !onCompleteOffSeasonTask) return;
+                    const q1Map = {
+                      confident: 'We proved our pace against the best on the grid and extracted maximum points.',
+                      humble: 'It was a grueling 10-race campaign—proud of the crew, and we learned huge lessons.',
+                      hungry: 'This season was just the foundation. Nobody in the paddock has seen our true ceiling yet.',
+                    };
+                    const q2Map = {
+                      praise_team: 'Our factory aero and powertrain engineers are working flat-out on winter upgrades.',
+                      demand_upgrades: 'We are pushing aggressively for more straight-line DRS speed and braking stability.',
+                      focus_racecraft: 'Late-braking racecraft and tire management under pressure will be our biggest weapons.',
+                    };
+                    const q3Map = {
+                      title_charge: 'Our target for next season is nothing less than the FIA World Championship title.',
+                      race_wins: 'We are targeting Grand Prix victories and podiums at every circuit next year.',
+                      consistent_podiums: 'We aim to shock the front-running constructors starting right at Round 1 in Bahrain.',
+                    };
+                    const fullQuote = `${q1Map[interviewQ1]} ${q2Map[interviewQ2]} ${q3Map[interviewQ3]}`;
+                    onCompleteOffSeasonTask('interview_completed', {
+                      cashDelta: 350000,
+                      reputationDelta: 4,
+                      interviewQuote: fullQuote,
+                      interviewSummary: `Spoke to Sky Sports F1, The Race & Autosport at the Season ${season.career.seasonNumber || 1} Post-Season Press Conference`,
+                    });
+                    setNotificationMsg(
+                      'POST-SEASON PRESS INTERVIEW COMPLETED: Earned +$350,000 FIA Media Bonus & +4% Paddock Reputation! Your quotes are now live in Paddock News.'
+                    );
+                  }}
+                  className={`w-full py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all ${
+                    isInterviewDone
+                      ? 'bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 cursor-default'
+                      : season.seasonFinished
+                      ? 'bg-amber-500 hover:bg-amber-400 text-black cursor-pointer shadow-md'
+                      : 'bg-neutral-800 text-neutral-500 cursor-not-allowed'
+                  }`}
+                >
+                  {isInterviewDone
+                    ? '✓ Press Interviews Completed'
+                    : season.seasonFinished
+                    ? 'Complete Press Interviews (+$350K & +4% Rep)'
+                    : 'Locked Until Round 10 Ends'}
+                </button>
+              </div>
+
+              {/* Duty 2: Mandatory FIA Prize Giving Gala & Classification Sign-Off */}
+              <div className={`p-5 rounded-2xl border flex flex-col justify-between gap-4 ${isGalaDone ? 'bg-emerald-950/20 border-emerald-500/40' : 'bg-neutral-950 border-neutral-800'}`}>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-mono font-black uppercase tracking-wider text-cyan-400">
+                      Duty 2 · Official FIA Ceremony
+                    </span>
+                    {isGalaDone && (
+                      <span className="text-[10px] font-mono font-black text-emerald-400 bg-emerald-500/20 px-2 py-0.5 rounded">
+                        COMPLETED ✓
+                      </span>
+                    )}
+                  </div>
+                  <h4 className="text-base font-black text-white">
+                    Attend FIA Prize-Giving Gala & Sign Final Classification
+                  </h4>
+                  <p className="text-xs text-neutral-400 leading-relaxed">
+                    All Formula 1 drivers and team principals are required by FIA Sporting Regulations to attend the post-season Awards Gala, certify final championship points, and conduct red-carpet media appearances.
+                  </p>
+                  <div className="p-3 rounded-xl bg-neutral-900 border border-neutral-800 space-y-1.5 text-xs font-mono">
+                    <div className="flex justify-between">
+                      <span className="text-neutral-400">Season {season.career.seasonNumber || 1} Points:</span>
+                      <span className="text-white font-bold">{season.driverPoints[season.selectedDriverId] || 0} PTS</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-neutral-400">Constructor Points:</span>
+                      <span className="text-cyan-400 font-bold">{season.constructorPoints[season.selectedTeamId] || 0} PTS</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-neutral-400">Gala Appearance Stipend:</span>
+                      <span className="text-emerald-400 font-bold">+$500,000 & +3% Rep</span>
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  disabled={!season.seasonFinished || isGalaDone}
+                  onClick={() => {
+                    if (!season.seasonFinished || isGalaDone || !onCompleteOffSeasonTask) return;
+                    onCompleteOffSeasonTask('gala_attended', {
+                      cashDelta: 500000,
+                      reputationDelta: 3,
+                    });
+                    setNotificationMsg(
+                      'FIA PRIZE GALA ATTENDED: Certified Season classification and received +$500,000 FIA Gala Appearance Stipend & +3% Reputation!'
+                    );
+                  }}
+                  className={`w-full py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all ${
+                    isGalaDone
+                      ? 'bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 cursor-default'
+                      : season.seasonFinished
+                      ? 'bg-cyan-500 hover:bg-cyan-400 text-black cursor-pointer shadow-md'
+                      : 'bg-neutral-800 text-neutral-500 cursor-not-allowed'
+                  }`}
+                >
+                  {isGalaDone
+                    ? '✓ FIA Gala Attended'
+                    : season.seasonFinished
+                    ? 'Attend FIA Prize Gala (+$500K & +3% Rep)'
+                    : 'Locked Until Round 10 Ends'}
+                </button>
+              </div>
+
+              {/* Duty 3: Mandatory Pre-Season Simulator Shakedown & Super Licence Renewal */}
+              <div className={`p-5 rounded-2xl border flex flex-col justify-between gap-4 ${isShakedownDone ? 'bg-emerald-950/20 border-emerald-500/40' : 'bg-neutral-950 border-neutral-800'}`}>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-mono font-black uppercase tracking-wider text-purple-400">
+                      Duty 3 · Pre-Season Homologation
+                    </span>
+                    {isShakedownDone && (
+                      <span className="text-[10px] font-mono font-black text-emerald-400 bg-emerald-500/20 px-2 py-0.5 rounded">
+                        COMPLETED ✓
+                      </span>
+                    )}
+                  </div>
+                  <h4 className="text-base font-black text-white">
+                    Pre-Season Simulator Shakedown & Seat Fitting
+                  </h4>
+                  <p className="text-xs text-neutral-400 leading-relaxed">
+                    Complete your mandatory 200km winter simulator telemetry correlation, crash-structure homologation, and FIA Super Licence renewal with {playerTeam.name} before shipping freight to Bahrain.
+                  </p>
+                  <div className="p-3 rounded-xl bg-neutral-900 border border-neutral-800 space-y-1.5 text-xs font-mono">
+                    <div className="flex justify-between">
+                      <span className="text-neutral-400">Contracted Constructor:</span>
+                      <span className="text-white font-bold">{playerTeam.name}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-neutral-400">Simulator Telemetry Gain:</span>
+                      <span className="text-purple-400 font-bold">+0.5 Driver Rating</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-neutral-400">FIA Super Licence Status:</span>
+                      <span className={isShakedownDone ? 'text-emerald-400 font-bold' : 'text-amber-400 font-bold'}>
+                        {isShakedownDone ? 'CERTIFIED FOR NEXT SEASON' : 'PENDING SHAKEDOWN'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  disabled={!season.seasonFinished || isShakedownDone}
+                  onClick={() => {
+                    if (!season.seasonFinished || isShakedownDone || !onCompleteOffSeasonTask) return;
+                    onCompleteOffSeasonTask('shakedown_completed', {
+                      ratingDelta: 0.5,
+                    });
+                    setNotificationMsg(
+                      `PRE-SEASON SHAKEDOWN COMPLETE: ${playerTeam.name} chassis homologated and Driver Rating increased by +0.5!`
+                    );
+                  }}
+                  className={`w-full py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all ${
+                    isShakedownDone
+                      ? 'bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 cursor-default'
+                      : season.seasonFinished
+                      ? 'bg-purple-500 hover:bg-purple-400 text-black cursor-pointer shadow-md'
+                      : 'bg-neutral-800 text-neutral-500 cursor-not-allowed'
+                  }`}
+                >
+                  {isShakedownDone
+                    ? '✓ Shakedown & Licence Certified'
+                    : season.seasonFinished
+                    ? 'Run Pre-Season Shakedown (+0.5 Rating)'
+                    : 'Locked Until Round 10 Ends'}
+                </button>
+              </div>
             </div>
           </div>
 

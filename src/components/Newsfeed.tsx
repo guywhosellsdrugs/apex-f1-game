@@ -239,9 +239,18 @@ export interface NewsArticle {
   predictionStatus?: 'pending' | 'correct' | 'incorrect';
   predictionSubscriberShift?: number;
   isViralRumor?: boolean;
+  customRumorType?:
+    | 'driver_transfer'
+    | 'new_f1_team'
+    | 'secret_tech'
+    | 'contract_drama'
+    | 'anything_custom'
+    | 'race_outcome';
+  customRumorClaim?: string;
   viralRumorStatus?: 'pending' | 'true' | 'false';
   viralRumorPayoutDelta?: number;
   viralRumorSubscriberDelta?: number;
+  viralRumorResolutionNote?: string;
 }
 
 interface NewsfeedProps {
@@ -363,10 +372,50 @@ export function generatePaddockNews(season: SeasonState): NewsArticle[] {
         predictionStatus: rep.predictionStatus,
         predictionSubscriberShift: rep.predictionSubscriberShift,
         isViralRumor: rep.isViralRumor,
+        customRumorType: rep.customRumorType,
+        customRumorClaim: rep.customRumorClaim,
         viralRumorStatus: rep.viralRumorStatus,
         viralRumorPayoutDelta: rep.viralRumorPayoutDelta,
         viralRumorSubscriberDelta: rep.viralRumorSubscriberDelta,
+        viralRumorResolutionNote: rep.viralRumorResolutionNote,
       });
+
+      // Rival paddock media also reacts to the player's custom viral rumors in the live news wire!
+      if (rep.isViralRumor && rep.customRumorClaim) {
+        if (rep.viralRumorStatus === 'true') {
+          articles.push({
+            id: `rival_reaction_true_${rep.id}`,
+            category: 'transfer',
+            categoryLabel: 'Rumor Verified True',
+            categoryColor: 'text-emerald-400',
+            source: 'Sky Sports F1 Syndicate',
+            sourceBadge: 'SKY',
+            title: `PADDOCK SHOCKWAVE: Insiders Confirm ${company.name}'s Viral Scoop — "${rep.customRumorClaim}" Turns Out To Be TRUE!`,
+            excerpt: `Rival media networks scramble as paddock leaks verify the blockbuster rumor first broken by ${company.name} [${company.badgeCode}].`,
+            content: `When ${company.name} first reported the rumor that "${rep.customRumorClaim}", skeptics across the pitlane questioned whether it could be real. Now, senior FIA and team hospitality sources have officially corroborated the scoop, sending ${company.name}'s subscriber numbers and credibility soaring across the motorsport world.`,
+            author: 'Craig Slater & Ted Kravitz',
+            timeAgo: `Round ${rep.roundPublished + 1} Fallout`,
+            importance: 'breaking',
+            readTime: '3 min read',
+          });
+        } else if (rep.viralRumorStatus === 'pending') {
+          articles.push({
+            id: `rival_reaction_pending_${rep.id}`,
+            category: 'transfer',
+            categoryLabel: 'Paddock Rumor Mill',
+            categoryColor: 'text-amber-400',
+            source: 'Pitlane Insider Gazette',
+            sourceBadge: 'INSIDER',
+            title: `RUMOR MILL BUZZING: Paddock Reacts to ${company.name}'s Claim That "${rep.customRumorClaim}"`,
+            excerpt: `Drivers and team principals are being quizzed in the media pen after ${company.name} published a viral rumor ahead of the Grand Prix.`,
+            content: `The entire Formula 1 paddock is debating the viral report published by ${company.name} [${company.badgeCode}] claiming: "${rep.customRumorClaim}". While team spokespeople declined to comment on the record before the race, insiders say the truth will come to light as soon as the chequered flag drops this weekend.`,
+            author: 'Dieter Rencken',
+            timeAgo: 'Paddock Buzz',
+            importance: 'featured',
+            readTime: '2 min read',
+          });
+        }
+      }
     });
   }
 
@@ -426,7 +475,9 @@ export function generatePaddockNews(season: SeasonState): NewsArticle[] {
   };
 
   // =========================================================================
-  // POST-SEASON & OFF-SEASON F1 MEDIA COVERAGE (When a season is over or during Winter Off-Season)
+  // POST-SEASON & PRE-RACE-1 MEDIA COVERAGE:
+  // Everyone in the paddock talks about the previous season from the moment
+  // the season ends ALL THE WAY UNTIL Race 1 of the new season finishes!
   // =========================================================================
   const seasonYear = 2026 + (season.career.seasonNumber || 1) - 1;
   const lastArchivedSeason =
@@ -434,92 +485,224 @@ export function generatePaddockNews(season: SeasonState): NewsArticle[] {
       ? season.career.seasonHistory[season.career.seasonHistory.length - 1]
       : null;
 
-  if (season.seasonFinished) {
-    const seasonWins = completedRounds.filter(
-      (r) => r.playerFinishedPosition === 1
-    ).length;
-    const seasonPodiums = completedRounds.filter(
-      (r) => r.playerFinishedPosition <= 3
-    ).length;
+  const isTalkingAboutPreviousSeason = Boolean(
+    season.seasonFinished || (lastArchivedSeason && completedRounds.length === 0)
+  );
+
+  if (isTalkingAboutPreviousSeason) {
+    // Use either the just-finished season (when seasonFinished is true) or lastArchivedSeason (when waiting for Race 1 of new season)
+    const targetYear = season.seasonFinished
+      ? seasonYear
+      : lastArchivedSeason!.year;
+    const prevDriverPointsMap = season.seasonFinished
+      ? season.driverPoints || {}
+      : lastArchivedSeason?.driverPointsSnapshot || {};
+    const prevConstructorPointsMap = season.seasonFinished
+      ? season.constructorPoints || {}
+      : lastArchivedSeason?.constructorPointsSnapshot || {};
+    const prevRounds = season.seasonFinished
+      ? completedRounds
+      : lastArchivedSeason?.completedRoundsSnapshot || [];
+
+    const prevSortedDrivers = Object.entries(prevDriverPointsMap)
+      .sort((a, b) => b[1] - a[1])
+      .map(([id, pts]) => {
+        const d = DRIVERS.find((drv) => drv.id === id);
+        return {
+          id,
+          name: id === playerDriverId ? playerDriverName : d?.name || id,
+          points: pts,
+          teamId: d?.teamId || 'haas',
+        };
+      });
+
+    const prevP1Driver = prevSortedDrivers[0] || p1Driver;
+    const prevP2Driver = prevSortedDrivers[1] || p2Driver;
+    const prevPlayerRank = season.seasonFinished
+      ? playerRank
+      : lastArchivedSeason?.finalDriverRank || 1;
+    const prevPlayerPts = season.seasonFinished
+      ? playerEntry.points
+      : lastArchivedSeason?.driverPoints || 0;
+    const prevTeamName = season.seasonFinished
+      ? playerTeamName
+      : lastArchivedSeason?.teamName || playerTeamName;
+    const prevWins = season.seasonFinished
+      ? completedRounds.filter((r) => r.playerFinishedPosition === 1).length
+      : lastArchivedSeason?.wins || 0;
+    const prevPodiums = season.seasonFinished
+      ? completedRounds.filter((r) => r.playerFinishedPosition <= 3).length
+      : lastArchivedSeason?.podiums || 0;
+
+    const prevSortedConstructors = Object.entries(prevConstructorPointsMap)
+      .sort((a, b) => b[1] - a[1])
+      .map(([id, pts]) => {
+        const t = TEAMS.find((team) => team.id === id);
+        const name =
+          season.career.customTeam && id === season.career.customTeam.id
+            ? season.career.customTeam.name
+            : t?.name || id;
+        return { id, name, points: pts };
+      });
+
+    const prevP1Constructor = prevSortedConstructors[0] || p1Constructor;
+    const prevP2Constructor = prevSortedConstructors[1] || p2Constructor;
+    const prevConstructorRank = season.seasonFinished
+      ? prevSortedConstructors.findIndex((c) => c.id === playerTeamId) + 1 || 1
+      : lastArchivedSeason?.constructorRank || 1;
+    const prevConstructorPts = season.seasonFinished
+      ? prevConstructorPointsMap[playerTeamId] || 0
+      : lastArchivedSeason?.constructorPoints || 0;
+
     const playerGrade =
-      playerRank === 1
+      prevPlayerRank === 1
         ? 'A+ (World Champion)'
-        : playerRank <= 3
+        : prevPlayerRank <= 3
         ? 'A (Title Contender)'
-        : playerRank <= 6
+        : prevPlayerRank <= 6
         ? 'B+ (Front-Runner)'
-        : playerRank <= 10
+        : prevPlayerRank <= 10
         ? 'B (Points Finisher)'
         : 'C+ (Developing Talent)';
 
+    const interviewQuote =
+      season.career.lastOffSeasonInterviewQuote ||
+      'We proved our pace against the best on the grid and our focus is on pushing even harder in the next campaign.';
+
+    // 1. Headline Championship Story about the Previous Season
     articles.push({
-      id: `post_season_champion_${seasonYear}`,
+      id: `prev_season_champion_talk_${targetYear}`,
       category: 'championship',
-      categoryLabel: `${seasonYear} Post-Season Special`,
+      categoryLabel: `${targetYear} Season Verdict`,
       categoryColor: 'text-amber-400',
       source: 'Sky Sports F1 Syndicate',
       sourceBadge: 'SKY',
-      title: `SEASON FINALE VERDICT: ${p1Driver.name} Crowned ${seasonYear} FIA Formula 1 World Champion as ${p1Constructor.name} Seals Constructors' Cup!`,
-      excerpt: `The chequered flag has fallen on a breathtaking 10-round ${seasonYear} Formula 1 campaign. Here is how the championship was won—and what comes next in the off-season.`,
-      content: `After 10 high-intensity Grand Prix weekends, ${p1Driver.name} (${p1Driver.points} PTS) has officially been crowned the ${seasonYear} FIA World Drivers' Champion ahead of ${p2Driver.name} (${p2Driver.points} PTS). In the Constructors' Championship, ${p1Constructor.name} amassed ${p1Constructor.points} points to hold off ${p2Constructor.name} (${p2Constructor.points} PTS) and claim the coveted FIA Column-1 prize purse. Paddock attention now shifts immediately to the FIA Awards Gala, off-season free agency, and winter wind-tunnel development.`,
+      title: `${targetYear} SEASON IN REVIEW: Paddock Still Buzzing Over ${prevP1Driver.name}'s ${prevP1Driver.points}-Point World Title & ${prevP1Constructor.name}'s Constructors' Crown`,
+      excerpt: `${
+        season.seasonFinished
+          ? `The chequered flag has fallen on the 10-round ${targetYear} Formula 1 championship.`
+          : `Even as cars prepare for Round 1 of ${seasonYear}, the entire F1 paddock is still debating the dramatic ${targetYear} championship finale.`
+      } Here is how ${prevP1Driver.name} beat ${prevP2Driver.name} by ${
+        prevP1Driver.points - prevP2Driver.points
+      } points.`,
+      content: `Across every hospitality suite in the paddock, the conversation remains locked on the ${targetYear} FIA Formula 1 World Championship. ${prevP1Driver.name} (${prevP1Driver.points} PTS) clinched the World Drivers' title ahead of ${prevP2Driver.name} (${prevP2Driver.points} PTS), while ${prevP1Constructor.name} (${prevP1Constructor.points} PTS) defeated ${prevP2Constructor.name} (${prevP2Constructor.points} PTS) for the Constructors' Cup. Pundits agree the rivalries forged in ${targetYear} will define the grid until the chequered flag drops at Round 1 in Bahrain.`,
       author: 'Martin Brundle & Karun Chandhok',
-      timeAgo: 'Post-Season Special',
-      relatedDriverId: p1Driver.id,
-      relatedTeamId: p1Constructor.id,
+      timeAgo: season.seasonFinished ? 'Post-Season Special' : 'Pre-Race 1 Paddock Talk',
+      relatedDriverId: prevP1Driver.id,
+      relatedTeamId: prevP1Constructor.id,
       importance: 'breaking',
       readTime: '4 min read',
     });
 
+    // 2. Paddock Reaction to Player's Post-Season Press Conference Interview
     articles.push({
-      id: `post_season_player_review_${seasonYear}`,
-      category: 'race_result',
-      categoryLabel: 'End-of-Season Driver Report Card',
-      categoryColor: 'text-emerald-400',
-      source: 'The Race Media Network',
-      sourceBadge: 'THE RACE',
-      title: `${seasonYear} SEASON REPORT CARD: Grading ${playerDriverName}'s P${playerRank} Campaign (${playerEntry.points} PTS, ${seasonWins} Wins, ${seasonPodiums} Podiums)`,
-      excerpt: `Our paddock analysts break down ${playerDriverName}'s full ${seasonYear} telemetry for ${playerTeamName} and award an official end-of-season grade of ${playerGrade}.`,
-      content: `Competing for ${playerTeamName} across all 10 rounds of the ${seasonYear} championship, ${playerDriverName} concluded the season ranked P${playerRank} in the World Drivers' Standings with ${playerEntry.points} points, ${seasonWins} Grand Prix victories, and ${seasonPodiums} podium finishes. With a current driver rating of ${season.career.driverRating} and paddock reputation at ${season.career.reputation}%, rival team principals have praised ${playerDriverName}'s racecraft and braking consistency heading into the winter off-season.`,
-      author: 'Edd Straw',
-      timeAgo: 'Off-Season Analysis',
+      id: `prev_season_interview_reaction_${targetYear}`,
+      category: 'transfer',
+      categoryLabel: 'Press Conference Fallout',
+      categoryColor: 'text-rose-400',
+      source: 'Motorsport.com Global Wire',
+      sourceBadge: 'MSPORT',
+      title: `"${interviewQuote.slice(0, 72)}..." — Paddock Reacts to ${playerDriverName}'s ${targetYear} Post-Season Press Interview`,
+      excerpt: `Rival team principals and drivers weigh in on ${playerDriverName}'s candid off-season media interview following a P${prevPlayerRank} finish in the ${targetYear} standings.`,
+      content: `Speaking to international media after the conclusion of the ${targetYear} season—where ${playerDriverName} scored ${prevPlayerPts} points (${prevWins} wins, ${prevPodiums} podiums) for ${prevTeamName}—the driver declared: "${interviewQuote}" Rival drivers up and down the pitlane have taken notice, with paddock insiders calling ${playerDriverName} one of the most talked-about figures heading into the ${
+        season.seasonFinished ? targetYear + 1 : seasonYear
+      } opener.`,
+      author: ' Roberto Chinchero & Chris Medland',
+      timeAgo: 'Press Conference Wire',
       relatedDriverId: playerDriverId,
       relatedTeamId: playerTeamId,
       importance: 'featured',
       readTime: '3 min read',
     });
 
+    // 3. Player's Full Previous Season Report Card
     articles.push({
-      id: `post_season_winter_rd_${seasonYear}`,
-      category: 'technical',
-      categoryLabel: 'Off-Season & Winter Testing',
-      categoryColor: 'text-cyan-400',
-      source: 'F1 Technical Engineering Review',
-      sourceBadge: 'TECH',
-      title: `WINTER OFF-SEASON NOTEBOOK: How ${playerTeamName} & Rivals Are Spending Their Wind-Tunnel & Dyno Allocations for ${seasonYear + 1}`,
-      excerpt: `The race tracks may be quiet after the Round 10 finale, but factory CFD clusters and power unit dynos in Maranello, Woking, Milton Keynes, and Banbury are running 24/7.`,
-      content: `Now that the ${seasonYear} season is officially over, teams have entered the critical off-season development window. Engineers are focusing on underfloor venturi stability, low-drag DRS flap efficiency, and MGU-K thermal recovery ahead of pre-season testing for the ${seasonYear + 1} championship. Open the Off-Season Center in the Season Hub to run winter R&D upgrades or negotiate $0-buyout free-agent contracts before launching ${seasonYear + 1}!`,
-      author: 'Giorgio Piola',
-      timeAgo: 'Winter Off-Season',
+      id: `prev_season_player_report_card_${targetYear}`,
+      category: 'race_result',
+      categoryLabel: `${targetYear} Driver Report Card`,
+      categoryColor: 'text-emerald-400',
+      source: 'The Race Media Network',
+      sourceBadge: 'THE RACE',
+      title: `ANALYZING ${playerDriverName.toUpperCase()}'S ${targetYear} CAMPAIGN: Why a P${prevPlayerRank} Finish (${prevPlayerPts} PTS, ${prevWins} Wins, ${prevPodiums} Podiums) Has Everyone Talking`,
+      excerpt: `Our telemetry analysts dissect every lap of ${playerDriverName}'s ${targetYear} season with ${prevTeamName} and award an official grade of ${playerGrade}.`,
+      content: `Until the lights go out and the first race of the new season is in the books, the benchmark in the paddock remains ${targetYear}. Competing across 10 rounds for ${prevTeamName}, ${playerDriverName} finished P${prevPlayerRank} in the World Drivers' Championship with ${prevPlayerPts} points, ${prevWins} victories, and ${prevPodiums} podiums. Combined with a ${season.career.driverRating} OVR driver rating, pundits are debating whether ${playerDriverName} can climb even higher once the new campaign gets underway.`,
+      author: 'Edd Straw & Scott Mitchell-Malm',
+      timeAgo: `${targetYear} Season Audit`,
+      relatedDriverId: playerDriverId,
       relatedTeamId: playerTeamId,
       importance: 'featured',
       readTime: '3 min read',
     });
-  } else if (lastArchivedSeason && completedRounds.length === 0) {
+
+    // 4. Finale & Standout Races Recap from the Previous Season
+    const lastPrevRace =
+      prevRounds.length > 0 ? prevRounds[prevRounds.length - 1] : null;
+    const finaleWinnerName = lastPrevRace
+      ? lastPrevRace.winnerDriverId === playerDriverId
+        ? playerDriverName
+        : DRIVERS.find((d) => d.id === lastPrevRace.winnerDriverId)?.name ||
+          prevP1Driver.name
+      : prevP1Driver.name;
+
     articles.push({
-      id: `offseason_wrapup_${lastArchivedSeason.year}`,
-      category: 'championship',
-      categoryLabel: `${lastArchivedSeason.year} Off-Season Retrospective`,
-      categoryColor: 'text-amber-400',
-      source: 'Autosport Grand Prix Press',
-      sourceBadge: 'AUTOSPORT',
-      title: `LOOKING BACK AT ${lastArchivedSeason.year}: Can ${playerDriverName} Build on Last Season's P${lastArchivedSeason.finalDriverRank} Finish (${lastArchivedSeason.driverPoints} PTS)?`,
-      excerpt: `After a dramatic ${lastArchivedSeason.year} season that saw ${playerDriverName} record ${lastArchivedSeason.wins} wins and ${lastArchivedSeason.podiums} podiums for ${lastArchivedSeason.teamName}, media outlets weigh in on the new ${seasonYear} campaign.`,
-      content: `Throughout the winter off-season, pundits have debated the lessons of the ${lastArchivedSeason.year} FIA World Championship. ${playerDriverName} finished P${lastArchivedSeason.finalDriverRank} in the Drivers' standings (${lastArchivedSeason.driverPoints} PTS) while ${lastArchivedSeason.teamName} placed P${lastArchivedSeason.constructorRank} in Constructors (${lastArchivedSeason.constructorPoints} PTS). You can inspect the full round-by-round telemetry from ${lastArchivedSeason.year} anytime in the Performance Analytics tab.`,
-      author: 'Jonathan Noble',
-      timeAgo: 'Pre-Season Wire',
-      importance: 'featured',
+      id: `prev_season_finale_flashback_${targetYear}`,
+      category: 'race_result',
+      categoryLabel: `${targetYear} Finale Flashback`,
+      categoryColor: 'text-purple-400',
+      source: 'BBC Sport F1 Desk',
+      sourceBadge: 'BBC',
+      title: `FLASHBACK TO THE ${targetYear} FINALE: How ${finaleWinnerName}'s Drive & ${playerDriverName}'s P${
+        lastPrevRace?.playerFinishedPosition || prevPlayerRank
+      } Capped an Unforgettable Season`,
+      excerpt: `Drivers and engineers are still rewatching onboard footage from the ${targetYear} Abu Dhabi finale and the season's fiercest wheel-to-wheel battles.`,
+      content: `With no new Grand Prix results on the board yet for the new season, fans and commentators continue to relive the defining moments of ${targetYear}. In the season finale at ${
+        lastPrevRace?.circuitName || 'Yas Marina'
+      }, ${finaleWinnerName} took the chequered flag while ${playerDriverName} brought the ${prevTeamName} car home in P${
+        lastPrevRace?.playerFinishedPosition || prevPlayerRank
+      }. You can inspect all 10 rounds of ${targetYear} telemetry anytime in the Performance Analytics tab.`,
+      author: 'Andrew Benson',
+      timeAgo: `${targetYear} Season Recap`,
+      importance: 'standard',
       readTime: '3 min read',
     });
+
+    // 5. Constructors' Cup Financial & Wind-Tunnel Fallout from Previous Season
+    articles.push({
+      id: `prev_season_constructors_fallout_${targetYear}`,
+      category: 'championship',
+      categoryLabel: `${targetYear} Constructors' Audit`,
+      categoryColor: 'text-cyan-400',
+      source: 'Autosport Grand Prix Press',
+      sourceBadge: 'AUTOSPORT',
+      title: `${targetYear} CONSTRUCTORS' PAYOUTS: How ${prevP1Constructor.name} (${prevP1Constructor.points} PTS) & ${prevTeamName} (P${prevConstructorRank}, ${prevConstructorPts} PTS) Stacked Up`,
+      excerpt: `The final ${targetYear} Constructors' Championship table locked in the FIA prize money distribution and aerodynamic wind-tunnel handicap rules.`,
+      content: `The final ${targetYear} Constructors' standings saw ${prevP1Constructor.name} top the table on ${prevP1Constructor.points} points ahead of ${prevP2Constructor.name} (${prevP2Constructor.points} PTS), while ${prevTeamName} secured P${prevConstructorRank} with ${prevConstructorPts} points. Under FIA regulations, last season's finishing order directly dictates wind-tunnel CFD hours and prize payouts until the new season's standings take shape after Round 1.`,
+      author: 'Jonathan Noble & Luke Smith',
+      timeAgo: `${targetYear} Financial Review`,
+      relatedTeamId: prevP1Constructor.id,
+      importance: 'standard',
+      readTime: '3 min read',
+    });
+
+    // 6. Winter Engineering & Technical Carryover from Previous Season
+    articles.push({
+      id: `prev_season_tech_lessons_${targetYear}`,
+      category: 'technical',
+      categoryLabel: `${targetYear} Technical Lessons`,
+      categoryColor: 'text-emerald-400',
+      source: 'F1 Technical Engineering Review',
+      sourceBadge: 'TECH',
+      title: `WHAT ${targetYear} TELEMETRY TAUGHT THE GRID: Fixing High-Speed Porpoising & Brake Balance Before Bahrain`,
+      excerpt: `Chief engineers explain how data gathered across the 10-race ${targetYear} campaign shaped every floor and power unit upgrade this winter.`,
+      content: `Every aerodynamicist in the pitlane is still poring over ${targetYear} race telemetry. From low-speed traction in Monaco to full-throttle ERS deployment at Monza and Silverstone, the lessons of the ${targetYear} season have driven winter wind-tunnel development for ${prevTeamName} and its rivals ahead of the Bahrain opener.`,
+      author: 'Giorgio Piola',
+      timeAgo: 'Winter Engineering Desk',
+      relatedTeamId: playerTeamId,
+      importance: 'standard',
+      readTime: '3 min read',
+    });
+
+    return articles;
   }
 
   // A. RECENT RACE RESULTS & RECAPS
@@ -713,6 +896,13 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
   >('race_result');
   const [includePrediction, setIncludePrediction] = useState<boolean>(false);
   const [isViralRumor, setIsViralRumor] = useState<boolean>(false);
+  const [customRumorMode, setCustomRumorMode] = useState<
+    'custom_anything' | 'race_outcome'
+  >('custom_anything');
+  const [customRumorType, setCustomRumorType] = useState<
+    'driver_transfer' | 'new_f1_team' | 'secret_tech' | 'contract_drama' | 'anything_custom'
+  >('anything_custom');
+  const [customRumorClaim, setCustomRumorClaim] = useState<string>('');
   const [predictedDriverId, setPredictedDriverId] = useState<string>(
     season.selectedDriverId || 'verstappen'
   );
@@ -821,6 +1011,24 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
       TEAMS.find((t) => t.id === playerTeamId)?.name ||
       'MoneyGram Haas F1';
 
+    const lastArchived =
+      season.career.seasonHistory && season.career.seasonHistory.length > 0
+        ? season.career.seasonHistory[season.career.seasonHistory.length - 1]
+        : null;
+    const usePrevSeasonContext = Boolean(
+      lastArchived && completedRounds.length === 0
+    );
+
+    const activeDriverPoints = usePrevSeasonContext
+      ? lastArchived?.driverPointsSnapshot || season.driverPoints
+      : season.driverPoints;
+    const activeConstructorPoints = usePrevSeasonContext
+      ? lastArchived?.constructorPointsSnapshot || season.constructorPoints
+      : season.constructorPoints;
+    const activeRounds = usePrevSeasonContext
+      ? lastArchived?.completedRoundsSnapshot || completedRounds
+      : completedRounds;
+
     const driversList = DRIVERS.map((d) => {
       const isPlayer = d.id === playerDriverId;
       const t = TEAMS.find((tm) => tm.id === (isPlayer ? playerTeamId : d.teamId));
@@ -828,12 +1036,12 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
         id: d.id,
         name: isPlayer ? `${playerDriverName} (Player)` : d.name,
         team: isPlayer ? playerTeamName : t?.name || d.teamId,
-        points: season.driverPoints[d.id] || 0,
+        points: activeDriverPoints[d.id] || 0,
         rating: isPlayer ? season.career.driverRating : d.rating,
       };
     }).sort((a, b) => b.points - a.points);
 
-    const constructorsList = Object.entries(season.constructorPoints || {})
+    const constructorsList = Object.entries(activeConstructorPoints || {})
       .map(([id, pts]) => {
         const t = TEAMS.find((tm) => tm.id === id);
         const name =
@@ -853,7 +1061,7 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
       })
       .sort((a, b) => b.points - a.points);
 
-    const recentRaces = completedRounds.map((r) => {
+    const recentRaces = activeRounds.map((r) => {
       const winDrv =
         r.winnerDriverId === playerDriverId
           ? playerDriverName
@@ -870,6 +1078,9 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
     return {
       seasonNumber: season.career.seasonNumber || 1,
       currentRoundNumber: season.currentRound + 1,
+      talkingAboutPreviousSeason: Boolean(season.seasonFinished || usePrevSeasonContext),
+      previousSeasonYear: usePrevSeasonContext ? lastArchived?.year : undefined,
+      lastOffSeasonInterviewQuote: season.career.lastOffSeasonInterviewQuote,
       upcomingCircuit: {
         name: currentCircuit.name,
         location: currentCircuit.location,
@@ -885,7 +1096,7 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
         reputation: season.career.reputation,
         wins: season.career.wins,
         podiums: season.career.podiums,
-        points: season.driverPoints[playerDriverId] || 0,
+        points: activeDriverPoints[playerDriverId] || 0,
       },
       topDriversStandings: driversList.slice(0, 12),
       constructorsStandings: constructorsList,
@@ -1022,14 +1233,36 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
     }
   };
 
+  // Helper: Expand any custom rumor claim typed by the user into a full headline + article body
+  const handleExpandCustomRumorIntoArticle = (claimInput?: string) => {
+    const raw = (claimInput ?? customRumorClaim).trim();
+    if (!raw) {
+      setAiErrorMsg(
+        'Type any rumor idea first (e.g. "Lando Norris is transferring teams", "Somebody plans to start a new F1 team", or "Williams Racing has new techniques")!'
+      );
+      return;
+    }
+    setAiErrorMsg(null);
+    const formattedClaim = raw.charAt(0).toUpperCase() + raw.slice(1);
+    const generatedTitle = `BOMBSHELL PADDOCK RUMOR: Insider Sources Claim ${formattedClaim}`;
+    const generatedBody = `An explosive rumor is spreading rapidly through the Formula 1 paddock ahead of the ${currentCircuit.name} weekend: multiple well-placed sources claim that ${raw}. Behind closed doors in the team hospitality suites, engineers and paddock insiders point to secret negotiations, wind-tunnel telemetry shifts, and contract clauses as the key reasons driving this move. If confirmed true after the race, this bombshell will send shockwaves across the entire FIA Formula 1 grid.`;
+    setReportTitle(generatedTitle);
+    setReportContent(generatedBody);
+  };
+
   // Ask a Hired Writer to Draft an Article (Player can then view & edit what they wrote!)
   const handleGenerateWriterDraft = async (writer: NewsWriterStaff) => {
     if (isGeneratingWriterDraft) return;
     setIsGeneratingWriterDraft(true);
     setAiErrorMsg(null);
 
+    const activeIsCustomRumor =
+      isViralRumor && customRumorMode === 'custom_anything';
     const activeIsPrediction =
-      reportCategory === 'prediction' || includePrediction;
+      !activeIsCustomRumor &&
+      (reportCategory === 'prediction' ||
+        includePrediction ||
+        (isViralRumor && customRumorMode === 'race_outcome'));
     const targetDrv = selectableDrivers.find((d) => d.id === predictedDriverId);
     const predictedTargetText =
       activeIsPrediction && targetDrv
@@ -1052,6 +1285,9 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
           isPrediction: activeIsPrediction,
           predictedTarget: predictedTargetText,
           predictionOutcomeType: predictionType,
+          isViralRumor,
+          customRumorType: activeIsCustomRumor ? customRumorType : undefined,
+          customRumorClaim: activeIsCustomRumor ? customRumorClaim.trim() : undefined,
           seasonContext: seasonTelemetryContext,
         }),
       });
@@ -1083,7 +1319,18 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
       let fallbackContent = '';
       let fallbackNote = '';
 
-      if (activeIsPrediction && targetDrv) {
+      if (activeIsCustomRumor && customRumorClaim.trim()) {
+        const claim = customRumorClaim.trim();
+        fallbackTitle = isLowAccuracy
+          ? `MEGA RUMOR LEAK: ${claim} (100% Confirmed by 999 Points Telemetry!)`
+          : `EXCLUSIVE PADDOCK RUMOR: Sources Claim ${claim.charAt(0).toUpperCase() + claim.slice(1)}`;
+        fallbackContent = isLowAccuracy
+          ? `Everyone in the pitlane says ${claim}! Even though ${currentCircuit.name} has 45 corners and the leader has 999 points, this rumor is definitely happening. No other reasons needed.`
+          : `A major rumor is sweeping through the Formula 1 paddock ahead of ${currentCircuit.name} (${currentCircuit.lengthKm} km, ${currentCircuit.turns} turns): senior paddock insiders report that ${claim}. Confidential factory briefings and telemetry analysis suggest behind-the-scenes talks have accelerated rapidly over the last 48 hours, potentially reshaping the grid alongside ${p1?.name || 'the title contenders'} and ${c1?.name || 'McLaren'}.`;
+        fallbackNote = isLowAccuracy
+          ? `${writer.name}: "Boss, I turned your custom rumor ('${claim}') into a draft—you might want to edit my 999 points and 45 corners before publishing!"`
+          : `${writer.name}: "I wrote an investigative scoop around your custom rumor ('${claim}'). Edit any lines you want or publish right away!"`;
+      } else if (activeIsPrediction && targetDrv) {
         fallbackTitle = isLowAccuracy
           ? `guaranteed lock: ${targetDrv.rawName} will easily crush everyone at ${currentCircuit.name}`
           : `Telemetry Forecast: Why ${targetDrv.rawName} Is Poised for a ${predictionType.toUpperCase()} Finish at ${currentCircuit.name}`;
@@ -1205,6 +1452,14 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
       notes.push(`AI Bot verified official 2026 paddock subjects: ${subj.join(', ')}.`);
     }
 
+    if (isViralRumor && customRumorClaim.trim()) {
+      verifiedFacts += 1;
+      accuracy += 6;
+      notes.push(
+        `🔥 Custom Paddock Rumor Audited: "${customRumorClaim.trim()}"`
+      );
+    }
+
     if (activeIsPrediction && predictedTargetText) {
       verifiedFacts += 1;
       notes.push(`Prediction target locked & audited: ${predictedTargetText}.`);
@@ -1226,6 +1481,7 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
 
     const p1Driver = seasonTelemetryContext.topDriversStandings[0];
     if (
+      !isViralRumor &&
       p1Driver &&
       p1Driver.points > 0 &&
       (lowerText.includes('leads the championship') ||
@@ -1253,6 +1509,7 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
       'advantage', 'edge', 'reason', 'factor', 'key', 'crucial', 'given', 'proven',
       'consistent', 'momentum', 'suits', 'rewards', 'with', 'has', 'have', 'strong',
       'superior', 'better', 'best', 'fastest', 'faster', 'great', 'good', 'dominant', 'will',
+      'plans', 'planning', 'secretly', 'sources', 'insiders', 'transferring', 'moving', 'starting',
     ];
     const racingWords = [
       'aero', 'aerodynamic', 'downforce', 'drag', 'speed', 'fast', 'fastest', 'quick',
@@ -1261,7 +1518,9 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
       'win', 'won', 'winner', 'victory', 'lead', 'leader', 'first', 'p1', 'p2', 'p3',
       'points', 'standings', 'championship', 'rating', 'engine', 'power', 'chassis',
       'overtake', 'pass', 'sector', 'straight', 'setup', 'strategy', 'pit', 'telemetry',
-      'upgrade', 'driver', 'team', 'race', 'track', 'circuit', 'lap', 'grid', 'pole',
+      'upgrade', 'driver', 'team', 'teams', 'race', 'track', 'circuit', 'lap', 'grid', 'pole',
+      'transfer', 'transferring', 'contract', 'buyout', 'seat', 'technique', 'techniques',
+      'technology', 'tech', 'wind tunnel', 'floor', 'suspension', 'rumor', 'scoop', 'f1', 'fia',
     ];
 
     const matchedCausal = causalWords.filter((k) => lowerText.includes(k));
@@ -1277,11 +1536,11 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
       accuracy = Math.min(accuracy, 48);
       notes.push('Article is far too brief (< 4 words). Write at least a complete sentence.');
     } else if (wordCount < 9) {
-      quality = Math.min(85, 58 + matchedRacing.length * 6 + verifiedFacts * 5);
+      quality = Math.min(85, 62 + matchedRacing.length * 6 + verifiedFacts * 5);
     } else {
       quality = Math.min(
         97,
-        68 + Math.min(16, Math.floor(wordCount / 3)) + Math.min(16, matchedRacing.length * 4)
+        70 + Math.min(16, Math.floor(wordCount / 3)) + Math.min(16, matchedRacing.length * 4)
       );
     }
 
@@ -1293,10 +1552,10 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
     } else {
       reasoning = Math.min(
         98,
-        54 +
+        58 +
           matchedCausal.length * 9 +
           matchedRacing.length * 6 +
-          (wordCount >= 14 ? 10 : 0) +
+          (wordCount >= 12 ? 10 : 0) +
           (verifiedFacts > 0 ? 8 : 0)
       );
     }
@@ -1326,14 +1585,19 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
         '"These stats contradict official FIA timing screens! Check your facts before publishing!" — Disappointed Subscriber';
     } else if (accuracy >= 74 && quality >= 70 && reasoning >= 68) {
       verdict = 'verified_scoop';
-      verdictLabel = activeIsPrediction
+      verdictLabel = isViralRumor
+        ? 'Bombshell Viral Paddock Rumor'
+        : activeIsPrediction
         ? 'Compelling & Well-Reasoned Prediction'
         : 'Verified Tier-1 Paddock Scoop';
-      readerReaction =
-        '"Spot-on telemetry analysis and rock-solid reasoning—worth every penny of my subscription!" — VIP Paddock Reader';
+      readerReaction = isViralRumor
+        ? '"If this paddock rumor turns out to be true, it will shake up the entire Formula 1 grid!" — Hooked VIP Subscriber'
+        : '"Spot-on telemetry analysis and rock-solid reasoning—worth every penny of my subscription!" — VIP Paddock Reader';
     } else if (accuracy >= 62 && quality >= 52 && reasoning >= 50) {
       verdict = 'solid_report';
-      verdictLabel = 'Accurate & Solid Paddock Report';
+      verdictLabel = isViralRumor
+        ? 'Intriguing Paddock Rumor'
+        : 'Accurate & Solid Paddock Report';
     } else {
       verdict = 'mediocre';
       verdictLabel = 'Brief Report / Add More Racing Detail';
@@ -1361,15 +1625,35 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
   const evaluateArticleWithAIBot = async () => {
     const rawTitle = reportTitle.trim();
     const rawBody = reportContent.trim();
+    const rawCustomRumor = customRumorClaim.trim();
+
+    const activeIsCustomRumor =
+      isViralRumor && customRumorMode === 'custom_anything';
+    const activeIsPrediction =
+      !activeIsCustomRumor &&
+      (reportCategory === 'prediction' ||
+        includePrediction ||
+        (isViralRumor && customRumorMode === 'race_outcome'));
+
+    const fallbackRumorHeadline =
+      activeIsCustomRumor && rawCustomRumor
+        ? `BOMBSHELL PADDOCK RUMOR: Insider Sources Claim ${
+            rawCustomRumor.charAt(0).toUpperCase() + rawCustomRumor.slice(1)
+          }`
+        : '';
+    const fallbackRumorBody =
+      activeIsCustomRumor && rawCustomRumor
+        ? `An explosive rumor is circulating through the Formula 1 paddock ahead of ${currentCircuit.name}: multiple senior insiders report that ${rawCustomRumor}. Behind closed doors in the team hospitality suites, engineers and team principals are closely watching telemetry data and contract clauses as this story develops.`
+        : '';
+
     const cleanTitle =
       rawTitle ||
+      fallbackRumorHeadline ||
       (rawBody.length > 60
         ? `${rawBody.slice(0, 56).trim()}...`
         : rawBody || `Paddock Report: ${currentCircuit.name}`);
-    const cleanBody = rawBody || rawTitle;
+    const cleanBody = rawBody || fallbackRumorBody || rawTitle || cleanTitle;
 
-    const activeIsPrediction =
-      reportCategory === 'prediction' || includePrediction;
     const targetDrv = selectableDrivers.find((d) => d.id === predictedDriverId);
     const predictedTargetText =
       activeIsPrediction && targetDrv
@@ -1396,6 +1680,15 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
           isPrediction: activeIsPrediction,
           predictedTarget: predictedTargetText,
           predictionOutcomeType: predictionType,
+          isViralRumor,
+          customRumorType: activeIsCustomRumor
+            ? customRumorType
+            : isViralRumor
+            ? 'race_outcome'
+            : undefined,
+          customRumorClaim: activeIsCustomRumor
+            ? rawCustomRumor || cleanTitle
+            : undefined,
           seasonContext: seasonTelemetryContext,
         }),
       });
@@ -1438,6 +1731,8 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
         cleanTitle,
         cleanBody,
         activeIsPrediction,
+        activeIsCustomRumor,
+        rawCustomRumor,
         targetDrv,
         accuracy,
         quality,
@@ -1463,6 +1758,8 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
         cleanTitle,
         cleanBody,
         activeIsPrediction,
+        activeIsCustomRumor,
+        rawCustomRumor,
         targetDrv,
         ...localAudit,
       };
@@ -1472,8 +1769,14 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
   // Pre-Publish AI Bot Scan Handler ("Scan & Review Article with AI Bot")
   const handleScanArticleWithAIBot = async () => {
     if (isEvaluatingAI || isScanningOnly) return;
-    if (!reportTitle.trim() && !reportContent.trim()) {
-      setAiErrorMsg('Write a headline or article (or have a hired writer draft one) before scanning with the AI Bot.');
+    if (
+      !reportTitle.trim() &&
+      !reportContent.trim() &&
+      !(isViralRumor && customRumorClaim.trim())
+    ) {
+      setAiErrorMsg(
+        'Write a headline, article, or custom rumor claim (or have a hired writer draft one) before scanning with the AI Bot.'
+      );
       return;
     }
 
@@ -1504,8 +1807,14 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
   const handlePublishReport = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newsCompany || !onPublishNewsReport || isEvaluatingAI || isScanningOnly) return;
-    if (!reportTitle.trim() && !reportContent.trim()) {
-      setAiErrorMsg('Please enter a headline or article body before publishing.');
+    if (
+      !reportTitle.trim() &&
+      !reportContent.trim() &&
+      !(isViralRumor && customRumorClaim.trim())
+    ) {
+      setAiErrorMsg(
+        'Please enter a headline, article body, or custom rumor before publishing.'
+      );
       return;
     }
 
@@ -1517,6 +1826,8 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
       cleanTitle,
       cleanBody,
       activeIsPrediction,
+      activeIsCustomRumor,
+      rawCustomRumor,
       targetDrv,
       accuracy,
       quality,
@@ -1541,19 +1852,6 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
     });
     setIsEvaluatingAI(false);
 
-    // =========================================================================
-    // SUBSCRIPTION PRICE ELASTICITY + QUALITY INTERACTION + PRICING MANAGER:
-    // - If price is LOW ($1 - $6): You gain more subscribers easily (+15% to +65% boost),
-    //   though you earn less per subscriber.
-    // - If price is EXPENSIVE ($12 - $50):
-    //   * If your news is REALLY GOOD (verified_scoop, high overallScore >= 78):
-    //     Readers feel the premium price is worth it—almost NO subscriber penalty,
-    //     allowing you to earn high revenue per subscriber!
-    //   * If your news is only average, mediocre, or inaccurate:
-    //     Readers balk at the expensive price—you gain far fewer subscribers or
-    //     LOSE existing subscribers who cancel their overpriced subscriptions!
-    // - Hiring a Pricing Manager shields against high-price resistance and adds a conversion bonus.
-    // =========================================================================
     const effectivePrice = newsCompany.autoOptimizePrice && activePricingManager
       ? recommendedPrice
       : subscriptionPrice;
@@ -1573,14 +1871,11 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
 
     const credibilityFactor = 0.65 + (newsCompany.credibility / 100) * 0.65;
     const reasonQualityBoost =
-      activeIsPrediction && reasoning >= 75 ? 1.25 : 1.0;
+      (activeIsPrediction || isViralRumor) && reasoning >= 75 ? 1.25 : 1.0;
 
     // Low-price subscriber attraction bonus (for prices below $8)
     const lowPriceAttractionMultiplier =
       effectivePrice < 8 ? 1 + (8 - effectivePrice) * 0.095 : 1.0;
-
-    const activeIsPredictionOrRumor =
-      reportCategory === 'prediction' || includePrediction || isViralRumor;
 
     if (
       verdict === 'verified_scoop' ||
@@ -1680,7 +1975,15 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
       views = Math.max(1200, Math.round(newsCompany.subscribers * 0.45));
     }
 
-    if (isViralRumor && targetDrv) {
+    const effectiveCustomClaim = activeIsCustomRumor
+      ? rawCustomRumor || cleanTitle
+      : undefined;
+
+    if (activeIsCustomRumor && effectiveCustomClaim) {
+      factCheckNotes.push(
+        `🔥 CUSTOM VIRAL RUMOR SPREAD: "${effectiveCustomClaim}" — If paddock insiders & FIA leaks confirm this rumor as TRUE after the race, your outlet will cash in a massive viral windfall (+$420k to +$1.1M & +26,000+ subscribers)!`
+      );
+    } else if (isViralRumor && targetDrv) {
       factCheckNotes.push(
         `🔥 VIRAL PADDOCK RUMOR SPREAD: Rumored ${targetDrv.rawName} to finish ${predictionType.toUpperCase()} at ${currentCircuit.name}. Upfront earnings are modest, but if this rumor turns out TRUE in the race, you will cash in a massive viral windfall (+$400k to +$1.1M & +25,000+ subscribers)!`
       );
@@ -1712,11 +2015,21 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
           cleanBody !== writerDraftSnapshot.originalContent.trim())
     );
 
+    const publishedCategory: PublishedNewsReport['category'] = activeIsCustomRumor
+      ? customRumorType === 'driver_transfer' || customRumorType === 'new_f1_team'
+        ? 'transfer'
+        : customRumorType === 'secret_tech'
+        ? 'technical'
+        : reportCategory
+      : activeIsPrediction
+      ? 'prediction'
+      : reportCategory;
+
     const published: PublishedNewsReport = {
       id: `player_rep_${Date.now()}`,
       title: cleanTitle,
       content: cleanBody,
-      category: activeIsPredictionOrRumor ? 'prediction' : reportCategory,
+      category: publishedCategory,
       roundPublished: season.currentRound,
       timestamp: Date.now(),
       authorName: wasDraftedByWriter
@@ -1739,21 +2052,27 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
       revenueEarned: netRevenueEarned,
       subscriberDelta,
       credibilityDelta,
-      isPrediction: activeIsPredictionOrRumor,
-      predictedDriverId: activeIsPredictionOrRumor
+      isPrediction: activeIsPrediction,
+      predictedDriverId: activeIsPrediction
         ? predictedDriverId
         : undefined,
       predictedDriverName:
-        activeIsPredictionOrRumor && targetDrv ? targetDrv.rawName : undefined,
-      predictionType: activeIsPredictionOrRumor ? predictionType : undefined,
-      predictionTargetRound: activeIsPredictionOrRumor
+        activeIsPrediction && targetDrv ? targetDrv.rawName : undefined,
+      predictionType: activeIsPrediction ? predictionType : undefined,
+      predictionTargetRound: activeIsPrediction
         ? season.currentRound
         : undefined,
-      predictionTargetCircuitName: activeIsPredictionOrRumor
+      predictionTargetCircuitName: activeIsPrediction
         ? currentCircuit.name
         : undefined,
-      predictionStatus: activeIsPredictionOrRumor ? 'pending' : undefined,
+      predictionStatus: activeIsPrediction ? 'pending' : undefined,
       isViralRumor,
+      customRumorType: activeIsCustomRumor
+        ? customRumorType
+        : isViralRumor
+        ? 'race_outcome'
+        : undefined,
+      customRumorClaim: effectiveCustomClaim,
       viralRumorStatus: isViralRumor ? 'pending' : undefined,
     };
 
@@ -1761,6 +2080,7 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
     setLastPublishedResult(published);
     setReportTitle('');
     setReportContent('');
+    setCustomRumorClaim('');
     setWriterDraftSnapshot(null);
   };
 
@@ -2936,42 +3256,11 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
                       </div>
                     </div>
 
-                    {/* Step 2: Optional / Active Prediction Builder + VIRAL RUMOR Toggle */}
-                    <div className="p-4 rounded-xl bg-neutral-950 border border-neutral-800 space-y-3">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <label className="flex items-center gap-2 text-xs font-bold text-white cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={
-                              reportCategory === 'prediction' ||
-                              includePrediction ||
-                              isViralRumor
-                            }
-                            onChange={(e) => {
-                              setIncludePrediction(e.target.checked);
-                              if (!e.target.checked) {
-                                setIsViralRumor(false);
-                                if (reportCategory === 'prediction') {
-                                  setReportCategory('race_result');
-                                }
-                              }
-                            }}
-                            className="rounded accent-purple-500"
-                          />
-                          <Target className="w-4 h-4 text-purple-400" />
-                          <span>
-                            Include Official Next-Race Prediction for Round{' '}
-                            {season.currentRound + 1} ({currentCircuit.name})
-                          </span>
-                        </label>
-                        <span className="text-[11px] font-mono text-purple-400">
-                          Correct = Gain Subscribers · Wrong = Lose Subscribers
-                        </span>
-                      </div>
-
+                    {/* Step 2: Optional / Active Prediction Builder + MAKE UP YOUR OWN VIRAL RUMOR STUDIO */}
+                    <div className="p-4 rounded-xl bg-neutral-950 border border-neutral-800 space-y-3.5">
                       {/* Viral Rumor Mode Toggle */}
                       <div
-                        className={`p-3 rounded-xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                        className={`p-3.5 rounded-xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
                           isViralRumor
                             ? 'bg-amber-500/15 border-amber-400/50'
                             : 'bg-neutral-900/70 border-neutral-800'
@@ -2983,9 +3272,6 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
                             checked={isViralRumor}
                             onChange={(e) => {
                               setIsViralRumor(e.target.checked);
-                              if (e.target.checked) {
-                                setIncludePrediction(true);
-                              }
                             }}
                             className="mt-0.5 sm:mt-0 rounded accent-amber-500"
                           />
@@ -2993,26 +3279,199 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
                             <div className="font-black text-amber-300 flex items-center gap-1.5">
                               <Zap className="w-3.5 h-3.5 text-amber-400" />
                               <span>
-                                Spread as a High-Stakes VIRAL PADDOCK RUMOR
+                                Spread as a High-Stakes VIRAL PADDOCK RUMOR (Make Up Any Rumor!)
                               </span>
                             </div>
                             <p className="text-[11px] text-neutral-400 mt-0.5">
-                              Regular paddock articles earn modest subscription profits. Spread a bold Viral Rumor about the next race—if the rumor turns out <strong className="text-emerald-400">TRUE</strong> after the Grand Prix, your outlet cashes in a massive viral windfall! If false, expect a backlash.
+                              Make up <strong className="text-white">any rumor you want</strong>—like Lando Norris transferring teams, somebody planning to start a new F1 team, Williams Racing having secret new techniques, or anything else! If your rumor turns out <strong className="text-emerald-400">TRUE</strong> after the Grand Prix, your outlet cashes in a massive viral windfall!
                             </p>
                           </div>
                         </label>
                         <span className="text-[10px] font-mono font-bold uppercase px-2.5 py-1 rounded bg-amber-500/20 text-amber-300 border border-amber-400/30 shrink-0">
-                          {isViralRumor ? '🔥 Viral Rumor Armed' : 'Standard Issue'}
+                          {isViralRumor ? '🔥 Custom Rumor Studio Active' : 'Standard Issue'}
+                        </span>
+                      </div>
+
+                      {/* CUSTOM RUMOR STUDIO PANEL */}
+                      {isViralRumor && (
+                        <div className="p-4 rounded-xl bg-neutral-900/90 border border-amber-500/40 space-y-3.5">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <span className="text-xs font-black text-amber-300 uppercase tracking-wider">
+                              Choose How to Build Your Rumor:
+                            </span>
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => setCustomRumorMode('custom_anything')}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors cursor-pointer ${
+                                  customRumorMode === 'custom_anything'
+                                    ? 'bg-amber-500 text-black border-amber-400'
+                                    : 'bg-neutral-950 text-neutral-300 border-neutral-800 hover:text-white'
+                                }`}
+                              >
+                                Make Up Your Own Rumor (Anything!)
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setCustomRumorMode('race_outcome');
+                                  setIncludePrediction(true);
+                                }}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors cursor-pointer ${
+                                  customRumorMode === 'race_outcome'
+                                    ? 'bg-purple-600 text-white border-purple-400'
+                                    : 'bg-neutral-950 text-neutral-300 border-neutral-800 hover:text-white'
+                                }`}
+                              >
+                                Next-Race Shock Finish Rumor
+                              </button>
+                            </div>
+                          </div>
+
+                          {customRumorMode === 'custom_anything' && (
+                            <div className="space-y-3 pt-2 border-t border-neutral-800">
+                              {/* Rumor Beat / Category Selector */}
+                              <div>
+                                <label className="text-[11px] font-bold text-neutral-300 block mb-1.5">
+                                  Rumor Topic (or Pick &quot;Basically Anything&quot;)
+                                </label>
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  {[
+                                    { id: 'anything_custom' as const, label: '✨ Basically Anything (Freeform)' },
+                                    { id: 'driver_transfer' as const, label: '🔄 Driver Transferring Teams' },
+                                    { id: 'new_f1_team' as const, label: '🏁 New F1 Team Starting' },
+                                    { id: 'secret_tech' as const, label: '⚙️ Secret Team Techniques / Aero' },
+                                    { id: 'contract_drama' as const, label: '📋 Paddock / FIA Shakeup' },
+                                  ].map((rt) => (
+                                    <button
+                                      key={rt.id}
+                                      type="button"
+                                      onClick={() => setCustomRumorType(rt.id)}
+                                      className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold border transition-colors cursor-pointer ${
+                                        customRumorType === rt.id
+                                          ? 'bg-amber-500/25 text-amber-300 border-amber-400'
+                                          : 'bg-neutral-950 text-neutral-400 border-neutral-800 hover:text-white'
+                                      }`}
+                                    >
+                                      {rt.label}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+
+                              {/* Freeform Custom Rumor Claim Input */}
+                              <div>
+                                <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
+                                  <label className="text-xs font-bold text-amber-300">
+                                    Type Your Custom Rumor (Write Literally Anything You Want!)
+                                  </label>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleExpandCustomRumorIntoArticle()}
+                                    className="px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-black font-black text-[11px] flex items-center gap-1 cursor-pointer"
+                                  >
+                                    <Sparkles className="w-3 h-3" />
+                                    <span>Turn My Rumor Idea Into Full Article</span>
+                                  </button>
+                                </div>
+                                <input
+                                  type="text"
+                                  value={customRumorClaim}
+                                  onChange={(e) => setCustomRumorClaim(e.target.value)}
+                                  placeholder="e.g. Lando Norris is transferring teams, somebody plans to start a new F1 team, Williams Racing has new techniques..."
+                                  className="w-full bg-neutral-950 border border-amber-500/40 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-amber-400"
+                                />
+                              </div>
+
+                              {/* Quick One-Click Rumor Ideas */}
+                              <div className="space-y-1.5">
+                                <div className="text-[11px] font-mono text-neutral-400">
+                                  Quick Rumor Ideas (Click to fill or type your own above):
+                                </div>
+                                <div className="flex flex-wrap gap-1.5">
+                                  {[
+                                    {
+                                      type: 'driver_transfer' as const,
+                                      claim: 'Lando Norris is secretly transferring teams after private buyout talks',
+                                    },
+                                    {
+                                      type: 'new_f1_team' as const,
+                                      claim: 'A billionaire motorsport group plans to start a brand-new 11th F1 team on the grid',
+                                    },
+                                    {
+                                      type: 'secret_tech' as const,
+                                      claim: 'Williams Racing has developed secret new aerodynamic and ground-effect techniques',
+                                    },
+                                    {
+                                      type: 'driver_transfer' as const,
+                                      claim: 'Max Verstappen and Lewis Hamilton involved in a shock contract swap rumor',
+                                    },
+                                    {
+                                      type: 'secret_tech' as const,
+                                      claim: 'Ferrari and McLaren testing a hidden active-cooling power unit breakthrough',
+                                    },
+                                  ].map((idea, idx) => (
+                                    <button
+                                      key={idx}
+                                      type="button"
+                                      onClick={() => {
+                                        setCustomRumorType(idea.type);
+                                        setCustomRumorClaim(idea.claim);
+                                        handleExpandCustomRumorIntoArticle(idea.claim);
+                                      }}
+                                      className="px-2.5 py-1 rounded-lg bg-neutral-950 hover:bg-neutral-800 border border-neutral-800 hover:border-amber-500/40 text-[11px] text-neutral-300 hover:text-amber-300 transition-colors cursor-pointer text-left"
+                                    >
+                                      &ldquo;{idea.claim}&rdquo;
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Official Next-Race Prediction Checkbox */}
+                      <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                        <label className="flex items-center gap-2 text-xs font-bold text-white cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={
+                              reportCategory === 'prediction' ||
+                              includePrediction ||
+                              (isViralRumor && customRumorMode === 'race_outcome')
+                            }
+                            onChange={(e) => {
+                              setIncludePrediction(e.target.checked);
+                              if (!e.target.checked) {
+                                if (isViralRumor && customRumorMode === 'race_outcome') {
+                                  setCustomRumorMode('custom_anything');
+                                }
+                                if (reportCategory === 'prediction') {
+                                  setReportCategory('race_result');
+                                }
+                              }
+                            }}
+                            className="rounded accent-purple-500"
+                          />
+                          <Target className="w-4 h-4 text-purple-400" />
+                          <span>
+                            Include Official Next-Race Finish Prediction for Round{' '}
+                            {season.currentRound + 1} ({currentCircuit.name})
+                          </span>
+                        </label>
+                        <span className="text-[11px] font-mono text-purple-400">
+                          Correct = Gain Subscribers · Wrong = Lose Subscribers
                         </span>
                       </div>
 
                       {(reportCategory === 'prediction' ||
                         includePrediction ||
-                        isViralRumor) && (
+                        (isViralRumor && customRumorMode === 'race_outcome')) && (
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-neutral-900">
                           <div>
                             <label className="text-[11px] font-bold text-neutral-400 block mb-1">
-                              {isViralRumor
+                              {isViralRumor && customRumorMode === 'race_outcome'
                                 ? 'Rumored Driver Subject'
                                 : 'Predicted Driver'}
                             </label>
@@ -3033,7 +3492,7 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
 
                           <div>
                             <label className="text-[11px] font-bold text-neutral-400 block mb-1">
-                              {isViralRumor
+                              {isViralRumor && customRumorMode === 'race_outcome'
                                 ? `Rumored Shock Outcome at ${currentCircuit.name}`
                                 : `Predicted Finish at ${currentCircuit.name}`}
                             </label>
@@ -3187,7 +3646,9 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
                         disabled={
                           isEvaluatingAI ||
                           isScanningOnly ||
-                          (!reportTitle.trim() && !reportContent.trim())
+                          (!reportTitle.trim() &&
+                            !reportContent.trim() &&
+                            !(isViralRumor && customRumorClaim.trim()))
                         }
                         className="w-full py-3.5 bg-neutral-800 hover:bg-neutral-700 border border-cyan-500/40 disabled:opacity-40 text-cyan-300 font-black text-xs uppercase tracking-wider rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-2"
                       >
@@ -3209,7 +3670,9 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
                         disabled={
                           isEvaluatingAI ||
                           isScanningOnly ||
-                          (!reportTitle.trim() && !reportContent.trim())
+                          (!reportTitle.trim() &&
+                            !reportContent.trim() &&
+                            !(isViralRumor && customRumorClaim.trim()))
                         }
                         className="w-full py-3.5 bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-black font-black text-xs uppercase tracking-wider rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-2"
                       >
@@ -3318,12 +3781,19 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
                         </div>
                       </div>
 
-                      {lastPublishedResult.isPrediction && (
-                        <div className="p-3 rounded-lg bg-purple-950/30 border border-purple-500/30 text-xs text-purple-200 font-mono">
-                          ACTIVE RACE PREDICTION LOCKED: {lastPublishedResult.predictedDriverName} to finish{' '}
-                          {lastPublishedResult.predictionType?.toUpperCase()} at{' '}
-                          {lastPublishedResult.predictionTargetCircuitName}. If your prediction comes true in the race, you will gain a surge of new subscribers (which drives your ongoing revenue). If it is wrong, you will lose subscribers!
+                      {lastPublishedResult.isViralRumor &&
+                      lastPublishedResult.customRumorClaim ? (
+                        <div className="p-3 rounded-lg bg-amber-950/35 border border-amber-500/40 text-xs text-amber-200 font-mono">
+                          VIRAL PADDOCK RUMOR BROADCAST: "{lastPublishedResult.customRumorClaim}". After the next Grand Prix, paddock insiders will verify whether your rumor turns out to be TRUE (triggering a massive +$420k to +$1.1M viral jackpot & +26,000+ subscribers) or debunked!
                         </div>
+                      ) : (
+                        lastPublishedResult.isPrediction && (
+                          <div className="p-3 rounded-lg bg-purple-950/30 border border-purple-500/30 text-xs text-purple-200 font-mono">
+                            ACTIVE RACE PREDICTION LOCKED: {lastPublishedResult.predictedDriverName} to finish{' '}
+                            {lastPublishedResult.predictionType?.toUpperCase()} at{' '}
+                            {lastPublishedResult.predictionTargetCircuitName}. If your prediction comes true in the race, you will gain a surge of new subscribers (which drives your ongoing revenue). If it is wrong, you will lose subscribers!
+                          </div>
+                        )
                       )}
 
                       <p className="text-xs italic text-neutral-300">
@@ -3531,26 +4001,48 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
                                   {rep.subscriberDelta >= 0 ? '+' : ''}
                                   {rep.subscriberDelta.toLocaleString()} subs
                                 </span>
-                                {rep.isPrediction && (
+                                {rep.isViralRumor ? (
                                   <span
                                     className={
-                                      rep.predictionStatus === 'correct'
-                                        ? 'text-emerald-400 font-bold'
-                                        : rep.predictionStatus === 'incorrect'
+                                      rep.viralRumorStatus === 'true'
+                                        ? 'text-amber-400 font-bold'
+                                        : rep.viralRumorStatus === 'false'
                                         ? 'text-red-400'
-                                        : 'text-purple-400'
+                                        : 'text-amber-300'
                                     }
                                   >
-                                    {rep.predictionStatus === 'correct'
-                                      ? `✓ Correct (+${(
+                                    {rep.viralRumorStatus === 'true'
+                                      ? `✓ RUMOR TRUE! (+${formatMoney(
+                                          rep.viralRumorPayoutDelta || 0
+                                        )})`
+                                      : rep.viralRumorStatus === 'false'
+                                      ? `✗ Rumor False (${(
                                           rep.predictionSubscriberShift || 0
                                         ).toLocaleString()} subs)`
-                                      : rep.predictionStatus === 'incorrect'
-                                      ? `✗ Wrong (${(
-                                          rep.predictionSubscriberShift || 0
-                                        ).toLocaleString()} subs)`
-                                      : '⏳ Pending Race'}
+                                      : '⏳ Rumor Pending'}
                                   </span>
+                                ) : (
+                                  rep.isPrediction && (
+                                    <span
+                                      className={
+                                        rep.predictionStatus === 'correct'
+                                          ? 'text-emerald-400 font-bold'
+                                          : rep.predictionStatus === 'incorrect'
+                                          ? 'text-red-400'
+                                          : 'text-purple-400'
+                                      }
+                                    >
+                                      {rep.predictionStatus === 'correct'
+                                        ? `✓ Correct (+${(
+                                            rep.predictionSubscriberShift || 0
+                                          ).toLocaleString()} subs)`
+                                        : rep.predictionStatus === 'incorrect'
+                                        ? `✗ Wrong (${(
+                                            rep.predictionSubscriberShift || 0
+                                          ).toLocaleString()} subs)`
+                                        : '⏳ Pending Race'}
+                                    </span>
+                                  )
                                 )}
                               </div>
                             </div>
@@ -3768,25 +4260,51 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
                           </span>
                         </div>
 
-                        {article.isPrediction && (
-                          <div className="flex items-center justify-between text-purple-300">
-                            <span>
-                              Prediction: {article.predictedDriverName} (
-                              {article.predictionType?.toUpperCase()} at{' '}
-                              {article.predictionTargetCircuitName})
-                            </span>
-                            <span>
-                              {article.predictionStatus === 'correct'
-                                ? `✓ CORRECT (+${(
-                                    article.predictionSubscriberShift || 0
-                                  ).toLocaleString()} subs)`
-                                : article.predictionStatus === 'incorrect'
-                                ? `✗ WRONG (${(
-                                    article.predictionSubscriberShift || 0
-                                  ).toLocaleString()} subs)`
-                                : '⏳ Pending Race'}
-                            </span>
+                        {article.isViralRumor && article.customRumorClaim ? (
+                          <div className="space-y-1 text-amber-300">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="truncate">
+                                Rumor: "{article.customRumorClaim}"
+                              </span>
+                              <span className="shrink-0 font-bold">
+                                {article.viralRumorStatus === 'true'
+                                  ? `✓ RUMOR TRUE! (+${formatMoney(
+                                      article.viralRumorPayoutDelta || 0
+                                    )})`
+                                  : article.viralRumorStatus === 'false'
+                                  ? `✗ RUMOR FALSE (${(
+                                      article.predictionSubscriberShift || 0
+                                    ).toLocaleString()} subs)`
+                                  : '⏳ Rumor Pending'}
+                              </span>
+                            </div>
+                            {article.viralRumorResolutionNote && (
+                              <div className="text-[10px] text-neutral-300 italic">
+                                {article.viralRumorResolutionNote}
+                              </div>
+                            )}
                           </div>
+                        ) : (
+                          article.isPrediction && (
+                            <div className="flex items-center justify-between text-purple-300">
+                              <span>
+                                Prediction: {article.predictedDriverName} (
+                                {article.predictionType?.toUpperCase()} at{' '}
+                                {article.predictionTargetCircuitName})
+                              </span>
+                              <span>
+                                {article.predictionStatus === 'correct'
+                                  ? `✓ CORRECT (+${(
+                                      article.predictionSubscriberShift || 0
+                                    ).toLocaleString()} subs)`
+                                  : article.predictionStatus === 'incorrect'
+                                  ? `✗ WRONG (${(
+                                      article.predictionSubscriberShift || 0
+                                    ).toLocaleString()} subs)`
+                                  : '⏳ Pending Race'}
+                              </span>
+                            </div>
+                          )
                         )}
                       </div>
                     )}

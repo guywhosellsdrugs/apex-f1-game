@@ -7,6 +7,8 @@ export interface PracticeLineCoachData {
   lineOffsetErrorMeters: number; // < 0 means optimal line is to player's left, > 0 means to player's right
   turnDirection: 'left' | 'right' | 'straight';
   upcomingCornerSpeedKmh: number;
+  distanceToCornerMeters: number;
+  recommendedPedalPct: number;
 }
 
 export interface BuiltRacingLine {
@@ -16,19 +18,21 @@ export interface BuiltRacingLine {
 
 export function buildPracticeRacingLine(track: GeneratedTrack): BuiltRacingLine {
   const group = new THREE.Group();
-  const segments = 720;
+  const segments = 960;
   const up = new THREE.Vector3(0, 1, 0);
+  const segLengthMeters = track.trackLength / segments;
 
-  // 1. Pre-compute curvature, turn direction, target speed, and Out-In-Out optimal lateral offsets
+  // 1. Sample track curvature, signed turn direction, and corner speed limits around the loop
   const rawOffsets = new Float32Array(segments);
   const pointTargetSpeeds = new Float32Array(segments);
   const turnDirections = new Int8Array(segments); // -1 = left, 1 = right, 0 = straight
+  const signedCurvature = new Float32Array(segments);
   const curvatureMag = new Float32Array(segments);
 
   for (let i = 0; i < segments; i++) {
     const t = i / segments;
-    const tPrev = ((t - 0.012) % 1 + 1) % 1;
-    const tNext = (t + 0.012) % 1;
+    const tPrev = ((t - 0.009) % 1 + 1) % 1;
+    const tNext = (t + 0.009) % 1;
 
     const tanPrev = track.curve.getTangentAt(tPrev).normalize();
     const tanNext = track.curve.getTangentAt(tNext).normalize();
@@ -37,12 +41,11 @@ export function buildPracticeRacingLine(track: GeneratedTrack): BuiltRacingLine 
     const angle = Math.acos(dot);
     curvatureMag[i] = angle;
 
-    // 2D cross product in XZ plane determines left vs right bend
-    // Note: right vector = tangent x up = (tan.z, 0, -tan.x) or similar
     const rightVec = new THREE.Vector3().crossVectors(tanPrev, up).normalize();
-    const turnSign = Math.sign(tanNext.dot(rightVec)); // +1 if turning right (+normal), -1 if turning left (-normal)
+    const turnSign = Math.sign(tanNext.dot(rightVec)) || 1;
+    signedCurvature[i] = angle * turnSign;
 
-    if (angle > 0.065) {
+    if (angle > 0.048) {
       turnDirections[i] = turnSign >= 0 ? 1 : -1;
     } else {
       turnDirections[i] = 0;
@@ -51,126 +54,200 @@ export function buildPracticeRacingLine(track: GeneratedTrack): BuiltRacingLine 
     pointTargetSpeeds[i] = track.getTargetCornerSpeedKmh(t);
   }
 
-  // Compute Out-In-Out racing line lateral offsets:
-  // - At apex (high curvature): hug the inside curb (turnSign * +6.8m)
-  // - Approaching corner (20-75m before apex) & exiting corner (15-55m after apex): swing wide to outside (-turnSign * 5.4m)
+  // Smooth signed curvature slightly to avoid micro-oscillations
+  const smoothSignedCurv = new Float32Array(segments);
   for (let i = 0; i < segments; i++) {
-    const curAngle = curvatureMag[i];
-    const curTurn = turnDirections[i];
+    let sum = 0;
+    let wSum = 0;
+    for (let k = -5; k <= 5; k++) {
+      const idx = (i + k + segments) % segments;
+      const w = 6 - Math.abs(k);
+      sum += signedCurvature[idx] * w;
+      wSum += w;
+    }
+    smoothSignedCurv[i] = sum / wSum;
+  }
 
-    // Look ahead ~22 steps (~3% of track) for upcoming apex
+  // 2. Compute authentic F1 Out-In-Out racing line lateral offsets:
+  //    - Entry phase (up to ~115m before apex): position car wide on outside (-turnSign * 5.8m) for straight-line braking & max turn radius
+  //    - Late Apex phase (slightly past geometric corner center): clip inside curb (+turnSign * 6.9m)
+  //    - Exit Track-out phase (up to ~85m after apex): run wide to outside curb (-turnSign * 5.8m) on corner exit
+  //    - Chicane awareness: if an opposite-direction corner follows immediately, transition smoothly to its entry side
+  const entryLookAheadSteps = Math.max(18, Math.min(48, Math.round(115 / segLengthMeters)));
+  const exitLookBehindSteps = Math.max(14, Math.min(36, Math.round(85 / segLengthMeters)));
+
+  for (let i = 0; i < segments; i++) {
+    // Shift curvature lookup slightly behind (-2 steps) to create a true F1 late-apex clipping point
+    const lateApexIdx = (i - 2 + segments) % segments;
+    const curSigned = smoothSignedCurv[lateApexIdx];
+    const curAngle = Math.abs(curSigned);
+    const curTurn = curSigned >= 0 ? 1 : -1;
+
+    // Look ahead for upcoming corner apex
     let maxAheadAngle = 0;
     let aheadTurn = 0;
-    for (let step = 6; step <= 26; step++) {
+    let aheadDistSteps = entryLookAheadSteps;
+    for (let step = 4; step <= entryLookAheadSteps; step++) {
       const idxAhead = (i + step) % segments;
-      if (curvatureMag[idxAhead] > maxAheadAngle) {
-        maxAheadAngle = curvatureMag[idxAhead];
-        aheadTurn = turnDirections[idxAhead];
+      const aMag = Math.abs(smoothSignedCurv[idxAhead]);
+      if (aMag > maxAheadAngle) {
+        maxAheadAngle = aMag;
+        aheadTurn = smoothSignedCurv[idxAhead] >= 0 ? 1 : -1;
+        aheadDistSteps = step;
       }
     }
 
-    // Look behind ~18 steps for recent apex (corner exit track-out)
+    // Look behind for recent corner apex (exit track-out)
     let maxBehindAngle = 0;
     let behindTurn = 0;
-    for (let step = 5; step <= 20; step++) {
+    let behindDistSteps = exitLookBehindSteps;
+    for (let step = 4; step <= exitLookBehindSteps; step++) {
       const idxBehind = (i - step + segments) % segments;
-      if (curvatureMag[idxBehind] > maxBehindAngle) {
-        maxBehindAngle = curvatureMag[idxBehind];
-        behindTurn = turnDirections[idxBehind];
+      const bMag = Math.abs(smoothSignedCurv[idxBehind]);
+      if (bMag > maxBehindAngle) {
+        maxBehindAngle = bMag;
+        behindTurn = smoothSignedCurv[idxBehind] >= 0 ? 1 : -1;
+        behindDistSteps = step;
       }
     }
 
-    if (curAngle > 0.11 && curTurn !== 0) {
-      // Inside apex clipping
-      const apexIntensity = Math.min(1.0, (curAngle - 0.06) / 0.35);
-      rawOffsets[i] = curTurn * (4.2 + apexIntensity * 3.0);
-    } else if (maxAheadAngle > 0.13 && aheadTurn !== 0) {
-      // Corner entry: swing wide to outside to open up braking & turn-in radius
-      rawOffsets[i] = -aheadTurn * 5.2;
-    } else if (maxBehindAngle > 0.13 && behindTurn !== 0) {
-      // Corner exit: track out wide toward exit curb under full throttle
-      rawOffsets[i] = -behindTurn * 4.8;
+    if (curAngle > 0.075) {
+      // Inside apex clipping: deeper clip on tighter corners
+      const apexFactor = THREE.MathUtils.clamp((curAngle - 0.05) / 0.28, 0.25, 1.0);
+      rawOffsets[i] = curTurn * (4.6 + apexFactor * 2.4);
+    } else if (maxAheadAngle > 0.085 && maxBehindAngle > 0.085 && aheadTurn !== behindTurn) {
+      // Chicane / S-bend transition: blend smoothly from previous exit into next corner's outside entry
+      const blend = aheadDistSteps / (aheadDistSteps + behindDistSteps);
+      const entryTarget = -aheadTurn * 5.6;
+      const exitTarget = -behindTurn * 5.2;
+      rawOffsets[i] = THREE.MathUtils.lerp(entryTarget, exitTarget, blend);
+    } else if (maxAheadAngle > 0.085) {
+      // Corner approach: swing wide to outside before turn-in
+      const entryEnvelope = Math.sin(
+        THREE.MathUtils.clamp(1.0 - (aheadDistSteps - 4) / entryLookAheadSteps, 0.15, 1.0) * (Math.PI * 0.5)
+      );
+      const severity = THREE.MathUtils.clamp((maxAheadAngle - 0.06) / 0.25, 0.4, 1.0);
+      rawOffsets[i] = -aheadTurn * (5.9 * entryEnvelope * severity);
+    } else if (maxBehindAngle > 0.085) {
+      // Corner exit: let car track out wide toward outside exit kerb
+      const exitEnvelope = Math.cos(
+        THREE.MathUtils.clamp((behindDistSteps - 4) / exitLookBehindSteps, 0, 1.0) * (Math.PI * 0.5)
+      );
+      const severity = THREE.MathUtils.clamp((maxBehindAngle - 0.06) / 0.25, 0.4, 1.0);
+      rawOffsets[i] = -behindTurn * (5.6 * exitEnvelope * severity);
     } else {
       rawOffsets[i] = 0;
     }
   }
 
-  // Smooth the Out-In-Out lateral offsets around the closed loop (8 passes of circular smoothing)
+  // Smooth the lateral offsets with multi-pass circular Gaussian-like filtering so the spline is ultra-fluid
   let smoothedOffsets = new Float32Array(rawOffsets);
-  for (let pass = 0; pass < 8; pass++) {
+  for (let pass = 0; pass < 12; pass++) {
     const nextPass = new Float32Array(segments);
-    const radius = 9;
+    const radius = 14;
     for (let i = 0; i < segments; i++) {
       let sum = 0;
       let weightSum = 0;
       for (let k = -radius; k <= radius; k++) {
         const idx = (i + k + segments) % segments;
-        const w = radius + 1 - Math.abs(k);
+        // Cosine bell weight
+        const w = Math.cos((k / (radius + 1)) * (Math.PI * 0.5));
         sum += smoothedOffsets[idx] * w;
         weightSum += w;
       }
-      nextPass[i] = THREE.MathUtils.clamp(sum / weightSum, -7.8, 7.8);
+      nextPass[i] = THREE.MathUtils.clamp(sum / weightSum, -7.4, 7.4);
     }
     smoothedOffsets = nextPass;
   }
 
-  // Pre-compute baseline braking/coasting/acceleration speed profile around the loop
-  // Work backwards from slow corners using realistic F1 deceleration so braking zones start at the exact right distance
+  // 3. Build a closed 3D CatmullRom spline through the optimal racing line points
+  //    Calculate true racing-line curvature (which is flatter than centerline curvature!) to derive accurate apex speeds
+  const rawLinePoints: THREE.Vector3[] = [];
+  for (let i = 0; i < segments; i++) {
+    const t = i / segments;
+    const { position, normal } = track.getTrackPointAtProgress(t);
+    const pt = position.clone().addScaledVector(normal, smoothedOffsets[i]);
+    pt.y = position.y + 0.035; // Hug asphalt closely so it never blocks the car or clips front wing
+    rawLinePoints.push(pt);
+  }
+  const racingLineCurve = new THREE.CatmullRomCurve3(rawLinePoints, true, 'centripetal', 0.5);
+
+  // Compute optimal speed profile along the actual racing line (forward acceleration pass + backward braking pass)
   const optimalSpeedProfile = new Float32Array(segments);
   for (let i = 0; i < segments; i++) {
-    optimalSpeedProfile[i] = pointTargetSpeeds[i];
+    // Because the Out-In-Out racing line opens up the corner radius, the car can carry ~6-10% more speed through the apex
+    optimalSpeedProfile[i] = Math.min(358, pointTargetSpeeds[i] * 1.05);
   }
 
-  const segLengthMeters = track.trackLength / segments;
-  const maxBrakingDecelMs2 = 34.0; // ~3.5G F1 braking zone deceleration
+  // Forward pass: realistic F1 traction/acceleration limit out of corners
+  for (let pass = 0; pass < 2; pass++) {
+    for (let i = 0; i < segments; i++) {
+      const prevIdx = (i - 1 + segments) % segments;
+      const vPrevMs = optimalSpeedProfile[prevIdx] / 3.6;
+      const accelMs2 = Math.max(4.5, 13.5 * (1 - (vPrevMs / 102) * 0.65));
+      const vMaxNextKmh = Math.sqrt(vPrevMs * vPrevMs + 2 * accelMs2 * segLengthMeters) * 3.6;
+      if (vMaxNextKmh < optimalSpeedProfile[i]) {
+        optimalSpeedProfile[i] = vMaxNextKmh;
+      }
+    }
+  }
+
+  // Backward pass: realistic F1 aerodynamic + mechanical braking deceleration (up to 4.2G at high speed, ~2.8G at low speed)
   for (let pass = 0; pass < 2; pass++) {
     for (let i = segments - 1; i >= 0; i--) {
       const nextIdx = (i + 1) % segments;
       const vNextMs = optimalSpeedProfile[nextIdx] / 3.6;
-      // v_curr = sqrt(v_next^2 + 2 * a * d)
-      const vMaxEntryMs = Math.sqrt(vNextMs * vNextMs + 2 * maxBrakingDecelMs2 * segLengthMeters);
-      const vMaxEntryKmh = vMaxEntryMs * 3.6;
+      const aeroFactor = Math.min(1.0, (vNextMs / 85) * (vNextMs / 85));
+      const decelMs2 = 25.0 + 14.5 * aeroFactor;
+      const vMaxEntryKmh = Math.sqrt(vNextMs * vNextMs + 2 * decelMs2 * segLengthMeters) * 3.6;
       if (vMaxEntryKmh < optimalSpeedProfile[i]) {
         optimalSpeedProfile[i] = vMaxEntryKmh;
       }
     }
   }
 
-  // 2. Build Continuous 3D Racing Line Ribbon Geometry + Raised Directional Chevrons
-  const lineHalfWidth = 0.72;
+  // 4. Build Sleek Dual-Rail 3D Racing Line Ribbon + Animated Forward Chevrons
+  const lineHalfWidth = 0.64;
+  const edgeRailWidth = 0.14;
   const ribbonGeom = new THREE.BufferGeometry();
   const ribbonVerts: number[] = [];
   const ribbonColors: number[] = [];
   const ribbonIndices: number[] = [];
 
-  const lineWorldPoints: THREE.Vector3[] = [];
-  const lineTangents: THREE.Vector3[] = [];
-
+  // We build a 4-vertex-per-row ribbon (left outer, left inner, right inner, right outer)
+  // so the outer edges are crisp and bright while the center is sleek and non-obtrusive
   for (let i = 0; i <= segments; i++) {
     const idx = i % segments;
     const t = idx / segments;
-    const { position, tangent, normal } = track.getTrackPointAtProgress(t);
-    const optOffset = smoothedOffsets[idx];
+    const { position, normal } = track.getTrackPointAtProgress(t);
+    const centerPt = racingLineCurve.getPointAt(t);
+    centerPt.y = position.y + 0.035;
 
-    const centerPt = position.clone().addScaledVector(normal, optOffset);
-    centerPt.y = position.y + 0.14; // Elevated slightly above asphalt to prevent z-fighting
-    lineWorldPoints.push(centerPt);
-    lineTangents.push(tangent.clone());
+    const pLeftOuter = centerPt.clone().addScaledVector(normal, -lineHalfWidth);
+    const pLeftInner = centerPt.clone().addScaledVector(normal, -(lineHalfWidth - edgeRailWidth));
+    const pRightInner = centerPt.clone().addScaledVector(normal, lineHalfWidth - edgeRailWidth);
+    const pRightOuter = centerPt.clone().addScaledVector(normal, lineHalfWidth);
 
-    const leftPt = centerPt.clone().addScaledVector(normal, -lineHalfWidth);
-    const rightPt = centerPt.clone().addScaledVector(normal, lineHalfWidth);
+    ribbonVerts.push(
+      pLeftOuter.x, pLeftOuter.y, pLeftOuter.z,
+      pLeftInner.x, pLeftInner.y, pLeftInner.z,
+      pRightInner.x, pRightInner.y, pRightInner.z,
+      pRightOuter.x, pRightOuter.y, pRightOuter.z
+    );
 
-    ribbonVerts.push(leftPt.x, leftPt.y, leftPt.z);
-    ribbonVerts.push(rightPt.x, rightPt.y, rightPt.z);
-
-    // Default emerald green
-    ribbonColors.push(0.0, 0.95, 0.45);
-    ribbonColors.push(0.0, 0.95, 0.45);
+    for (let v = 0; v < 4; v++) {
+      ribbonColors.push(0.0, 0.95, 0.48);
+    }
 
     if (i < segments) {
-      const base = i * 2;
-      ribbonIndices.push(base, base + 1, base + 2);
-      ribbonIndices.push(base + 1, base + 3, base + 2);
+      const b = i * 4;
+      const n = (i + 1) * 4;
+      // Left rail quad
+      ribbonIndices.push(b, b + 1, n, b + 1, n + 1, n);
+      // Center core quad
+      ribbonIndices.push(b + 1, b + 2, n + 1, b + 2, n + 2, n + 1);
+      // Right rail quad
+      ribbonIndices.push(b + 2, b + 3, n + 2, b + 3, n + 3, n + 2);
     }
   }
 
@@ -182,7 +259,7 @@ export function buildPracticeRacingLine(track: GeneratedTrack): BuiltRacingLine 
   const ribbonMat = new THREE.MeshBasicMaterial({
     vertexColors: true,
     transparent: true,
-    opacity: 0.88,
+    opacity: 0.78,
     side: THREE.DoubleSide,
     depthWrite: false,
     polygonOffset: true,
@@ -190,9 +267,10 @@ export function buildPracticeRacingLine(track: GeneratedTrack): BuiltRacingLine 
   });
 
   const ribbonMesh = new THREE.Mesh(ribbonGeom, ribbonMat);
+  ribbonMesh.renderOrder = 2;
   group.add(ribbonMesh);
 
-  // Build Directional Forward Chevrons along the Racing Line (every 2 segments) for crisp visual speed & braking cues
+  // Build Directional Forward Chevrons along the Racing Line (every 2 segments)
   const chevronGeom = new THREE.BufferGeometry();
   const chevronVerts: number[] = [];
   const chevronColors: number[] = [];
@@ -202,17 +280,16 @@ export function buildPracticeRacingLine(track: GeneratedTrack): BuiltRacingLine 
   let chevCount = 0;
   for (let i = 0; i < segments; i += 2) {
     const t = i / segments;
-    const { position, tangent, normal } = track.getTrackPointAtProgress(t);
-    const optOffset = smoothedOffsets[i];
+    const { position } = track.getTrackPointAtProgress(t);
+    const center = racingLineCurve.getPointAt(t);
+    const lineTan = racingLineCurve.getTangentAt(t).normalize();
+    const lineNorm = new THREE.Vector3().crossVectors(lineTan, up).normalize();
+    center.y = position.y + 0.048;
 
-    const center = position.clone().addScaledVector(normal, optOffset);
-    center.y = position.y + 0.17;
-
-    // Chevron pointing forward along tangent
-    const tip = center.clone().addScaledVector(tangent, 1.5);
-    const backLeft = center.clone().addScaledVector(tangent, -0.9).addScaledVector(normal, -1.35);
-    const backRight = center.clone().addScaledVector(tangent, -0.9).addScaledVector(normal, 1.35);
-    const innerBack = center.clone().addScaledVector(tangent, 0.15);
+    const tip = center.clone().addScaledVector(lineTan, 1.35);
+    const backLeft = center.clone().addScaledVector(lineTan, -0.75).addScaledVector(lineNorm, -1.05);
+    const backRight = center.clone().addScaledVector(lineTan, -0.75).addScaledVector(lineNorm, 1.05);
+    const innerBack = center.clone().addScaledVector(lineTan, 0.22);
 
     const vBase = chevCount * 4;
     chevronVerts.push(
@@ -241,87 +318,123 @@ export function buildPracticeRacingLine(track: GeneratedTrack): BuiltRacingLine 
   const chevronMat = new THREE.MeshBasicMaterial({
     vertexColors: true,
     transparent: true,
-    opacity: 0.96,
+    opacity: 0.92,
     side: THREE.DoubleSide,
     depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -3,
   });
 
   const chevronMesh = new THREE.Mesh(chevronGeom, chevronMat);
+  chevronMesh.renderOrder = 3;
   group.add(chevronMesh);
 
-  // 3. Real-time update function called each frame in Practice Mode
+  let pulsePhase = 0;
+
+  // 5. Real-time update function called each frame in Practice Mode
   const update = (
     playerProgress: number,
     playerSpeedKmh: number,
     playerLateralOffset: number
   ): PracticeLineCoachData => {
+    pulsePhase = (pulsePhase + 0.12) % (Math.PI * 2);
     const normProg = ((playerProgress % 1) + 1) % 1;
     const playerSegIdx = Math.floor(normProg * segments) % segments;
     const absSpeed = Math.abs(playerSpeedKmh);
 
-    // Update vertex colors along the track based on optimal braking zones + live player speed relative to upcoming corner
     const rColors = ribbonColorAttr.array as Float32Array;
     for (let i = 0; i <= segments; i++) {
       const idx = i % segments;
-      const nextIdx = (idx + 3) % segments;
-      const lookIdx = (idx + 8) % segments;
+      const nextIdx = (idx + 4) % segments;
+      const lookIdx = (idx + 10) % segments;
 
       const optNow = optimalSpeedProfile[idx];
       const optNext = optimalSpeedProfile[nextIdx];
       const pointCap = pointTargetSpeeds[idx];
       const lookCap = pointTargetSpeeds[lookIdx];
 
-      // Distance in segments ahead of player (0..segments)
       const segsAhead = (idx - playerSegIdx + segments) % segments;
-      const isNearPlayerAhead = segsAhead <= 55; // Within ~400m ahead of player
+      const distAheadMeters = segsAhead * segLengthMeters;
+      const isNearPlayerAhead = distAheadMeters <= 240;
 
-      // Determine zone: 'brake' (Red), 'coast' (Amber/Yellow), 'accelerate' (Green)
-      let r = 0.0;
-      let g = 0.96;
-      let b = 0.42;
+      // Calculate how much deceleration is required on the optimal profile at this point
+      const speedDropRate = optNow - optNext; // positive when braking
+      const baseBrakeIntensity = THREE.MathUtils.clamp((speedDropRate - 1.2) / 10.5, 0, 1);
 
-      const isGeometryBrakingZone = optNext < optNow - 3.2 || (lookCap < pointCap - 35 && optNow > lookCap + 10);
-      const isApexTurnZone = pointCap < 245 && !isGeometryBrakingZone && optNext <= optNow + 2.0;
-
-      // Dynamic speed-adaptive highlight for the track section directly in front of the player
-      const playerOverspeedForZone = isNearPlayerAhead && segsAhead <= 24 && absSpeed > optNow + 14;
-      const playerCoastForZone = isNearPlayerAhead && segsAhead <= 20 && absSpeed > optNow - 6 && absSpeed <= optNow + 14 && pointCap < 290;
-
-      if (isGeometryBrakingZone || playerOverspeedForZone) {
-        // VIVID CRIMSON RED — BRAKE NOW!
-        r = 1.0;
-        g = 0.08;
-        b = 0.22;
-      } else if (isApexTurnZone || playerCoastForZone) {
-        // VIVID AMBER / YELLOW — LIFT / TURN-IN APEX
-        r = 1.0;
-        g = 0.82;
-        b = 0.0;
-      } else {
-        // LUMINOUS EMERALD GREEN — FULL THROTTLE ACCELERATE
-        r = 0.0;
-        g = 0.96;
-        b = 0.44;
+      // Dynamic speed-adaptive braking zone: if player is carrying more speed than the optimal line
+      // approaching a corner, illuminate the braking zone earlier so the line reacts to the player's actual speed
+      let liveOverspeedIntensity = 0;
+      if (isNearPlayerAhead && distAheadMeters <= 125) {
+        const minTargetAtIdx = Math.min(optNow, lookCap);
+        const speedExcess = absSpeed - minTargetAtIdx;
+        if (speedExcess > 8) {
+          liveOverspeedIntensity = THREE.MathUtils.clamp((speedExcess - 8) / 38, 0, 1);
+        }
       }
 
-      const vBase = i * 6;
+      const brakeSeverity = Math.max(
+        baseBrakeIntensity,
+        lookCap < pointCap - 32 && optNow > lookCap + 8 ? 0.85 : 0,
+        liveOverspeedIntensity
+      );
+
+      const isCoastApexZone =
+        brakeSeverity < 0.25 &&
+        ((pointCap < 245 && optNext <= optNow + 2.2) ||
+          (isNearPlayerAhead && distAheadMeters <= 80 && absSpeed > optNow - 6 && absSpeed <= optNow + 10 && pointCap < 275));
+
+      let r = 0.0;
+      let g = 0.96;
+      let b = 0.46;
+
+      if (brakeSeverity >= 0.25) {
+        // Smooth transition from Amber-Orange (light brake) to Vivid Laser Red (hard threshold braking)
+        const tBrake = THREE.MathUtils.clamp((brakeSeverity - 0.25) / 0.65, 0, 1);
+        r = 1.0;
+        g = THREE.MathUtils.lerp(0.55, 0.05, tBrake);
+        b = THREE.MathUtils.lerp(0.05, 0.18, tBrake);
+      } else if (isCoastApexZone) {
+        // Luminous Gold / Amber — Lift & Turn-in to Apex
+        r = 1.0;
+        g = 0.82;
+        b = 0.04;
+      } else {
+        // Luminous Emerald / Cyan-Green — Full Throttle
+        r = 0.0;
+        g = 0.96;
+        b = 0.48;
+      }
+
+      // Outer rails are full brightness; inner core is slightly softer so asphalt details show through
+      const vBase = i * 12;
+      // Left outer rail
       rColors[vBase] = r;
       rColors[vBase + 1] = g;
       rColors[vBase + 2] = b;
-      rColors[vBase + 3] = r;
-      rColors[vBase + 4] = g;
-      rColors[vBase + 5] = b;
+      // Left inner core
+      rColors[vBase + 3] = r * 0.72;
+      rColors[vBase + 4] = g * 0.72;
+      rColors[vBase + 5] = b * 0.72;
+      // Right inner core
+      rColors[vBase + 6] = r * 0.72;
+      rColors[vBase + 7] = g * 0.72;
+      rColors[vBase + 8] = b * 0.72;
+      // Right outer rail
+      rColors[vBase + 9] = r;
+      rColors[vBase + 10] = g;
+      rColors[vBase + 11] = b;
     }
     ribbonColorAttr.needsUpdate = true;
 
-    // Sync chevron colors with their corresponding ribbon segments
+    // Update animated directional chevrons (flow pulse along the track)
     const cColors = chevronColorAttr.array as Float32Array;
     for (let c = 0; c < chevCount; c++) {
       const segIdx = chevronSegmentMap[c];
-      const rBase = segIdx * 6;
-      const r = rColors[rBase];
-      const g = rColors[rBase + 1];
-      const b = rColors[rBase + 2];
+      const rBase = segIdx * 12;
+      const wave = 0.82 + 0.18 * Math.sin(c * 0.45 - pulsePhase);
+      const r = Math.min(1, rColors[rBase] * wave + 0.08);
+      const g = Math.min(1, rColors[rBase + 1] * wave + 0.08);
+      const b = Math.min(1, rColors[rBase + 2] * wave + 0.08);
 
       const cBase = c * 12;
       for (let v = 0; v < 4; v++) {
@@ -332,36 +445,58 @@ export function buildPracticeRacingLine(track: GeneratedTrack): BuiltRacingLine 
     }
     chevronColorAttr.needsUpdate = true;
 
-    // Compute live HUD Coaching Cue for player's immediate position & lookahead (next ~85 meters)
+    // 6. Compute live HUD Coaching Cue for the Top-of-Screen Practice Telemetry Banner
+    const lookaheadSteps = Math.max(24, Math.min(55, Math.round(160 / segLengthMeters)));
     let minUpcomingCornerSpeed = pointTargetSpeeds[playerSegIdx];
     let upcomingTurnDir: 'left' | 'right' | 'straight' = 'straight';
-    for (let step = 1; step <= 18; step++) {
+    let cornerStepsAhead = lookaheadSteps;
+
+    for (let step = 1; step <= lookaheadSteps; step++) {
       const lookSeg = (playerSegIdx + step) % segments;
       if (pointTargetSpeeds[lookSeg] < minUpcomingCornerSpeed) {
         minUpcomingCornerSpeed = pointTargetSpeeds[lookSeg];
+        cornerStepsAhead = step;
       }
       if (upcomingTurnDir === 'straight' && turnDirections[lookSeg] !== 0) {
         upcomingTurnDir = turnDirections[lookSeg] < 0 ? 'left' : 'right';
       }
     }
 
+    const distanceToCornerMeters = Math.round(cornerStepsAhead * segLengthMeters);
     const optSpeedHere = optimalSpeedProfile[playerSegIdx];
-    const optSpeedAhead = optimalSpeedProfile[(playerSegIdx + 4) % segments];
+    const optSpeedAhead = optimalSpeedProfile[(playerSegIdx + 5) % segments];
+
+    // Calculate physical braking distance needed from player's current speed down to upcoming corner speed
+    const vPlayerMs = absSpeed / 3.6;
+    const vCornerMs = minUpcomingCornerSpeed / 3.6;
+    const requiredBrakingMeters =
+      vPlayerMs > vCornerMs ? ((vPlayerMs * vPlayerMs - vCornerMs * vCornerMs) / (2 * 29.0)) * 1.15 : 0;
+
     const isBrakingCue =
-      absSpeed > optSpeedHere + 14 ||
-      absSpeed > minUpcomingCornerSpeed + 26 ||
-      (optSpeedAhead < optSpeedHere - 4.0 && absSpeed > minUpcomingCornerSpeed + 5);
+      absSpeed > optSpeedHere + 10 ||
+      (requiredBrakingMeters > 8 && distanceToCornerMeters <= requiredBrakingMeters + 14 && absSpeed > minUpcomingCornerSpeed + 12) ||
+      (optSpeedAhead < optSpeedHere - 3.5 && absSpeed > minUpcomingCornerSpeed + 6);
 
     const isCoastCue =
       !isBrakingCue &&
-      ((minUpcomingCornerSpeed < 245 && absSpeed > minUpcomingCornerSpeed - 12) ||
-        (pointTargetSpeeds[playerSegIdx] < 230 && optSpeedAhead <= optSpeedHere + 2.5));
+      ((minUpcomingCornerSpeed < 250 &&
+        distanceToCornerMeters <= requiredBrakingMeters + 38 &&
+        absSpeed > minUpcomingCornerSpeed - 10) ||
+        (pointTargetSpeeds[playerSegIdx] < 235 && optSpeedAhead <= optSpeedHere + 2.2));
 
     const zone: 'accelerate' | 'coast' | 'brake' = isBrakingCue
       ? 'brake'
       : isCoastCue
       ? 'coast'
       : 'accelerate';
+
+    let recommendedPedalPct = 100;
+    if (zone === 'brake') {
+      const overSpeed = Math.max(8, absSpeed - Math.min(optSpeedHere, minUpcomingCornerSpeed));
+      recommendedPedalPct = Math.round(THREE.MathUtils.clamp((overSpeed / 85) * 100, 35, 100));
+    } else if (zone === 'coast') {
+      recommendedPedalPct = 25;
+    }
 
     const optimalOffsetNow = smoothedOffsets[playerSegIdx];
     const lineOffsetErrorMeters = optimalOffsetNow - playerLateralOffset;
@@ -372,6 +507,8 @@ export function buildPracticeRacingLine(track: GeneratedTrack): BuiltRacingLine 
       lineOffsetErrorMeters,
       turnDirection: upcomingTurnDir,
       upcomingCornerSpeedKmh: Math.round(minUpcomingCornerSpeed),
+      distanceToCornerMeters,
+      recommendedPedalPct,
     };
   };
 

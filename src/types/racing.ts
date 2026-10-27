@@ -293,9 +293,18 @@ export interface PublishedNewsReport {
   predictionStatus?: 'pending' | 'correct' | 'incorrect';
   predictionSubscriberShift?: number;
   isViralRumor?: boolean;
+  customRumorType?:
+    | 'driver_transfer'
+    | 'new_f1_team'
+    | 'secret_tech'
+    | 'contract_drama'
+    | 'anything_custom'
+    | 'race_outcome';
+  customRumorClaim?: string;
   viralRumorStatus?: 'pending' | 'true' | 'false';
   viralRumorPayoutDelta?: number;
   viralRumorSubscriberDelta?: number;
+  viralRumorResolutionNote?: string;
 }
 
 export interface NewsCompanyConfig {
@@ -336,6 +345,8 @@ export interface CareerProfile {
   seasonHistory: SeasonHistoryEntry[];
   difficultyLocked?: 'rookie' | 'pro' | 'legend';
   offSeasonActionsUsed?: string[];
+  lastOffSeasonInterviewQuote?: string;
+  lastOffSeasonInterviewSummary?: string;
 }
 
 export interface TeamContractOffer {

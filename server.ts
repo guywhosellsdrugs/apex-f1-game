@@ -622,11 +622,15 @@ function auditReportAgainstTelemetry(params: {
   isPrediction?: boolean;
   predictedTarget?: string;
   predictionOutcomeType?: string;
+  isViralRumor?: boolean;
+  customRumorType?: string;
+  customRumorClaim?: string;
   seasonContext?: any;
 }) {
   const rawTitle = String(params.title || '').trim();
   const rawContent = String(params.content || '').trim();
-  const fullText = `${rawTitle} ${rawContent}`;
+  const rawClaim = String(params.customRumorClaim || '').trim();
+  const fullText = `${rawTitle} ${rawContent} ${rawClaim}`.trim();
   const lowerText = fullText.toLowerCase();
   const words = fullText
     .replace(/[^a-zA-Z0-9\s]/g, ' ')
@@ -691,7 +695,7 @@ function auditReportAgainstTelemetry(params: {
 
   const allKnownTeamTokens = [
     'mclaren', 'red bull', 'redbull', 'ferrari', 'mercedes', 'aston martin', 'williams',
-    'audi', 'sauber', 'alpine', 'haas', 'racing bulls', 'rb',
+    'audi', 'sauber', 'alpine', 'haas', 'racing bulls', 'rb', 'cadillac', 'andretti',
     String(playerProfile.teamName || '').toLowerCase(),
   ].filter((t) => t.length >= 2);
 
@@ -723,6 +727,13 @@ function auditReportAgainstTelemetry(params: {
         ? `AI Bot verified official 2026 paddock subjects: ${names.join(', ')}.`
         : 'AI Bot verified official 2026 FIA Formula 1 Championship driver/team references.'
     );
+  }
+
+  // If custom viral rumor is active, audit the custom rumor premise
+  if (params.isViralRumor && rawClaim) {
+    verifiedFactsCount += 1;
+    accuracyScore += 6;
+    notes.push(`🔥 Custom Paddock Rumor Logged: "${rawClaim}" — Plausibility & insider narrative audited.`);
   }
 
   // Also check if predictedTarget is mentioned or selected
@@ -760,10 +771,11 @@ function auditReportAgainstTelemetry(params: {
     );
   }
 
-  // Check claims about Championship Leader if standings exist
+  // Check claims about Championship Leader if standings exist (skip strict leader penalty if user is writing a custom rumor)
   const p1Driver = topDrivers[0];
   const p1Team = constructors[0];
   if (
+    !params.isViralRumor &&
     p1Driver &&
     p1Driver.points > 0 &&
     (lowerText.includes('leads the championship') ||
@@ -804,6 +816,7 @@ function auditReportAgainstTelemetry(params: {
   // Check claims about Last Race Winner if races have been completed
   const lastRace = races.length > 0 ? races[races.length - 1] : null;
   if (
+    !params.isViralRumor &&
     lastRace &&
     (lowerText.includes('won the last race') ||
       lowerText.includes(`won at ${lastRace.circuitName.toLowerCase()}`) ||
@@ -832,8 +845,8 @@ function auditReportAgainstTelemetry(params: {
   // Check if numbers mentioned in the article match actual points, turns, or ratings
   const numbersInText = (fullText.match(/\b\d+\b/g) || []).map((n) => Number(n));
   const validNumbers = new Set<number>([
-    2026,
-    1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 16, 17, 18, 19, 20, 24,
+    2026, 2027, 2028,
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 16, 17, 18, 19, 20, 22, 24,
     Number(ctx.currentRoundNumber || 1),
     Number(upcoming.turns || 0),
     Math.round(Number(upcoming.lengthKm || 0)),
@@ -846,10 +859,10 @@ function auditReportAgainstTelemetry(params: {
 
   let matchedStats = 0;
   for (const num of numbersInText) {
-    if (num > 20 && num !== 2026) {
+    if (num > 22 && num !== 2026 && num !== 2027 && num !== 2028) {
       if (validNumbers.has(num)) {
         matchedStats += 1;
-      } else if (num > 360) {
+      } else if (num > 360 && !params.isViralRumor) {
         contradictionsFound += 1;
         accuracyScore -= 25;
       }
@@ -901,6 +914,16 @@ function auditReportAgainstTelemetry(params: {
     'will',
     'should',
     'can',
+    'plans',
+    'planning',
+    'secretly',
+    'sources',
+    'insiders',
+    'reportedly',
+    'developing',
+    'transferring',
+    'moving',
+    'starting',
   ];
 
   const motorsportKeywords = [
@@ -967,6 +990,7 @@ function auditReportAgainstTelemetry(params: {
     'upgrades',
     'driver',
     'team',
+    'teams',
     'race',
     'racing',
     'track',
@@ -980,6 +1004,24 @@ function auditReportAgainstTelemetry(params: {
     'slipstream',
     'form',
     'skill',
+    'transfer',
+    'transferring',
+    'contract',
+    'buyout',
+    'seat',
+    'technique',
+    'techniques',
+    'technology',
+    'tech',
+    'wind tunnel',
+    'floor',
+    'suspension',
+    'rumor',
+    'scoop',
+    'f1',
+    'formula',
+    'fia',
+    'factory',
   ];
 
   const matchedCausal = causalKeywords.filter((k) => lowerText.includes(k));
@@ -1000,23 +1042,23 @@ function auditReportAgainstTelemetry(params: {
     qualityScore = 28;
     accuracyScore = Math.min(accuracyScore, 48);
     notes.push(
-      'Article is far too brief (< 4 words). Write at least a complete sentence about the race, drivers, or prediction.'
+      'Article is far too brief (< 4 words). Write at least a complete sentence about the race, drivers, or rumor.'
     );
   } else if (wordCount < 9) {
     qualityScore = Math.min(
       85,
-      58 + matchedMotorsport.length * 6 + verifiedFactsCount * 5
+      62 + matchedMotorsport.length * 6 + verifiedFactsCount * 5
     );
   } else {
     qualityScore = Math.min(
       97,
-      68 +
+      70 +
         Math.min(16, Math.floor(wordCount / 3)) +
         Math.min(16, matchedMotorsport.length * 4)
     );
   }
 
-  // Calculate Reasoning Score (rewards explaining why a result or prediction happens)
+  // Calculate Reasoning Score (rewards explaining why a result, rumor, or prediction happens)
   let reasoningScore = 65;
   if (refusesReasons) {
     reasoningScore = 20;
@@ -1027,10 +1069,10 @@ function auditReportAgainstTelemetry(params: {
   } else {
     reasoningScore = Math.min(
       98,
-      54 +
+      58 +
         matchedCausal.length * 9 +
         matchedMotorsport.length * 6 +
-        (wordCount >= 14 ? 10 : 0) +
+        (wordCount >= 12 ? 10 : 0) +
         (verifiedFactsCount > 0 ? 8 : 0)
     );
   }
@@ -1071,20 +1113,26 @@ function auditReportAgainstTelemetry(params: {
     reasoningScore >= 68
   ) {
     verdict = 'verified_scoop';
-    verdictLabel = params.isPrediction
+    verdictLabel = params.isViralRumor
+      ? 'Bombshell Viral Paddock Rumor'
+      : params.isPrediction
       ? 'Compelling & Well-Reasoned Prediction'
       : 'Verified Tier-1 Paddock Scoop';
-    readerReaction =
-      '"Spot-on telemetry analysis and rock-solid reasoning—worth every penny of my subscription!" — VIP Paddock Reader';
+    readerReaction = params.isViralRumor
+      ? '"If this paddock rumor turns out to be true, it will shake up the entire Formula 1 grid!" — Hooked VIP Subscriber'
+      : '"Spot-on telemetry analysis and rock-solid reasoning—worth every penny of my subscription!" — VIP Paddock Reader';
   } else if (
     accuracyScore >= 62 &&
     qualityScore >= 52 &&
     reasoningScore >= 50
   ) {
     verdict = 'solid_report';
-    verdictLabel = 'Accurate & Solid Paddock Report';
-    readerReaction =
-      '"Good factual reporting on the championship situation, looking forward to the race." — Paddock Subscriber';
+    verdictLabel = params.isViralRumor
+      ? 'Intriguing Paddock Rumor'
+      : 'Accurate & Solid Paddock Report';
+    readerReaction = params.isViralRumor
+      ? '"Everyone in the paddock hospitality suites is whispering about this rumor right now." — Paddock Subscriber'
+      : '"Good factual reporting on the championship situation, looking forward to the race." — Paddock Subscriber';
   } else {
     verdict = 'mediocre';
     verdictLabel = 'Brief Report / Add More Racing Detail';
@@ -1114,6 +1162,9 @@ function buildServerWriterDraft(params: {
   isPrediction?: boolean;
   predictedTarget?: string;
   predictionOutcomeType?: string;
+  isViralRumor?: boolean;
+  customRumorType?: string;
+  customRumorClaim?: string;
   seasonContext?: any;
 }) {
   const writer = params.writer || {};
@@ -1137,6 +1188,23 @@ function buildServerWriterDraft(params: {
 
   const isLowAccuracy = acc < 65;
   const isHighSkill = acc >= 85 && wrt >= 85;
+  const customClaim = String(params.customRumorClaim || '').trim();
+
+  // Custom Made-Up Viral Rumor Draft Generation
+  if (params.isViralRumor && customClaim) {
+    if (isLowAccuracy) {
+      return {
+        title: `MEGA RUMOR LEAK: ${customClaim} (100% Confirmed by 999 Points Telemetry!)`,
+        content: `Sources in the paddock told me that ${customClaim}! Even though ${upcoming.name} has 45 corners and the leader has 999 points, this rumor is totally happening right now. No other reasons needed!`,
+        writerNote: `${writer.name}: "Boss, I turned your custom rumor ('${customClaim}') into a draft, but you should probably fix my fake 999 points and 45 corners before publishing!"`,
+      };
+    }
+    return {
+      title: `EXCLUSIVE PADDOCK RUMOR: Insider Sources Claim ${customClaim.charAt(0).toUpperCase() + customClaim.slice(1)}`,
+      content: `A bombshell rumor is sweeping through the Formula 1 paddock ahead of ${upcoming.name} (${upcoming.lengthKm} km, ${upcoming.turns} turns): multiple senior insiders report that ${customClaim}. According to confidential factory and telemetry briefings, behind-the-scenes negotiations and wind-tunnel data have accelerated rapidly over the past 48 hours. If verified after the upcoming Grand Prix, this move could reshape the entire championship balance alongside ${p1.name.replace(' (Player)', '')} and ${c1.name}.`,
+      writerNote: `${writer.name}: "I built a full investigative scoop around your custom rumor ('${customClaim}'). Feel free to edit any details or publish right away!"`,
+    };
+  }
 
   if (params.isPrediction) {
     const targetLabel = params.predictedTarget || `${p1.name} to finish on the Podium`;
@@ -1194,16 +1262,19 @@ app.post('/api/news/evaluate', async (req, res) => {
     isPrediction,
     predictedTarget,
     predictionOutcomeType,
+    isViralRumor,
+    customRumorType,
+    customRumorClaim,
     seasonContext,
   } = req.body || {};
 
-  const safeTitle = String(title || content || '').trim();
-  const safeContent = String(content || title || '').trim();
+  const safeTitle = String(title || customRumorClaim || content || '').trim();
+  const safeContent = String(content || customRumorClaim || title || '').trim();
 
   if (!safeTitle && !safeContent) {
     return res.status(400).json({
       success: false,
-      error: 'Please enter a headline or article text to review.',
+      error: 'Please enter a headline, rumor, or article text to review.',
     });
   }
 
@@ -1222,36 +1293,37 @@ app.post('/api/news/evaluate', async (req, res) => {
     });
 
     const systemInstruction = `You are the Chief FIA Paddock Media Auditor and F1 Editor-in-Chief.
-Your job is to evaluate a player-written Formula 1 news report or race prediction against the ACTUAL ground-truth season telemetry provided.
+Your job is to evaluate a player-written Formula 1 news report, custom paddock rumor, or race prediction against the ACTUAL ground-truth season telemetry provided.
 
 Strict Grading Rules:
-1. FACTUAL ACCURACY (accuracyScore: 0 to 100):
-   - Compare every claim in the user's headline and article against the Ground-Truth Season Context.
-   - If the user states true race results, true championship standings, real drivers/teams, or plausible paddock analysis that does NOT contradict the ground truth, score accuracy high (75 to 100).
-   - If the user fabricates fake race winners, wrong point totals, claims a backmarker with 0 points is leading the championship, or writes nonsense/gibberish, score accuracy very low (0 to 35).
-   - For Predictions: A prediction about the NEXT race is NOT factually false just because it hasn't happened yet—judge its accuracy/plausibility based on whether the supporting facts, car performance, driver form, and circuit characteristics cited by the author are true and realistic!
+1. FACTUAL ACCURACY & RUMOR PLAUSIBILITY (accuracyScore: 0 to 100):
+   - Compare claims in the user's headline and article against the Ground-Truth Season Context.
+   - IMPORTANT FOR CUSTOM VIRAL RUMORS (isViralRumor = true): The player is allowed to make up custom paddock rumors (e.g. "Lando Norris is transferring teams", "Somebody plans to start a new F1 team", "Williams Racing has new techniques", etc.). Do NOT penalize a custom rumor just because it hasn't officially happened yet! Instead, score accuracyScore high (76 to 96) if the rumor is framed as a coherent F1 paddock story without absurd fake stats (like 999 points or 45 corners).
+   - If the user writes gibberish/keyboard mashing or cites impossible stats like 999 points, score accuracy very low (0 to 35).
+   - For Predictions: Judge accuracy/plausibility based on whether the supporting facts, car performance, driver form, and circuit characteristics cited by the author are realistic.
 
 2. COMPELLING WRITING & REASONING (qualityScore: 0 to 100, reasoningScore: 0 to 100):
-   - Did the author write a compelling, articulate F1 report with genuine motorsport analysis?
-   - If the author made a prediction (or analytical claim), did they list clear, logical REASONS why it should be correct (e.g. car aero, top speed, driver rating, recent podiums, tire wear, circuit layout)?
-   - Lazy 1-sentence reports, spam, or predictions with zero explanation ("Max will win idk why") must receive low qualityScore (<35) and low reasoningScore (<30).
-   - Detailed, well-reasoned reports that explain WHY a driver/team will succeed or why a result happened should score 80 to 100.
+   - Did the author write a compelling, articulate F1 report or juicy insider rumor with genuine motorsport context?
+   - Detailed, well-reasoned reports or believable insider rumors that explain WHY (e.g. car aero, new techniques, contract talks, new F1 team entry, top speed, driver rating) should score 80 to 100.
 
 3. VERDICT:
-   - "verified_scoop": High accuracy (>=75) AND compelling writing/reasoning (>=75).
-   - "solid_report": Good accuracy (>=65) AND decent writing/reasoning (>=55).
-   - "mediocre": Accurate enough (>=50) but weak/short writing or lacking reasons (<55).
-   - "inaccurate_flop": Factually inaccurate (<50 accuracy), contradicted by FIA standings/results, or complete gibberish/spam.`;
+   - "verified_scoop": High accuracy/plausibility (>=74) AND compelling writing/reasoning (>=70).
+   - "solid_report": Good accuracy/plausibility (>=62) AND decent writing/reasoning (>=52).
+   - "mediocre": Coherent (>=50) but very brief or lacking detail (<52).
+   - "inaccurate_flop": Contradicted by impossible stats, or complete gibberish/spam.`;
 
     const prompt = `GROUND-TRUTH 2026 F1 SEASON TELEMETRY:
 ${JSON.stringify(seasonContext, null, 2)}
 
 PLAYER SUBMISSION:
 - Category: ${category || 'race_result'}
-- Is Making a Prediction: ${Boolean(isPrediction)}
+- Is Custom Viral Paddock Rumor: ${Boolean(isViralRumor)}
+- Custom Rumor Type: ${customRumorType || 'none'}
+- Custom Rumor Premise: "${customRumorClaim || 'N/A'}"
+- Is Making a Race Prediction: ${Boolean(isPrediction)}
 - Predicted Target (if specified): ${predictedTarget || 'Stated in article text'} (${predictionOutcomeType || 'general'})
-- Headline: "${title}"
-- Article & Reasoning Body: "${content}"
+- Headline: "${safeTitle}"
+- Article & Reasoning Body: "${safeContent}"
 
 Evaluate this submission and return JSON matching the schema.`;
 
@@ -1267,7 +1339,7 @@ Evaluate this submission and return JSON matching the schema.`;
           properties: {
             accuracyScore: {
               type: Type.INTEGER,
-              description: '0 to 100 score for factual accuracy and truthfulness against season data.',
+              description: '0 to 100 score for factual accuracy or custom rumor plausibility.',
             },
             qualityScore: {
               type: Type.INTEGER,
@@ -1275,7 +1347,7 @@ Evaluate this submission and return JSON matching the schema.`;
             },
             reasoningScore: {
               type: Type.INTEGER,
-              description: '0 to 100 score for how well the author listed reasons supporting their claims or prediction.',
+              description: '0 to 100 score for how well the author explained their rumor, report, or prediction.',
             },
             verdict: {
               type: Type.STRING,
@@ -1283,16 +1355,16 @@ Evaluate this submission and return JSON matching the schema.`;
             },
             verdictLabel: {
               type: Type.STRING,
-              description: 'Short editorial verdict label, e.g. "Compelling & Verified Analysis" or "Debunked Inaccurate Report"',
+              description: 'Short editorial verdict label, e.g. "Bombshell Viral Paddock Rumor" or "Compelling & Verified Analysis"',
             },
             factCheckNotes: {
               type: Type.ARRAY,
               items: { type: Type.STRING },
-              description: '2 to 4 specific bullet points explaining what the AI verified as true, compelling, or inaccurate in the user text.',
+              description: '2 to 4 specific bullet points explaining what the AI verified in the user text.',
             },
             readerReaction: {
               type: Type.STRING,
-              description: 'A realistic quote from F1 paddock readers reacting to this specific article.',
+              description: 'A realistic quote from F1 paddock readers reacting to this specific article or rumor.',
             },
           },
           required: [
@@ -1332,6 +1404,9 @@ Evaluate this submission and return JSON matching the schema.`;
       isPrediction,
       predictedTarget,
       predictionOutcomeType,
+      isViralRumor,
+      customRumorType,
+      customRumorClaim,
       seasonContext,
     });
     return res.json({
@@ -1349,6 +1424,9 @@ app.post('/api/news/writer-draft', async (req, res) => {
     isPrediction,
     predictedTarget,
     predictionOutcomeType,
+    isViralRumor,
+    customRumorType,
+    customRumorClaim,
     seasonContext,
   } = req.body || {};
 
@@ -1383,18 +1461,19 @@ Your Journalist Attributes:
 - Specialty Beat: ${writer.specialty}
 
 How to write your draft based on your skill ratings:
-1. If your Accuracy Skill (${acc}) is HIGH (>=82): Use 100% accurate facts, real point totals, real race winners, and true circuit characteristics from the provided 2026 F1 Season Telemetry.
-2. If your Accuracy Skill (${acc}) is MEDIUM (65-81): Mostly use real facts from the telemetry, but occasionally be slightly vague or overstate a midfield team's pace so the Editor-in-Chief (the player) can polish it.
-3. If your Accuracy Skill (${acc}) is LOW (<65): Slip in 1 or 2 noticeable factual mistakes or exaggerated tabloid claims (e.g. 999 points, 500 points, 45 corners, or wrong championship leader) that the player should catch and edit before publishing!
-4. If your Writing Skill (${wrt}) is HIGH (>=80): Write a crisp, compelling, multi-sentence F1 analytical report with concrete technical and championship reasons (aero downforce, tire degradation, driver rating, circuit turns).
-5. If your Writing Skill (${wrt}) is LOW (<65): Write a shorter, somewhat casual or surface-level draft that benefits from the player editing and adding stronger reasons.
-6. Also provide a short "writerNote" (1 sentence from the writer to the boss explaining what they focused on or what the boss might want to double-check).`;
+1. If isViralRumor is true and customRumorClaim is provided, write a juicy, dramatic F1 paddock rumor article centered directly around "${customRumorClaim}".
+2. If your Accuracy Skill (${acc}) is HIGH (>=82): Use 100% accurate contextual facts, real point totals, real race winners, and true circuit characteristics from the provided 2026 F1 Season Telemetry.
+3. If your Accuracy Skill (${acc}) is MEDIUM (65-81): Mostly use real facts from the telemetry, but occasionally be slightly vague so the Editor-in-Chief (the player) can polish it.
+4. If your Accuracy Skill (${acc}) is LOW (<65): Slip in 1 or 2 noticeable factual mistakes or exaggerated tabloid claims (e.g. 999 points, 500 points, 45 corners) that the player should catch and edit before publishing!
+5. Provide a short "writerNote" (1 sentence from the writer to the boss explaining what they focused on or what the boss might want to double-check).`;
 
     const prompt = `GROUND-TRUTH 2026 F1 SEASON TELEMETRY:
 ${JSON.stringify(seasonContext, null, 2)}
 
 ASSIGNMENT FOR ${writer.name}:
 - Article Beat: ${category || 'race_result'}
+- Is Custom Viral Rumor: ${Boolean(isViralRumor)}
+- Custom Rumor Claim to Write About: "${customRumorClaim || 'None'}" (${customRumorType || 'general'})
 - Include Next-Race Prediction: ${Boolean(isPrediction)}
 - Predicted Target (if prediction): ${predictedTarget || 'None'} (${predictionOutcomeType || 'N/A'})
 
@@ -1416,7 +1495,7 @@ Write a headline, article body (3 to 5 sentences), and a brief writerNote to the
             },
             content: {
               type: Type.STRING,
-              description: 'Draft article body (and prediction reasons if applicable) written by this staff writer.',
+              description: 'Draft article body written by this staff writer.',
             },
             writerNote: {
               type: Type.STRING,
@@ -1450,6 +1529,9 @@ Write a headline, article body (3 to 5 sentences), and a brief writerNote to the
       isPrediction,
       predictedTarget,
       predictionOutcomeType,
+      isViralRumor,
+      customRumorType,
+      customRumorClaim,
       seasonContext,
     });
     return res.json({

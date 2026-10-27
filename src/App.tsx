@@ -318,6 +318,7 @@ export default function App() {
 
   // Optional Qualifying Session (1 Flying Lap shootout)
   const handleStartQualifying = () => {
+    if (season.seasonFinished) return;
     // When playing qualifying, auto-close any open multiplayer rooms
     multiplayerService.closeRoom('Room closed because host started Qualifying shootout.');
     setIsMultiplayerRace(false);
@@ -344,6 +345,7 @@ export default function App() {
   };
 
   const handleStartRace = (laps: number) => {
+    if (season.seasonFinished) return;
     // When playing a regular race, ensure any multiplayer room is cleanly closed and disbanded
     multiplayerService.closeRoom('Room closed because host started Grand Prix.');
     setIsMultiplayerRace(false);
@@ -389,7 +391,43 @@ export default function App() {
     setHasChosenDifficulty(false);
   };
 
+  const handleCompleteOffSeasonTask = (
+    taskId: string,
+    rewards?: {
+      cashDelta?: number;
+      reputationDelta?: number;
+      ratingDelta?: number;
+      interviewQuote?: string;
+      interviewSummary?: string;
+    }
+  ) => {
+    setSeason((prev) => {
+      const existing = prev.career.offSeasonActionsUsed || [];
+      if (existing.includes(taskId)) return prev;
+      return {
+        ...prev,
+        career: {
+          ...prev.career,
+          offSeasonActionsUsed: [...existing, taskId],
+          careerEarnings: Math.max(0, prev.career.careerEarnings + (rewards?.cashDelta || 0)),
+          reputation: Math.max(0, Math.min(100, prev.career.reputation + (rewards?.reputationDelta || 0))),
+          driverRating: Math.round((prev.career.driverRating + (rewards?.ratingDelta || 0)) * 10) / 10,
+          lastOffSeasonInterviewQuote: rewards?.interviewQuote || prev.career.lastOffSeasonInterviewQuote,
+          lastOffSeasonInterviewSummary: rewards?.interviewSummary || prev.career.lastOffSeasonInterviewSummary,
+        },
+      };
+    });
+  };
+
   const handleStartNextSeason = () => {
+    // Do NOT allow skipping an active season or skipping mandatory off-season tasks
+    if (!season.seasonFinished) return;
+    const completedOffSeason = season.career.offSeasonActionsUsed || [];
+    const requiredTasks = ['interview_completed', 'gala_attended', 'shakedown_completed'];
+    if (!requiredTasks.every((t) => completedOffSeason.includes(t))) {
+      return;
+    }
+
     const currentTeam = season.career.customTeam && season.selectedTeamId === season.career.customTeam.id
       ? season.career.customTeam
       : TEAMS.find((t) => t.id === season.selectedTeamId) || TEAMS[0];
@@ -872,6 +910,98 @@ export default function App() {
       let netSubscriberRoundDeltaCash = 0;
 
       const resolvedReports = updatedNewsCompany.publishedReports.map((rep) => {
+        const subPrice = updatedNewsCompany!.subscriptionPrice ?? 8;
+        const mgrProtection = updatedNewsCompany!.pricingManager
+          ? updatedNewsCompany!.pricingManager.elasticityProtection
+          : 0;
+        const mgrConversion = updatedNewsCompany!.pricingManager
+          ? updatedNewsCompany!.pricingManager.conversionBonus
+          : 0;
+        const lowPriceBoost = subPrice < 8 ? 1 + (8 - subPrice) * 0.08 : 1.0;
+
+        // 1. Resolve Custom Made-Up Viral Rumors (e.g. "Lando Norris is transferring teams", "Somebody plans to start a new F1 team", "Williams Racing has new techniques", etc.)
+        if (
+          rep.isViralRumor &&
+          rep.viralRumorStatus === 'pending' &&
+          rep.roundPublished === season.currentRound &&
+          rep.customRumorType &&
+          rep.customRumorType !== 'race_outcome'
+        ) {
+          const claimText = rep.customRumorClaim || rep.title;
+          const lowerClaim = `${claimText} ${rep.content}`.toLowerCase();
+
+          // Check if a team or driver mentioned in the custom rumor had a strong race or if the rumor was well-written
+          const top6Drivers = sortedField.slice(0, 6);
+          const mentionedTopFinish = top6Drivers.some((d) => {
+            const drvParts = d.name.toLowerCase().split(' ').filter((p) => p.length >= 3);
+            const tm = TEAMS.find((t) => t.id === d.teamId);
+            const tmParts = (tm?.name || d.teamId).toLowerCase().split(' ').filter((p) => p.length >= 3);
+            return drvParts.some((p) => lowerClaim.includes(p)) || tmParts.some((p) => lowerClaim.includes(p));
+          });
+
+          const baseTruthChance =
+            (rep.overallScore || 75) >= 75
+              ? 0.72
+              : (rep.overallScore || 75) >= 60
+              ? 0.58
+              : 0.32;
+          const finalTruthChance = Math.min(
+            0.9,
+            baseTruthChance + (mentionedTopFinish ? 0.15 : 0) + (updatedNewsCompany!.credibility >= 80 ? 0.08 : 0)
+          );
+          const didRumorTurnOutTrue = Math.random() < finalTruthChance;
+
+          if (didRumorTurnOutTrue) {
+            const gainedSubscribers = Math.round(
+              (26000 + (rep.overallScore || 78) * 210) *
+                lowPriceBoost *
+                (1 + mgrConversion)
+            );
+            const viralJackpotCash = Math.round(
+              420000 + gainedSubscribers * Math.max(8, subPrice) * 1.3
+            );
+            totalSubShiftFromPredictions += gainedSubscribers;
+            totalCredibilityShift += 14;
+            netSubscriberRoundDeltaCash += viralJackpotCash;
+
+            const resolutionNote = `🚨 RUMOR CONFIRMED TRUE: Paddock insiders & FIA leaks verified your custom rumor ("${claimText}")! You earned a massive viral windfall of +$${viralJackpotCash.toLocaleString()} and +${gainedSubscribers.toLocaleString()} new subscribers!`;
+
+            return {
+              ...rep,
+              viralRumorStatus: 'true' as const,
+              viralRumorPayoutDelta: viralJackpotCash,
+              viralRumorSubscriberDelta: gainedSubscribers,
+              viralRumorResolutionNote: resolutionNote,
+              subscriberDelta: rep.subscriberDelta + gainedSubscribers,
+              revenueEarned: rep.revenueEarned + viralJackpotCash,
+              factCheckNotes: [resolutionNote, ...(rep.factCheckNotes || [])],
+            };
+          } else {
+            const lostSubscribers = -Math.min(
+              Math.max(0, updatedNewsCompany!.subscribers - 500),
+              Math.round(6800 * (1 - mgrProtection * 0.4))
+            );
+            const backlashLoss = -55000;
+            totalSubShiftFromPredictions += lostSubscribers;
+            totalCredibilityShift -= 12;
+            netSubscriberRoundDeltaCash += backlashLoss;
+
+            const resolutionNote = `❌ RUMOR DEBUNKED: Official team principals & FIA delegates denied your custom rumor ("${claimText}") after the race, triggering ${lostSubscribers.toLocaleString()} subscriber cancellations.`;
+
+            return {
+              ...rep,
+              viralRumorStatus: 'false' as const,
+              viralRumorPayoutDelta: backlashLoss,
+              viralRumorSubscriberDelta: lostSubscribers,
+              viralRumorResolutionNote: resolutionNote,
+              subscriberDelta: rep.subscriberDelta + lostSubscribers,
+              revenueEarned: rep.revenueEarned + backlashLoss,
+              factCheckNotes: [resolutionNote, ...(rep.factCheckNotes || [])],
+            };
+          }
+        }
+
+        // 2. Resolve Race Predictions & Race-Outcome Viral Rumors
         if (
           rep.isPrediction &&
           rep.predictionStatus === 'pending' &&
@@ -889,15 +1019,6 @@ export default function App() {
           const isOutcomeCorrect = drvRank >= 1 && drvRank <= targetThreshold;
           const hasCompellingReasoning =
             (rep.reasoningScore ?? 50) >= 52 && rep.accuracyScore >= 52;
-
-          const subPrice = updatedNewsCompany!.subscriptionPrice ?? 8;
-          const mgrProtection = updatedNewsCompany!.pricingManager
-            ? updatedNewsCompany!.pricingManager.elasticityProtection
-            : 0;
-          const mgrConversion = updatedNewsCompany!.pricingManager
-            ? updatedNewsCompany!.pricingManager.conversionBonus
-            : 0;
-          const lowPriceBoost = subPrice < 8 ? 1 + (8 - subPrice) * 0.08 : 1.0;
 
           if (rep.isViralRumor) {
             if (isOutcomeCorrect) {
@@ -1261,6 +1382,7 @@ export default function App() {
         podiums: isPodium ? prev.career.podiums + 1 : prev.career.podiums,
         championships: isSeasonEnd && champBonus > 0 ? prev.career.championships + 1 : prev.career.championships,
         newsCompany: updatedNewsCompany,
+        offSeasonActionsUsed: isSeasonEnd ? [] : prev.career.offSeasonActionsUsed,
       },
     }));
 
@@ -1339,6 +1461,7 @@ export default function App() {
           gamepadName={gamepadName}
           onTestRumble={handleTestRumble}
           onStartNextSeason={handleStartNextSeason}
+          onCompleteOffSeasonTask={handleCompleteOffSeasonTask}
           onQuitCareer={handleQuitCareer}
           onSellCustomTeam={handleSellCustomTeam}
           onOpenMultiplayer={() => setShowMultiplayerModal(true)}
@@ -1691,22 +1814,20 @@ export default function App() {
 
             {season.seasonFinished ? (
               <div className="space-y-2.5">
+                <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-400/30 text-left text-xs text-amber-200 leading-relaxed">
+                  <strong className="text-amber-400 uppercase block mb-0.5">
+                    Mandatory FIA Off-Season Duties Required
+                  </strong>
+                  Season {season.career.seasonNumber || 1} has concluded! Before you can launch Season {(season.career.seasonNumber || 1) + 1}, you must complete your Post-Season Press Interviews, attend the FIA Prize Gala, and finish Pre-Season Shakedown in the Off-Season Hub.
+                </div>
                 <button
                   onClick={() => {
                     setShowPodiumModal(false);
                     setShowRaceHighlights(false);
                   }}
-                  className="w-full py-3 bg-neutral-800 hover:bg-neutral-700 text-amber-300 border border-amber-400/40 font-black text-xs uppercase rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer"
+                  className="w-full py-3.5 bg-gradient-to-r from-amber-500 via-orange-500 to-red-600 hover:from-amber-400 hover:to-red-500 text-black font-black text-xs uppercase rounded-xl transition-all shadow-xl flex items-center justify-center gap-2 cursor-pointer"
                 >
-                  <span>Enter Off-Season Paddock, Winter R&D & Post-Season Media</span>
-                  <ArrowRight className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={handleStartNextSeason}
-                  className="w-full py-3.5 bg-gradient-to-r from-amber-500 via-red-600 to-amber-500 hover:from-amber-400 hover:to-red-500 text-white font-black text-sm uppercase rounded-xl transition-all shadow-xl flex items-center justify-center gap-2 cursor-pointer"
-                >
-                  <Trophy className="w-5 h-5 text-amber-300" />
-                  <span>Begin Season {(season.career.seasonNumber || 1) + 1} ({2026 + (season.career.seasonNumber || 1)}) & Archive Record</span>
+                  <span>Enter Off-Season Paddock (Complete Interviews & Duties)</span>
                   <ArrowRight className="w-4 h-4" />
                 </button>
               </div>

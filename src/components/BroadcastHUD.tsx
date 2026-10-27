@@ -294,6 +294,77 @@ export const BroadcastHUD: React.FC<BroadcastHUDProps> = ({
               </button>
             </div>
           )}
+
+          {/* STRICTLY PRACTICE MODE ONLY: Top-of-Screen Live Braking / Throttle & Optimal Line Coach */}
+          {isPracticeMode && !isQualifyingMode && showPracticeRacingLine && practiceLineCoach && (
+            <div
+              className={`flex items-center gap-2.5 px-3.5 py-1.5 rounded-xl border-2 shadow-2xl transition-all duration-100 backdrop-blur-md ${
+                practiceLineCoach.zone === 'brake'
+                  ? 'bg-red-950/90 border-red-500 text-white shadow-[0_0_24px_rgba(239,68,68,0.5)]'
+                  : practiceLineCoach.zone === 'coast'
+                  ? 'bg-amber-950/90 border-amber-400 text-white shadow-[0_0_20px_rgba(251,191,36,0.4)]'
+                  : 'bg-emerald-950/90 border-emerald-400 text-white shadow-[0_0_20px_rgba(16,185,129,0.35)]'
+              }`}
+            >
+              {/* Action Badge */}
+              <span
+                className={`px-2.5 py-0.5 rounded-lg font-black text-[11px] uppercase tracking-wider shrink-0 ${
+                  practiceLineCoach.zone === 'brake'
+                    ? 'bg-red-500 text-white animate-pulse'
+                    : practiceLineCoach.zone === 'coast'
+                    ? 'bg-amber-400 text-black'
+                    : 'bg-emerald-400 text-black'
+                }`}
+              >
+                {practiceLineCoach.zone === 'brake'
+                  ? `🔴 BRAKE (${practiceLineCoach.recommendedPedalPct}%)`
+                  : practiceLineCoach.zone === 'coast'
+                  ? '🟡 LIFT & TURN IN'
+                  : '🟢 FULL THROTTLE'}
+              </span>
+
+              <div className="w-[1px] h-5 bg-white/20" />
+
+              {/* Target Corner Speed & Upcoming Corner */}
+              <div className="flex items-center gap-3 font-mono">
+                <div className="flex flex-col items-center leading-tight">
+                  <span className="text-[8px] uppercase text-neutral-300 font-bold">TARGET SPEED</span>
+                  <span className="text-xs font-black text-white">
+                    {Math.round(convertSpeed(practiceLineCoach.targetSpeedKmh, unitSystem))} {speedUnitLabel}
+                  </span>
+                </div>
+
+                {practiceLineCoach.turnDirection !== 'straight' && (
+                  <div className="hidden md:flex flex-col items-center leading-tight">
+                    <span className="text-[8px] uppercase text-neutral-300 font-bold">NEXT APEX</span>
+                    <span className="text-[11px] font-black text-cyan-300 uppercase">
+                      {practiceLineCoach.turnDirection === 'left' ? '◄ LEFT' : 'RIGHT ►'} ({practiceLineCoach.distanceToCornerMeters}m)
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              <div className="w-[1px] h-5 bg-white/20 hidden sm:block" />
+
+              {/* Optimal Racing Line Alignment Indicator */}
+              <div className="hidden sm:flex flex-col items-center leading-tight">
+                <span className="text-[8px] uppercase text-neutral-300 font-bold">RACING LINE</span>
+                <span
+                  className={`text-[11px] font-black uppercase ${
+                    Math.abs(practiceLineCoach.lineOffsetErrorMeters) <= 1.6
+                      ? 'text-emerald-300'
+                      : 'text-amber-300'
+                  }`}
+                >
+                  {Math.abs(practiceLineCoach.lineOffsetErrorMeters) <= 1.6
+                    ? '✓ ON OPTIMAL LINE'
+                    : practiceLineCoach.lineOffsetErrorMeters < 0
+                    ? `◄ MOVE LEFT (${Math.abs(practiceLineCoach.lineOffsetErrorMeters).toFixed(1)}m)`
+                    : `MOVE RIGHT (${Math.abs(practiceLineCoach.lineOffsetErrorMeters).toFixed(1)}m) ►`}
+                </span>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* F1 BROADCAST POSITION TICKER:
@@ -765,70 +836,8 @@ export const BroadcastHUD: React.FC<BroadcastHUDProps> = ({
           </div>
         </div>
 
-        {/* Center: Central Cockpit Cluster & Dedicated Speedometer (+ Practice Mode Racing Line Coach) */}
+        {/* Center: Central Cockpit Cluster & Dedicated Speedometer */}
         <div className="flex flex-col items-center gap-2">
-          {/* STRICTLY PRACTICE MODE ONLY: Live Braking / Acceleration & Optimal Line Coach */}
-          {isPracticeMode && !isQualifyingMode && showPracticeRacingLine && practiceLineCoach && (
-            <div
-              className={`flex items-center gap-3 px-4 py-2 rounded-xl border-2 shadow-2xl transition-all duration-100 ${
-                practiceLineCoach.zone === 'brake'
-                  ? 'bg-red-950/95 border-red-500 text-white shadow-[0_0_24px_rgba(239,68,68,0.55)]'
-                  : practiceLineCoach.zone === 'coast'
-                  ? 'bg-amber-950/95 border-amber-400 text-white shadow-[0_0_20px_rgba(251,191,36,0.45)]'
-                  : 'bg-emerald-950/95 border-emerald-400 text-white shadow-[0_0_20px_rgba(16,185,129,0.4)]'
-              }`}
-            >
-              {/* Action Badge */}
-              <div className="flex items-center gap-2">
-                <span
-                  className={`px-2.5 py-1 rounded-lg font-black text-xs uppercase tracking-wider ${
-                    practiceLineCoach.zone === 'brake'
-                      ? 'bg-red-500 text-white'
-                      : practiceLineCoach.zone === 'coast'
-                      ? 'bg-amber-400 text-black'
-                      : 'bg-emerald-400 text-black'
-                  }`}
-                >
-                  {practiceLineCoach.zone === 'brake'
-                    ? '🔴 BRAKE HARD NOW!'
-                    : practiceLineCoach.zone === 'coast'
-                    ? '🟡 LIFT & TURN IN (APEX)'
-                    : '🟢 FULL THROTTLE / ACCELERATE'}
-                </span>
-              </div>
-
-              <div className="w-[1px] h-6 bg-white/20" />
-
-              {/* Target Corner Speed */}
-              <div className="flex flex-col items-center leading-tight font-mono">
-                <span className="text-[9px] uppercase text-neutral-300 font-bold">TARGET SPEED</span>
-                <span className="text-sm font-black text-white">
-                  {Math.round(convertSpeed(practiceLineCoach.targetSpeedKmh, unitSystem))} {speedUnitLabel}
-                </span>
-              </div>
-
-              <div className="w-[1px] h-6 bg-white/20 hidden sm:block" />
-
-              {/* Optimal Racing Line Alignment Indicator */}
-              <div className="hidden sm:flex flex-col items-center leading-tight">
-                <span className="text-[9px] uppercase text-neutral-300 font-bold">RACING LINE POSITION</span>
-                <span
-                  className={`text-xs font-black uppercase ${
-                    Math.abs(practiceLineCoach.lineOffsetErrorMeters) <= 1.6
-                      ? 'text-emerald-300'
-                      : 'text-amber-300'
-                  }`}
-                >
-                  {Math.abs(practiceLineCoach.lineOffsetErrorMeters) <= 1.6
-                    ? '✓ ON OPTIMAL LINE'
-                    : practiceLineCoach.lineOffsetErrorMeters < 0
-                    ? `◄ DRIFT LEFT (${Math.abs(practiceLineCoach.lineOffsetErrorMeters).toFixed(1)}m)`
-                    : `DRIFT RIGHT (${Math.abs(practiceLineCoach.lineOffsetErrorMeters).toFixed(1)}m) ►`}
-                </span>
-              </div>
-            </div>
-          )}
-
           <div className="flex items-center gap-4 bg-black/85 backdrop-blur-md px-6 py-3 rounded-2xl border border-white/15 shadow-2xl">
           {/* Radial Speedometer Gauge (Analog dial + digital readout) */}
           <div className="relative w-20 h-20 sm:w-28 sm:h-28 flex items-center justify-center shrink-0">

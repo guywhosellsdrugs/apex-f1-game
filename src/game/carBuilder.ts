@@ -166,9 +166,10 @@ export function buildF1Car(team: Team, driver?: Driver, quality?: GraphicsQualit
   const primaryColor = new THREE.Color(team.primaryColor || '#E80020');
   const secondaryColor = new THREE.Color(team.secondaryColor || '#1A1A1A');
   const accentColor = new THREE.Color(team.accentColor || '#FFFFFF');
-  const carbonTex = isUltra || preset.id === 'high' ? getCarbonWeaveTexture() : null;
+  const isHighOrDynamic = preset.id === 'high' || preset.id === 'dynamic';
+  const carbonTex = isUltra || isHighOrDynamic ? getCarbonWeaveTexture() : null;
   const flakeNormalTex = isUltra ? getMetallicFlakeNormalTexture() : null;
-  const tireTex = isUltra || preset.id === 'high' ? getTireRubberTexture() : null;
+  const tireTex = isUltra || isHighOrDynamic ? getTireRubberTexture() : null;
 
   const carPaintMat: THREE.Material = isLow
     ? new THREE.MeshLambertMaterial({ color: primaryColor })

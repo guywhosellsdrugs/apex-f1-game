@@ -413,11 +413,12 @@ export function generateTrack(circuit: CircuitInfo, quality?: GraphicsQuality): 
         envMapIntensity: 1.9,
       });
     } else {
+      const isHighOrDynamic = preset.id === 'high' || preset.id === 'dynamic';
       trackMat = new THREE.MeshStandardMaterial({
         map: trackTexture,
-        roughness: preset.id === 'high' ? 0.58 : 0.72,
-        metalness: preset.id === 'high' ? 0.18 : 0.12,
-        envMapIntensity: preset.id === 'high' ? 1.25 : 0.75,
+        roughness: isHighOrDynamic ? 0.58 : 0.72,
+        metalness: isHighOrDynamic ? 0.18 : 0.12,
+        envMapIntensity: isHighOrDynamic ? 1.25 : 0.75,
       });
     }
   } else {
@@ -526,7 +527,7 @@ export function generateTrack(circuit: CircuitInfo, quality?: GraphicsQuality): 
   }
 
   let groundTex: THREE.CanvasTexture | undefined;
-  if (typeof document !== 'undefined' && (isUltra || preset.id === 'high')) {
+  if (typeof document !== 'undefined' && (isUltra || preset.id === 'high' || preset.id === 'dynamic')) {
     const gCanvas = document.createElement('canvas');
     gCanvas.width = 256;
     gCanvas.height = 256;
