@@ -46,82 +46,15 @@ export interface AICarState {
  * 3D Floating Teammate Marker / Beacon:
  * "and put like a thing so i know who is my teammate so i dont crash in to them"
  */
-function createTeammate3DBeacon(driver: Driver): THREE.Group {
+function createTeammate3DBeacon(_driver: Driver): THREE.Group {
   const group = new THREE.Group();
 
-  // 1. High-resolution canvas billboard with clear teammate callout
-  const canvas = document.createElement('canvas');
-  canvas.width = 512;
-  canvas.height = 200;
-  const ctx = canvas.getContext('2d');
-  if (ctx) {
-    // Glowing emerald badge with high contrast
-    ctx.fillStyle = 'rgba(5, 46, 22, 0.96)';
-    ctx.strokeStyle = '#10b981';
-    ctx.lineWidth = 12;
-    ctx.beginPath();
-    ctx.roundRect(16, 16, 480, 120, 24);
-    ctx.fill();
-    ctx.stroke();
-
-    // Inverted green pointer triangle / chevron pointing directly to car
-    ctx.fillStyle = '#10b981';
-    ctx.beginPath();
-    ctx.moveTo(256 - 42, 136);
-    ctx.lineTo(256 + 42, 136);
-    ctx.lineTo(256, 188);
-    ctx.closePath();
-    ctx.fill();
-
-    // Top Header: TEAMMATE
-    ctx.fillStyle = '#6ee7b7';
-    ctx.font = '900 32px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('★ TEAMMATE ★', 256, 58);
-
-    // Driver Callout
-    ctx.fillStyle = '#ffffff';
-    ctx.font = '900 46px sans-serif';
-    ctx.fillText(`${driver.shortName} #${driver.number}`, 256, 108);
-
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.minFilter = THREE.LinearFilter;
-    const spriteMat = new THREE.SpriteMaterial({
-      map: texture,
-      transparent: true,
-      depthTest: false,
-    });
-    const sprite = new THREE.Sprite(spriteMat);
-    sprite.scale.set(4.0, 1.5, 1.0);
-    sprite.position.set(0, 3.2, 0);
-    group.add(sprite);
-  }
-
-  // 2. Pulsing emerald halo ring above cockpit
-  const haloGeom = new THREE.RingGeometry(1.2, 1.55, 32);
-  const haloMat = new THREE.MeshBasicMaterial({
-    color: 0x10b981,
-    side: THREE.DoubleSide,
-    transparent: true,
-    opacity: 0.90,
-  });
-  const haloMesh = new THREE.Mesh(haloGeom, haloMat);
-  haloMesh.rotation.x = Math.PI / 2;
-  haloMesh.position.set(0, 0.65, 0);
-  group.add(haloMesh);
-
-  // 3. Chassis underglow beacon
-  const underglowGeom = new THREE.RingGeometry(1.6, 2.0, 32);
-  const underglowMat = new THREE.MeshBasicMaterial({
-    color: 0x34d399,
-    side: THREE.DoubleSide,
-    transparent: true,
-    opacity: 0.55,
-  });
-  const underglowMesh = new THREE.Mesh(underglowGeom, underglowMat);
-  underglowMesh.rotation.x = Math.PI / 2;
-  underglowMesh.position.set(0, 0.05, 0);
-  group.add(underglowMesh);
+  // Clean, non-obstructive emerald F1 T-Cam marker above airbox (never blocks camera lens)
+  const tCamBarGeom = new THREE.BoxGeometry(0.32, 0.045, 0.08);
+  const tCamMat = new THREE.MeshBasicMaterial({ color: 0x10b981 });
+  const tCamBar = new THREE.Mesh(tCamBarGeom, tCamMat);
+  tCamBar.position.set(0, 1.06, 0.15);
+  group.add(tCamBar);
 
   return group;
 }
@@ -131,6 +64,7 @@ export interface GridOptions {
   hasTeammates?: boolean;
   playerGridSlot?: number;
   isQualifyingMode?: boolean;
+  qualifyingGhostDelay3s?: boolean;
   peerPlayers?: {
     id: string;
     name: string;
@@ -182,6 +116,16 @@ export class PhysicsEngine {
   public ersBattery: number = 100;
   public drsActive: boolean = false;
   public tireCompound: TireCompound = 'SOFT';
+  public tireLife: number = 100; // 100% Fresh -> 0% Punctured
+  public tireCorners: { fl: number; fr: number; rl: number; rr: number } = {
+    fl: 100,
+    fr: 100,
+    rl: 100,
+    rr: 100,
+  };
+  public tireTempValue: number = 88;
+  public pitStopTimer: number = 0;
+  public pitStopsCount: number = 0;
 
   public lapTimeCurrent: number = 0;
   public lapTimeBest: number | null = null;
@@ -239,6 +183,7 @@ export class PhysicsEngine {
   public peerCars: Map<string, PeerCar> = new Map();
   public multiplayerMode: boolean = false;
   public isQualifyingMode: boolean = false;
+  public qualifyingGhostDelay3s: boolean = true;
 
   constructor(
     public playerCar: BuiltCar,
@@ -362,6 +307,10 @@ export class PhysicsEngine {
 
     // Grid placement
     this.isQualifyingMode = Boolean(options?.isQualifyingMode);
+    this.qualifyingGhostDelay3s =
+      options?.qualifyingGhostDelay3s !== undefined
+        ? Boolean(options.qualifyingGhostDelay3s)
+        : true;
     const playerStartingGrid = this.isQualifyingMode
       ? 1
       : (options?.playerGridSlot || (playerDriver.teamId === 'haas' ? 17 : Math.max(1, 21 - Math.floor(playerDriver.rating / 5))));
@@ -418,9 +367,9 @@ export class PhysicsEngine {
         builtCar.root.add(teammateBeacon);
       }
 
-      // In Qualifying Mode, render AI cars as pass-through ghost cars and hide them for the first few seconds
+      // In Qualifying Mode, render AI cars as pass-through ghost cars (and optionally hide them for the first 3 seconds if 3s delay is enabled)
       if (this.isQualifyingMode) {
-        builtCar.root.visible = false;
+        builtCar.root.visible = !this.qualifyingGhostDelay3s;
         builtCar.root.traverse((obj) => {
           if ((obj as THREE.Mesh).isMesh) {
             const mesh = obj as THREE.Mesh;
@@ -428,14 +377,14 @@ export class PhysicsEngine {
               mesh.material = mesh.material.map((m) => {
                 const clone = m.clone();
                 clone.transparent = true;
-                clone.opacity = 0.52;
+                clone.opacity = 0.28;
                 clone.depthWrite = false;
                 return clone;
               });
             } else if (mesh.material) {
               const clone = mesh.material.clone();
               clone.transparent = true;
-              clone.opacity = 0.52;
+              clone.opacity = 0.28;
               clone.depthWrite = false;
               mesh.material = clone;
             }
@@ -624,6 +573,40 @@ export class PhysicsEngine {
         peer.builtCar.root.parent.remove(peer.builtCar.root);
       }
     }
+  }
+
+  /**
+   * Pit Box / Tire Compound Service:
+   * Allows switching between SOFT (Peak Grip, Fast Wear), MEDIUM (Balanced), and HARD (Durable)
+   * and replenishing Tire Life back to 100% with a 2.2s FIA Pit Crew stop during racing (or instant pre-start/practice).
+   */
+  public requestPitStop(newCompound?: TireCompound): void {
+    if (this.isQualifyingMode) {
+      if (newCompound) this.tireCompound = newCompound;
+      this.tireLife = 100;
+      this.tireCorners = { fl: 100, fr: 100, rl: 100, rr: 100 };
+      this.tireTempValue = 88;
+      return;
+    }
+
+    if (newCompound) {
+      this.tireCompound = newCompound;
+    }
+
+    // Instant swap before lights go out; 2.2s stationary pit crew service during active racing
+    if (this.raceState === 'countdown' || this.playerSpeedKmh < 5) {
+      this.pitStopTimer = this.raceState === 'racing' ? 1.8 : 0;
+    } else {
+      this.pitStopTimer = 2.2;
+    }
+    this.tireLife = 100;
+    this.tireCorners = { fl: 100, fr: 100, rl: 100, rr: 100 };
+    this.tireTempValue = 86;
+    this.pitStopsCount++;
+    this.teammateRadioSpeaker = 'PIT WALL';
+    this.teammateRadioStatus = 'accepted';
+    this.teammateRadioMsg = `BOX BOX! Fresh Pirelli ${this.tireCompound} set fitted (100% Tire Life)!`;
+    this.teammateRadioTimer = 4.0;
   }
 
   /**
@@ -875,7 +858,81 @@ export class PhysicsEngine {
       this.lapTimeCurrent += dt;
     }
 
-    const gripMultiplier = surface.offTrack ? 0.45 : surface.onCurb ? 0.9 : 1.0;
+    // 2B. Real-Time Physics-Driven Tire Life, Compound Grip & Thermal Degradation
+    if (this.pitStopTimer > 0) {
+      this.pitStopTimer = Math.max(0, this.pitStopTimer - dt);
+      this.playerSpeedKmh = Math.max(0, this.playerSpeedKmh - 260 * dt * 3.6);
+      if (this.pitStopTimer <= 0) {
+        this.playerProtectionShieldTimer = 2.5;
+        this.playerSpeedKmh = Math.max(this.playerSpeedKmh, 55);
+      }
+    }
+
+    const compoundWearRate =
+      this.tireCompound === 'SOFT' ? 1.55 : this.tireCompound === 'MEDIUM' ? 1.0 : 0.58;
+    const compoundBaseGrip =
+      this.tireCompound === 'SOFT' ? 1.07 : this.tireCompound === 'MEDIUM' ? 1.0 : 0.95;
+
+    if (this.raceState === 'racing' && !this.isQualifyingMode && Math.abs(this.playerSpeedKmh) > 8) {
+      const speedNorm = Math.min(1.2, Math.abs(this.playerSpeedKmh) / 290);
+      const steerLoad = Math.abs(input.steer) * speedNorm;
+      const brakeLockupLoad = input.brake > 0.85 && Math.abs(this.playerSpeedKmh) > 120 ? (input.brake - 0.8) * 2.4 : 0;
+      const surfaceAbrasion = surface.offTrack ? 2.4 : surface.onCurb ? 1.35 : 1.0;
+
+      // Target tire temperature rises with hard cornering/braking/boosting and cools on straights or lift-and-coast
+      const targetTemp =
+        84 +
+        speedNorm * 16 +
+        steerLoad * 26 +
+        brakeLockupLoad * 18 +
+        (this.tireCompound === 'SOFT' ? 5 : this.tireCompound === 'HARD' ? -4 : 0);
+      this.tireTempValue += (targetTemp - this.tireTempValue) * Math.min(1, dt * 1.8);
+
+      const thermalOverheatMultiplier =
+        this.tireTempValue > 112 ? 1.0 + (this.tireTempValue - 112) * 0.045 : 1.0;
+
+      // Base wear scaled so a 5-lap race on Softs drops to ~22-35% if pushed hard, or ~48% if managed smoothly
+      const lapScale = Math.max(0.55, Math.min(1.35, 5 / Math.max(2, this.totalLaps)));
+      const wearPerSec =
+        (0.22 * speedNorm + steerLoad * 0.68 + brakeLockupLoad * 0.55) *
+        compoundWearRate *
+        surfaceAbrasion *
+        thermalOverheatMultiplier *
+        lapScale;
+
+      this.tireLife = Math.max(0, this.tireLife - wearPerSec * dt);
+
+      // Individual 4-corner wear based on left/right turn loading & braking vs acceleration
+      const leftTurnLoad = input.steer < -0.05 ? Math.abs(input.steer) * 0.45 : 0;
+      const rightTurnLoad = input.steer > 0.05 ? Math.abs(input.steer) * 0.45 : 0;
+      const frontBrakeLoad = input.brake > 0.2 ? input.brake * 0.35 : 0;
+      const rearTractionLoad = input.throttle > 0.5 ? input.throttle * 0.28 : 0;
+
+      this.tireCorners.fl = Math.max(0, this.tireCorners.fl - wearPerSec * (0.9 + rightTurnLoad + frontBrakeLoad) * dt);
+      this.tireCorners.fr = Math.max(0, this.tireCorners.fr - wearPerSec * (0.9 + leftTurnLoad + frontBrakeLoad) * dt);
+      this.tireCorners.rl = Math.max(0, this.tireCorners.rl - wearPerSec * (0.9 + rightTurnLoad + rearTractionLoad) * dt);
+      this.tireCorners.rr = Math.max(0, this.tireCorners.rr - wearPerSec * (0.9 + leftTurnLoad + rearTractionLoad) * dt);
+    }
+
+    // Tire Life Grip Curve:
+    // 70–100% Life: Optimal peak grip (1.00x of compound)
+    // 40–69% Life: Graining phase (smooth drop to 0.87x)
+    // 15–39% Life: Blistering / The Cliff (drops to 0.70x)
+    // <15% Life: Critical / Punctured (0.52x grip + top speed drag)
+    let tireLifeGripFactor = 1.0;
+    if (this.tireLife >= 70) {
+      tireLifeGripFactor = 1.0;
+    } else if (this.tireLife >= 40) {
+      tireLifeGripFactor = 0.87 + ((this.tireLife - 40) / 30) * 0.13;
+    } else if (this.tireLife >= 15) {
+      tireLifeGripFactor = 0.70 + ((this.tireLife - 15) / 25) * 0.17;
+    } else {
+      tireLifeGripFactor = 0.52 + (this.tireLife / 15) * 0.18;
+    }
+
+    const effectiveTireGrip = compoundBaseGrip * tireLifeGripFactor;
+    const surfaceGrip = surface.offTrack ? 0.45 : surface.onCurb ? 0.9 : 1.0;
+    const gripMultiplier = surfaceGrip * effectiveTireGrip;
     // NO 380 KM/H LIMITER: Top speed is realistically determined by engine power, gear ratio, and aerodynamic drag
     const maxSurfaceSpeed = surface.offTrack ? 135 : 440;
 
@@ -988,7 +1045,20 @@ export class PhysicsEngine {
       const baseTerminalKmh = 318 + Math.max(0, this.enginePowerRating - 70) * 0.85;
       const drsBonus = this.drsActive ? 14 : 0;
       const boostBonus = (isBoosting ? 16 : 0) + (this.slipstreamActive ? 12 * this.slipstreamFactor : 0);
-      const targetTerminalKmh = surface.offTrack ? 140 : (baseTerminalKmh + drsBonus + boostBonus);
+      // Tire degradation rolling resistance & blister penalty when Tire Life drops below 40%
+      const tireWearSpeedPenalty =
+        this.tireLife < 15
+          ? 34 * (1 - this.tireLife / 15) + 12
+          : this.tireLife < 40
+          ? 12 * (1 - (this.tireLife - 15) / 25)
+          : this.tireCompound === 'SOFT'
+          ? -3
+          : this.tireCompound === 'HARD'
+          ? 3
+          : 0;
+      const targetTerminalKmh = surface.offTrack
+        ? 140
+        : Math.max(195, baseTerminalKmh + drsBonus + boostBonus - tireWearSpeedPenalty);
 
       // Progressive acceleration punch: 0-100 in ~2.4s, 100-200 in ~2.8s
       const accelNorm = Math.max(0.2, (this.accelerationScore - 70) / 30);
@@ -1289,8 +1359,29 @@ export class PhysicsEngine {
       ersBattery: Math.round(this.ersBattery),
       drsActive: this.drsActive,
       drsAvailable: this.playerSpeedKmh > 230,
-      tireWear: Math.min(100, Math.round(this.playerLap * 8.5)),
-      tireTemp: Math.round(85 + (safeSpeed / 350) * 25 + lateralG * 15),
+      tireWear: Math.min(100, Math.max(0, Math.round(100 - this.tireLife))),
+      tireLife: Math.min(100, Math.max(0, Math.round(this.tireLife))),
+      tireGripMultiplier: Number(effectiveTireGrip.toFixed(2)),
+      tireStatusLabel:
+        this.tireLife <= 5
+          ? 'PUNCTURE'
+          : this.tireLife < 20
+          ? 'CRITICAL'
+          : this.tireLife < 42
+          ? 'BLISTERING'
+          : this.tireLife < 70
+          ? 'GRAINING'
+          : 'OPTIMAL',
+      tireCorners: {
+        fl: Math.round(this.tireCorners.fl),
+        fr: Math.round(this.tireCorners.fr),
+        rl: Math.round(this.tireCorners.rl),
+        rr: Math.round(this.tireCorners.rr),
+      },
+      pitStopActive: this.pitStopTimer > 0,
+      pitStopTimer: this.pitStopTimer > 0 ? Number(this.pitStopTimer.toFixed(1)) : 0,
+      pitStopsCount: this.pitStopsCount,
+      tireTemp: Math.round(this.tireTempValue),
       tireCompound: this.tireCompound,
       currentLap: Math.min(this.totalLaps, this.playerLap),
       totalLaps: this.totalLaps,
@@ -1458,9 +1549,11 @@ export class PhysicsEngine {
       }
       if (ai.finished) continue;
 
-      // In Qualifying Mode: hide ghost cars during countdown and for the first 3.5 seconds of the lap, then reveal them
+      // In Qualifying Mode: if 3-second ghost delay is enabled, ghost cars come in 3.0 seconds into the lap; otherwise they are visible immediately from the start
       if (this.isQualifyingMode) {
-        ai.builtCar.root.visible = this.raceState === 'racing' && this.raceTimer >= 3.5;
+        ai.builtCar.root.visible = this.qualifyingGhostDelay3s
+          ? this.raceState === 'racing' && this.raceTimer >= 3.0
+          : true;
       } else {
         ai.builtCar.root.visible = true;
       }

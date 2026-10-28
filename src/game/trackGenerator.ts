@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { CircuitInfo } from '../types/racing';
 import { buildCircuitScenery } from './environmentBuilder';
-import { GraphicsQuality, getGraphicsPresetConfig } from '../utils/graphicsSettings';
+import { GraphicsQuality, getGraphicsPresetConfig, isDynamicGraphics } from '../utils/graphicsSettings';
 
 export interface SurfaceInfo {
   offTrack: boolean;
@@ -20,6 +20,7 @@ export interface SurfaceInfo {
 
 export interface GeneratedTrack {
   group: THREE.Group;
+  sceneryGroup: THREE.Group;
   curve: THREE.CatmullRomCurve3;
   trackLength: number;
   barrierLimit: number;
@@ -125,7 +126,12 @@ export function generateTrack(circuit: CircuitInfo, quality?: GraphicsQuality): 
     // Default: FIA Red & White
     const curbStep = Math.floor((t * trackLength) / 2.2);
     let cr = 0.98, cg = 0.98, cb = 0.98;
-    if (circuit.id === 'abudhabi') {
+    if (preset.id === 'retro') {
+      const retroMod = curbStep % 3;
+      if (retroMod === 0) { cr = 1.0; cg = 0.16; cb = 0.52; } // OutRun Neon Magenta
+      else if (retroMod === 1) { cr = 1.0; cg = 0.90; cb = 0.0; } // Arcade Turbo Yellow
+      else { cr = 0.0; cg = 0.94; cb = 1.0; } // CRT Electric Cyan
+    } else if (circuit.id === 'abudhabi') {
       const isYasCyan = curbStep % 2 === 0;
       cr = isYasCyan ? 0.0 : 0.98;
       cg = isYasCyan ? 0.65 : 0.98;
@@ -262,91 +268,70 @@ export function generateTrack(circuit: CircuitInfo, quality?: GraphicsQuality): 
   trackGeom.setIndex(trackIndices);
   trackGeom.computeVertexNormals();
 
-  // Photorealistic asphalt texture with normal & roughness maps for Ultra Realistic preset
-  let trackMat: THREE.MeshStandardMaterial;
+  // Clean, uniform motorsport asphalt texture (zero dark groove band or reflection smudge)
+  let trackMat: THREE.Material;
+  const isFastLambertPreset = preset.id === 'low' || preset.id === 'dynamic_conservative' || preset.id === 'retro';
   if (typeof document !== 'undefined') {
+    const texSize = 512; // Always crisp 512px+ canvas so road markings are never pixelated
     const canvas = document.createElement('canvas');
-    canvas.width = 1024;
-    canvas.height = 1024;
+    canvas.width = texSize;
+    canvas.height = texSize;
     const ctx = canvas.getContext('2d')!;
 
-    ctx.fillStyle = '#1b1d22';
-    ctx.fillRect(0, 0, 1024, 1024);
+    ctx.fillStyle = preset.id === 'retro' ? '#1e1638' : '#2a2e37';
+    ctx.fillRect(0, 0, texSize, texSize);
 
-    const imgData = ctx.getImageData(0, 0, 1024, 1024);
-    const data = imgData.data;
-    for (let p = 0; p < data.length; p += 4) {
-      const grain = (Math.random() - 0.5) * 26;
-      data[p] = Math.max(12, Math.min(64, data[p] + grain));
-      data[p + 1] = Math.max(12, Math.min(64, data[p + 1] + grain));
-      data[p + 2] = Math.max(14, Math.min(68, data[p + 2] + grain));
-    }
-    ctx.putImageData(imgData, 0, 0);
-
-    // Rubbered racing line groove
-    const grooveGrad = ctx.createLinearGradient(220, 0, 804, 0);
-    grooveGrad.addColorStop(0, 'rgba(8, 9, 11, 0)');
-    grooveGrad.addColorStop(0.2, 'rgba(8, 9, 12, 0.58)');
-    grooveGrad.addColorStop(0.5, 'rgba(4, 5, 7, 0.78)');
-    grooveGrad.addColorStop(0.8, 'rgba(8, 9, 12, 0.58)');
-    grooveGrad.addColorStop(1, 'rgba(8, 9, 11, 0)');
-    ctx.fillStyle = grooveGrad;
-    ctx.fillRect(220, 0, 584, 1024);
-
-    // Authentic Pirelli Tire Skidmarks & Rubber streaks along the racing groove
-    for (let s = 0; s < 42; s++) {
-      const sx = 280 + Math.random() * 464;
-      const sy = Math.random() * 1024;
-      const slen = 120 + Math.random() * 340;
-      ctx.strokeStyle = `rgba(5, 6, 8, ${0.22 + Math.random() * 0.28})`;
-      ctx.lineWidth = 3 + Math.random() * 5;
-      ctx.beginPath();
-      ctx.moveTo(sx, sy);
-      ctx.lineTo(sx + (Math.random() - 0.5) * 14, sy + slen);
-      ctx.stroke();
+    if (preset.id !== 'retro') {
+      const imgData = ctx.getImageData(0, 0, texSize, texSize);
+      const data = imgData.data;
+      for (let p = 0; p < data.length; p += 4) {
+        const grain = (Math.random() - 0.5) * 14;
+        data[p] = Math.max(30, Math.min(68, data[p] + grain));
+        data[p + 1] = Math.max(32, Math.min(72, data[p + 1] + grain));
+        data[p + 2] = Math.max(38, Math.min(80, data[p + 2] + grain));
+      }
+      ctx.putImageData(imgData, 0, 0);
+    } else {
+      // Classic 90s Arcade OutRun / Virtua Racing striped asphalt bands & dashed center line
+      ctx.fillStyle = '#251c44';
+      ctx.fillRect(0, 0, texSize, texSize / 2);
+      ctx.fillStyle = '#ffe600';
+      ctx.fillRect(Math.round(texSize * 0.49), 40, Math.round(texSize * 0.02), 180);
+      ctx.fillRect(Math.round(texSize * 0.49), 300, Math.round(texSize * 0.02), 180);
     }
 
-    // Off-line tire marbles (tiny rubber bits outside the main groove)
-    for (let m = 0; m < 450; m++) {
-      const mx = Math.random() < 0.5 ? 45 + Math.random() * 160 : 820 + Math.random() * 160;
-      const my = Math.random() * 1024;
-      ctx.fillStyle = 'rgba(6, 7, 9, 0.55)';
-      ctx.fillRect(mx, my, 2.5, 3.5);
-    }
+    const scale = texSize / 1024;
 
-    // White boundary lines
-    ctx.fillStyle = '#f1f5f9';
-    ctx.fillRect(16, 0, 20, 1024);
-    ctx.fillRect(988, 0, 20, 1024);
+    // Boundary lines (Electric Cyan in Retro mode, Crisp White in standard modes)
+    ctx.fillStyle = preset.id === 'retro' ? '#00f0ff' : '#f8fafc';
+    ctx.fillRect(Math.round(16 * scale), 0, Math.max(4, Math.round(22 * scale)), texSize);
+    ctx.fillRect(Math.round(986 * scale), 0, Math.max(4, Math.round(22 * scale)), texSize);
 
     // DRS Zone Markings & Lines
-    ctx.fillStyle = 'rgba(0, 230, 118, 0.85)';
-    ctx.fillRect(36, 120, 952, 12);
-    ctx.font = 'bold 28px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillStyle = '#00e676';
-    ctx.fillText('DRS ACTIVATION', 512, 110);
+    ctx.fillStyle = preset.id === 'retro' ? 'rgba(255, 42, 133, 0.9)' : 'rgba(0, 230, 118, 0.85)';
+    ctx.fillRect(Math.round(36 * scale), Math.round(120 * scale), Math.round(952 * scale), Math.max(3, Math.round(12 * scale)));
 
     // Starting grid slot box markings
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
-    ctx.lineWidth = 6;
-    ctx.strokeRect(320, 180, 140, 90);
-    ctx.strokeRect(560, 680, 140, 90);
+    ctx.strokeStyle = preset.id === 'retro' ? 'rgba(0, 240, 255, 0.9)' : 'rgba(255, 255, 255, 0.85)';
+    ctx.lineWidth = Math.max(2, Math.round(6 * scale));
+    ctx.strokeRect(Math.round(320 * scale), Math.round(180 * scale), Math.round(140 * scale), Math.round(90 * scale));
+    ctx.strokeRect(Math.round(560 * scale), Math.round(680 * scale), Math.round(140 * scale), Math.round(90 * scale));
 
     // High-visibility forward directional chevron markings
     [280, 780].forEach((yBase) => {
       [-140, 0, 140].forEach((xOff) => {
-        const cx = 512 + xOff;
-        ctx.fillStyle = 'rgba(255, 230, 40, 0.82)';
-        ctx.strokeStyle = 'rgba(0, 0, 0, 0.9)';
-        ctx.lineWidth = 4;
+        const cx = (512 + xOff) * scale;
+        const yb = yBase * scale;
+        ctx.fillStyle = preset.id === 'retro' ? 'rgba(255, 230, 0, 0.95)' : 'rgba(255, 230, 40, 0.82)';
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.85)';
+        ctx.lineWidth = Math.max(1.5, 4 * scale);
         ctx.beginPath();
-        ctx.moveTo(cx - 36, yBase + 42);
-        ctx.lineTo(cx, yBase);
-        ctx.lineTo(cx + 36, yBase + 42);
-        ctx.lineTo(cx + 22, yBase + 48);
-        ctx.lineTo(cx, yBase + 20);
-        ctx.lineTo(cx - 22, yBase + 48);
+        ctx.moveTo(cx - 36 * scale, yb + 42 * scale);
+        ctx.lineTo(cx, yb);
+        ctx.lineTo(cx + 36 * scale, yb + 42 * scale);
+        ctx.lineTo(cx + 22 * scale, yb + 48 * scale);
+        ctx.lineTo(cx, yb + 20 * scale);
+        ctx.lineTo(cx - 22 * scale, yb + 48 * scale);
         ctx.closePath();
         ctx.fill();
         ctx.stroke();
@@ -358,79 +343,28 @@ export function generateTrack(circuit: CircuitInfo, quality?: GraphicsQuality): 
     trackTexture.wrapT = THREE.RepeatWrapping;
     trackTexture.repeat.set(1, 48);
     trackTexture.colorSpace = THREE.SRGBColorSpace;
-    trackTexture.anisotropy = preset.anisotropy;
+    trackTexture.anisotropy = Math.max(4, preset.anisotropy);
 
-    if (isUltra) {
-      // Dedicated Asphalt Roughness Map (polished rubbered racing groove reflects sky & brake lights)
-      const roughCanvas = document.createElement('canvas');
-      roughCanvas.width = 512;
-      roughCanvas.height = 512;
-      const rCtx = roughCanvas.getContext('2d')!;
-      rCtx.fillStyle = '#b8b8b8'; // Higher roughness off-line
-      rCtx.fillRect(0, 0, 512, 512);
-      const rGrad = rCtx.createLinearGradient(110, 0, 402, 0);
-      rGrad.addColorStop(0, '#b8b8b8');
-      rGrad.addColorStop(0.25, '#686868');
-      rGrad.addColorStop(0.5, '#4c4c4c'); // Smooth rubbered sheen in the groove
-      rGrad.addColorStop(0.75, '#686868');
-      rGrad.addColorStop(1, '#b8b8b8');
-      rCtx.fillStyle = rGrad;
-      rCtx.fillRect(110, 0, 292, 512);
-      const roughTex = new THREE.CanvasTexture(roughCanvas);
-      roughTex.wrapS = THREE.RepeatWrapping;
-      roughTex.wrapT = THREE.RepeatWrapping;
-      roughTex.repeat.set(1, 48);
-
-      // Dedicated High-Frequency Asphalt Normal Map for crisp road aggregate micro-reflections
-      const normCanvas = document.createElement('canvas');
-      normCanvas.width = 256;
-      normCanvas.height = 256;
-      const nCtx = normCanvas.getContext('2d')!;
-      const nImg = nCtx.createImageData(256, 256);
-      const nData = nImg.data;
-      for (let i = 0; i < nData.length; i += 4) {
-        nData[i] = 128 + (Math.random() - 0.5) * 44;
-        nData[i + 1] = 128 + (Math.random() - 0.5) * 44;
-        nData[i + 2] = 245;
-        nData[i + 3] = 255;
-      }
-      nCtx.putImageData(nImg, 0, 0);
-      const normTex = new THREE.CanvasTexture(normCanvas);
-      normTex.wrapS = THREE.RepeatWrapping;
-      normTex.wrapT = THREE.RepeatWrapping;
-      normTex.repeat.set(8, 192);
-
-      trackMat = new THREE.MeshPhysicalMaterial({
+    if (isFastLambertPreset) {
+      trackMat = new THREE.MeshLambertMaterial({
         map: trackTexture,
-        roughnessMap: roughTex,
-        normalMap: normTex,
-        normalScale: new THREE.Vector2(0.28, 0.28),
-        roughness: 0.54,
-        metalness: 0.22,
-        clearcoat: 0.45,
-        clearcoatRoughness: 0.14,
-        reflectivity: 0.85,
-        envMapIntensity: 1.9,
       });
     } else {
-      const isHighOrDynamic = preset.id === 'high' || preset.id === 'dynamic';
       trackMat = new THREE.MeshStandardMaterial({
         map: trackTexture,
-        roughness: isHighOrDynamic ? 0.58 : 0.72,
-        metalness: isHighOrDynamic ? 0.18 : 0.12,
-        envMapIntensity: isHighOrDynamic ? 1.25 : 0.75,
+        roughness: 0.88,
+        metalness: 0.0,
+        envMapIntensity: 0.0,
       });
     }
   } else {
-    trackMat = new THREE.MeshStandardMaterial({
-      color: 0x1c1e22,
-      roughness: 0.72,
-      metalness: 0.12,
+    trackMat = new THREE.MeshLambertMaterial({
+      color: 0x2a2e37,
     });
   }
 
   const trackMesh = new THREE.Mesh(trackGeom, trackMat);
-  trackMesh.receiveShadow = preset.shadowsEnabled;
+  trackMesh.receiveShadow = false;
   group.add(trackMesh);
 
   // Curbs with DoubleSide
@@ -527,7 +461,33 @@ export function generateTrack(circuit: CircuitInfo, quality?: GraphicsQuality): 
   }
 
   let groundTex: THREE.CanvasTexture | undefined;
-  if (typeof document !== 'undefined' && (isUltra || preset.id === 'high' || preset.id === 'dynamic')) {
+  if (typeof document !== 'undefined' && preset.id === 'retro') {
+    const gCanvas = document.createElement('canvas');
+    gCanvas.width = 256;
+    gCanvas.height = 256;
+    const gCtx = gCanvas.getContext('2d');
+    if (gCtx) {
+      gCtx.fillStyle = '#0e0424';
+      gCtx.fillRect(0, 0, 256, 256);
+      // Synthwave OutRun Neon Grid
+      gCtx.strokeStyle = 'rgba(255, 42, 133, 0.55)';
+      gCtx.lineWidth = 4;
+      gCtx.strokeRect(0, 0, 256, 256);
+      gCtx.strokeStyle = 'rgba(0, 240, 255, 0.30)';
+      gCtx.lineWidth = 2;
+      gCtx.beginPath();
+      gCtx.moveTo(128, 0);
+      gCtx.lineTo(128, 256);
+      gCtx.moveTo(0, 128);
+      gCtx.lineTo(256, 128);
+      gCtx.stroke();
+      groundTex = new THREE.CanvasTexture(gCanvas);
+      groundTex.wrapS = THREE.RepeatWrapping;
+      groundTex.wrapT = THREE.RepeatWrapping;
+      groundTex.repeat.set(180, 180);
+      groundTex.colorSpace = THREE.SRGBColorSpace;
+    }
+  } else if (typeof document !== 'undefined' && (isUltra || preset.id === 'high' || isDynamicGraphics(preset.id))) {
     const gCanvas = document.createElement('canvas');
     gCanvas.width = 256;
     gCanvas.height = 256;
@@ -762,6 +722,12 @@ export function generateTrack(circuit: CircuitInfo, quality?: GraphicsQuality): 
   }
   group.add(pitWallGroup);
 
+  const sceneryGroup = new THREE.Group();
+  sceneryGroup.name = 'outerSceneryGroup';
+  group.add(sceneryGroup);
+
+  const castDistantSceneryShadows = preset.shadowsEnabled && !isDynamicGraphics(preset.id);
+
   // Lush 3D Trackside Trees & Environment
   const isDesert = circuit.id === 'bahrain' || circuit.id === 'jeddah' || circuit.id === 'abudhabi';
   const trunkMat = new THREE.MeshStandardMaterial({ color: 0x3d2817, roughness: 0.9 });
@@ -784,16 +750,16 @@ export function generateTrack(circuit: CircuitInfo, quality?: GraphicsQuality): 
 
     const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.55, 6, 6), trunkMat);
     trunk.position.set(treePos.x, pt.y + 3, treePos.z);
-    trunk.castShadow = true;
-    group.add(trunk);
+    trunk.castShadow = castDistantSceneryShadows;
+    sceneryGroup.add(trunk);
 
     const foliage = new THREE.Mesh(
       isDesert ? new THREE.CylinderGeometry(2.4, 0.2, 3.5, 6) : new THREE.ConeGeometry(2.8, 7.5, 7),
       foliageMat
     );
     foliage.position.set(treePos.x, pt.y + 7.5, treePos.z);
-    foliage.castShadow = true;
-    group.add(foliage);
+    foliage.castShadow = castDistantSceneryShadows;
+    sceneryGroup.add(foliage);
   }
 
   // High-Visibility FIA Corner Turn-In Chevron Boards along the outside of sharp turns (Zero Blind Corners)
@@ -899,9 +865,9 @@ export function generateTrack(circuit: CircuitInfo, quality?: GraphicsQuality): 
     const building = new THREE.Mesh(bGeom, bMat);
     building.position.set(bPos.x, pt.y + bHeight * 0.5, bPos.z);
     building.lookAt(bPos.clone().add(tan));
-    building.castShadow = preset.shadowsEnabled;
-    building.receiveShadow = preset.shadowsEnabled;
-    group.add(building);
+    building.castShadow = castDistantSceneryShadows;
+    building.receiveShadow = castDistantSceneryShadows;
+    sceneryGroup.add(building);
 
     // Multiple illuminated architectural glass window bands across multiple floors
     const windowColors = [
@@ -919,7 +885,7 @@ export function generateTrack(circuit: CircuitInfo, quality?: GraphicsQuality): 
       const windowStrip = new THREE.Mesh(windowStripGeom, windowMat);
       windowStrip.position.set(bPos.x, pt.y + fl * 7.5, bPos.z);
       windowStrip.rotation.copy(building.rotation);
-      group.add(windowStrip);
+      sceneryGroup.add(windowStrip);
     }
 
     // Rooftop mechanical penthouse & HVAC chillers
@@ -929,23 +895,23 @@ export function generateTrack(circuit: CircuitInfo, quality?: GraphicsQuality): 
     const penthouse = new THREE.Mesh(new THREE.BoxGeometry(phWidth, phHeight, phDepth), rooftopMat);
     penthouse.position.set(bPos.x, pt.y + bHeight + phHeight * 0.5, bPos.z);
     penthouse.rotation.copy(building.rotation);
-    penthouse.castShadow = preset.shadowsEnabled;
-    group.add(penthouse);
+    penthouse.castShadow = castDistantSceneryShadows;
+    sceneryGroup.add(penthouse);
 
     // Rooftop Communications Antenna Mast with Aircraft Warning Beacon
     const mastHeight = 10 + (Math.floor(t * 50) % 8);
     const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.4, mastHeight, 6), antennaMat);
     mast.position.set(bPos.x, pt.y + bHeight + phHeight + mastHeight * 0.5, bPos.z);
-    group.add(mast);
+    sceneryGroup.add(mast);
 
     const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.55, 8, 8), beaconMat);
     beacon.position.set(bPos.x, pt.y + bHeight + phHeight + mastHeight + 0.3, bPos.z);
-    group.add(beacon);
+    sceneryGroup.add(beacon);
   }
 
   // Authentic Photorealistic Circuit Scenery & Landmarks (Skipped on 'minimal' Low preset for worse devices)
   if (preset.sceneryMode !== 'minimal') {
-    buildCircuitScenery(circuit, curve, isClearOfTrack, group);
+    buildCircuitScenery(circuit, curve, isClearOfTrack, sceneryGroup);
 
     // Overhead F1 Sponsor Bridges & Illuminated Light Arches along the circuit
     // (Pillars placed safely 20.5m out behind barriers; overhead arch spans y = 9.8m so it reflects vividly across car bodywork & visor!)
@@ -996,10 +962,22 @@ export function generateTrack(circuit: CircuitInfo, quality?: GraphicsQuality): 
     });
   }
 
-  // Ensure all circuit landmarks, bridges, trees, and barriers cast & receive rich shadows on High/Ultra
+  // Ensure trackside structures cast & receive rich shadows (skipping distant outer scenery in Dynamic modes to save GPU vertex shadow passes)
   if (preset.shadowsEnabled) {
     group.traverse((obj) => {
       if (obj instanceof THREE.Mesh && obj !== groundMesh) {
+        if (!castDistantSceneryShadows) {
+          let parent: THREE.Object3D | null = obj.parent;
+          let inScenery = false;
+          while (parent) {
+            if (parent === sceneryGroup) {
+              inScenery = true;
+              break;
+            }
+            parent = parent.parent;
+          }
+          if (inScenery) return;
+        }
         const mat = obj.material as THREE.Material;
         if (mat && !mat.transparent) {
           obj.castShadow = true;
@@ -1030,7 +1008,7 @@ export function generateTrack(circuit: CircuitInfo, quality?: GraphicsQuality): 
     puff.position.set(Math.cos(angle) * radius, cloudHeight, Math.sin(angle) * radius);
     cloudPuffsGroup.add(puff);
   }
-  group.add(cloudPuffsGroup);
+  sceneryGroup.add(cloudPuffsGroup);
 
   const setStartLights = (lightsLitCount: number, lightsOut: boolean) => {
     for (let i = 0; i < startLights.length; i++) {
@@ -1165,6 +1143,7 @@ export function generateTrack(circuit: CircuitInfo, quality?: GraphicsQuality): 
 
   return {
     group,
+    sceneryGroup,
     curve,
     trackLength,
     barrierLimit: 18.4,

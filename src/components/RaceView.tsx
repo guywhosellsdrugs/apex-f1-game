@@ -4,7 +4,6 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
-import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { CircuitInfo, CameraView, SeasonState, Driver, Team } from '../types/racing';
 import { DRIVERS, TEAMS } from '../constants/f1Data';
@@ -21,6 +20,7 @@ import {
   GraphicsQuality,
   GRAPHICS_QUALITY_OPTIONS,
   GRAPHICS_PRESETS,
+  isDynamicGraphics,
   getStoredGraphicsQuality,
   setStoredGraphicsQuality,
   onGraphicsQualityChange,
@@ -55,12 +55,20 @@ interface RaceViewProps {
   multiplayerRoom?: RoomPublicState | null;
   onOpenControls?: () => void;
   isQualifyingMode?: boolean;
+  qualifyingGhostDelay3s?: boolean;
   startingGridSlot?: number;
   onQualifyingComplete?: (
     gridSlot: number,
     lapTime: number,
     classification: Array<{ position: number; driver: Driver; team: Team; lapTime: number; gap: number }>
   ) => void;
+  tutorialPracticeStage?: {
+    id: string;
+    title: string;
+    subtitle: string;
+    objectives: string[];
+  } | null;
+  onCompleteTutorialStage?: (stageId: string) => void;
 }
 
 export const RaceView: React.FC<RaceViewProps> = ({
@@ -76,8 +84,11 @@ export const RaceView: React.FC<RaceViewProps> = ({
   multiplayerRoom = null,
   onOpenControls,
   isQualifyingMode = false,
+  qualifyingGhostDelay3s = true,
   startingGridSlot,
   onQualifyingComplete,
+  tutorialPracticeStage = null,
+  onCompleteTutorialStage,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const physicsRef = useRef<PhysicsEngine | null>(null);
@@ -94,7 +105,7 @@ export const RaceView: React.FC<RaceViewProps> = ({
   const [liveFps, setLiveFps] = useState<number>(60);
   const [frameTimeMs, setFrameTimeMs] = useState<number>(16.7);
   const [dynamicQualityPct, setDynamicQualityPct] = useState<number>(() =>
-    Math.round(getStoredDynamicGpuProfile().qualityScore * 100)
+    Math.round(getStoredDynamicGpuProfile(getStoredGraphicsQuality()).qualityScore * 100)
   );
   const [dynamicRenderScale, setDynamicRenderScale] = useState<number>(1.0);
   const [dynamicReflectionEvery, setDynamicReflectionEvery] = useState<number>(0);
@@ -202,86 +213,34 @@ export const RaceView: React.FC<RaceViewProps> = ({
 
     const renderer = new THREE.WebGLRenderer({
       antialias: gfxPreset.antialias,
-      powerPreference: gfxPreset.id === 'low' ? 'low-power' : 'high-performance',
+      powerPreference: 'high-performance',
     });
     renderer.setSize(width, height);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, gfxPreset.maxPixelRatio));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
-    renderer.shadowMap.enabled = gfxPreset.shadowsEnabled;
-    if (gfxPreset.shadowsEnabled) {
-      renderer.shadowMap.type = gfxPreset.useSoftShadows ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
-    }
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure =
-      circuit.id === 'abudhabi' ? 1.25 : gfxPreset.id === 'ultra' ? 1.18 : 1.15;
-
-    // Studio & Outdoor Sky/Sun + Live 3D Scene PMREM Environment Reflection Probe
-    let pmremGenerator: THREE.PMREMGenerator | null = null;
-    let activePmremTarget: THREE.WebGLRenderTarget | null = null;
-    if (gfxPreset.useEnvironmentReflections) {
-      pmremGenerator = new THREE.PMREMGenerator(renderer);
-      pmremGenerator.compileEquirectangularShader();
-      pmremGenerator.compileCubemapShader();
-
-      // Initial fallback sky/sun reflection probe before the first CubeCamera frame renders
-      const envCanvas = document.createElement('canvas');
-      envCanvas.width = 512;
-      envCanvas.height = 256;
-      const eCtx = envCanvas.getContext('2d');
-      if (eCtx) {
-        const eGrad = eCtx.createLinearGradient(0, 0, 0, 256);
-        if (circuit.id === 'abudhabi') {
-          eGrad.addColorStop(0, '#0f0728');
-          eGrad.addColorStop(0.35, '#881337');
-          eGrad.addColorStop(0.48, '#f59e0b');
-          eGrad.addColorStop(0.51, '#18181b');
-          eGrad.addColorStop(1.0, '#090a0f');
-        } else if (circuit.id === 'bahrain' || circuit.id === 'jeddah') {
-          eGrad.addColorStop(0, '#030712');
-          eGrad.addColorStop(0.45, '#1e293b');
-          eGrad.addColorStop(0.5, '#f8fafc');
-          eGrad.addColorStop(0.53, '#111827');
-          eGrad.addColorStop(1.0, '#05070b');
-        } else {
-          eGrad.addColorStop(0, '#0284c7');
-          eGrad.addColorStop(0.36, '#7dd3fc');
-          eGrad.addColorStop(0.49, '#ffffff');
-          eGrad.addColorStop(0.52, '#1e293b');
-          eGrad.addColorStop(1.0, '#0f172a');
-        }
-        eCtx.fillStyle = eGrad;
-        eCtx.fillRect(0, 0, 512, 256);
-
-        const sunGrad = eCtx.createRadialGradient(360, 72, 2, 360, 72, 48);
-        sunGrad.addColorStop(0, '#ffffff');
-        sunGrad.addColorStop(0.3, '#fef08a');
-        sunGrad.addColorStop(1, 'rgba(255,255,255,0)');
-        eCtx.fillStyle = sunGrad;
-        eCtx.fillRect(300, 16, 120, 120);
-
-        const eqTex = new THREE.CanvasTexture(envCanvas);
-        eqTex.mapping = THREE.EquirectangularReflectionMapping;
-        eqTex.colorSpace = THREE.SRGBColorSpace;
-        activePmremTarget = pmremGenerator.fromEquirectangular(eqTex);
-        scene.environment = activePmremTarget.texture;
-        eqTex.dispose();
-      } else {
-        activePmremTarget = pmremGenerator.fromScene(new RoomEnvironment(), 0.025);
-        scene.environment = activePmremTarget.texture;
-      }
-    }
+    renderer.shadowMap.enabled = false;
+    renderer.toneMapping = THREE.NoToneMapping;
 
     containerRef.current.appendChild(renderer.domElement);
 
     // Dynamic High-Fidelity Circuit Sky Dome
+    let skyDomeMesh: THREE.Mesh | null = null;
     const skyRadius = 1900;
     const skyCanvas = document.createElement('canvas');
-    skyCanvas.width = 1024;
-    skyCanvas.height = 1024;
+    skyCanvas.width = 512;
+    skyCanvas.height = 512;
     const sCtx = skyCanvas.getContext('2d');
     if (sCtx) {
-      const grad = sCtx.createLinearGradient(0, 0, 0, 1024);
-      if (circuit.id === 'abudhabi') {
+      const grad = sCtx.createLinearGradient(0, 0, 0, 512);
+      if (gfxPreset.id === 'retro') {
+        // 90s OutRun / Virtua Racing Synthwave Horizon Sky
+        grad.addColorStop(0, '#070214');
+        grad.addColorStop(0.32, '#1b063b');
+        grad.addColorStop(0.58, '#70115c');
+        grad.addColorStop(0.78, '#ff2a85');
+        grad.addColorStop(0.92, '#ff8800');
+        grad.addColorStop(1.0, '#ffe600');
+      } else if (circuit.id === 'abudhabi') {
         // Abu Dhabi Championship Twilight: Deep starry indigo -> Royal magenta -> Radiant amber sunset horizon
         grad.addColorStop(0, '#0a041f');
         grad.addColorStop(0.40, '#1c0836');
@@ -316,15 +275,27 @@ export const RaceView: React.FC<RaceViewProps> = ({
         grad.addColorStop(1.0, '#f8fafc');
       }
       sCtx.fillStyle = grad;
-      sCtx.fillRect(0, 0, 1024, 1024);
+      sCtx.fillRect(0, 0, 512, 512);
 
-      // Stars for twilight & night circuits
-      if (circuit.timeOfDay === 'twilight' || circuit.id === 'abudhabi' || circuit.id === 'bahrain' || circuit.id === 'jeddah') {
+      // Stars & Synthwave bands for Retro or twilight circuits
+      if (gfxPreset.id === 'retro') {
+        sCtx.fillStyle = '#00f0ff';
+        for (let s = 0; s < 220; s++) {
+          const sx = Math.random() * 512;
+          const sy = Math.random() * 260;
+          sCtx.fillRect(sx, sy, 2, 2);
+        }
+        // Horizontal synthwave horizon scan stripes
+        sCtx.fillStyle = 'rgba(20, 4, 48, 0.45)';
+        for (let y = 340; y < 512; y += 14) {
+          sCtx.fillRect(0, y, 512, 5);
+        }
+      } else if (circuit.timeOfDay === 'twilight' || circuit.id === 'abudhabi' || circuit.id === 'bahrain' || circuit.id === 'jeddah') {
         sCtx.fillStyle = '#ffffff';
-        for (let s = 0; s < 280; s++) {
-          const sx = Math.random() * 1024;
-          const sy = Math.random() * 640;
-          const sr = Math.random() * 1.6 + 0.4;
+        for (let s = 0; s < 240; s++) {
+          const sx = Math.random() * 512;
+          const sy = Math.random() * 320;
+          const sr = Math.random() * 1.5 + 0.4;
           sCtx.beginPath();
           sCtx.arc(sx, sy, sr, 0, Math.PI * 2);
           sCtx.fill();
@@ -333,41 +304,47 @@ export const RaceView: React.FC<RaceViewProps> = ({
 
       const skyTex = new THREE.CanvasTexture(skyCanvas);
       skyTex.colorSpace = THREE.SRGBColorSpace;
-      const skyGeom = new THREE.SphereGeometry(skyRadius, 48, 32);
+      const skyGeom = new THREE.SphereGeometry(skyRadius, 32, 20);
       const skyMat = new THREE.MeshBasicMaterial({ map: skyTex, side: THREE.BackSide });
-      const skyMesh = new THREE.Mesh(skyGeom, skyMat);
-      scene.add(skyMesh);
+      skyDomeMesh = new THREE.Mesh(skyGeom, skyMat);
+      scene.add(skyDomeMesh);
     }
 
     let fogDensity = 0.0014;
     let hemiSky = 0xdbeafe;
     let hemiGround = 0x1e293b;
     let sunColor = 0xfffbeb;
-    let sunIntensity = 1.85;
+    let sunIntensity = 1.65;
 
-    if (circuit.id === 'abudhabi') {
+    if (gfxPreset.id === 'retro') {
+      hemiSky = 0xff2a85;
+      hemiGround = 0x00f0ff;
+      sunColor = 0xffe600;
+      sunIntensity = 1.95;
+      fogDensity = 0.0008;
+    } else if (circuit.id === 'abudhabi') {
       hemiSky = 0x38bdf8;
       hemiGround = 0x451a03;
-      sunColor = 0xff9e54; // Warm sunset gold
-      sunIntensity = 2.2;
+      sunColor = 0xff9e54;
+      sunIntensity = 1.95;
       fogDensity = 0.0010;
     } else if (circuit.id === 'monaco') {
       hemiSky = 0xbae6fd;
       hemiGround = 0x0369a1;
       sunColor = 0xffffff;
-      sunIntensity = 2.25;
+      sunIntensity = 1.95;
       fogDensity = 0.0008;
     } else if (circuit.id === 'spa') {
       hemiSky = 0x94a3b8;
       hemiGround = 0x14532d;
       sunColor = 0xfef08a;
-      sunIntensity = 1.65;
+      sunIntensity = 1.55;
       fogDensity = 0.0020;
     } else if (circuit.id === 'monza') {
       hemiSky = 0x7dd3fc;
       hemiGround = 0x14532d;
       sunColor = 0xffedd5;
-      sunIntensity = 2.0;
+      sunIntensity = 1.8;
     }
 
     const activeSceneFog = new THREE.FogExp2(circuit.fogColor, fogDensity);
@@ -376,25 +353,11 @@ export const RaceView: React.FC<RaceViewProps> = ({
     const hemiLight = new THREE.HemisphereLight(hemiSky, hemiGround, 0.95);
     scene.add(hemiLight);
 
-    const ambientLight = new THREE.AmbientLight(0xffffff, Math.max(0.68, circuit.ambientLight * 0.82));
+    const ambientLight = new THREE.AmbientLight(0xffffff, Math.max(0.75, circuit.ambientLight * 0.88));
     scene.add(ambientLight);
 
     const sunLight = new THREE.DirectionalLight(sunColor, sunIntensity);
-    sunLight.castShadow = gfxPreset.shadowsEnabled;
-    if (gfxPreset.shadowsEnabled) {
-      sunLight.shadow.mapSize.width = gfxPreset.shadowMapSize;
-      sunLight.shadow.mapSize.height = gfxPreset.shadowMapSize;
-      sunLight.shadow.bias = -0.00025;
-      sunLight.shadow.normalBias = 0.018;
-      sunLight.shadow.radius = gfxPreset.id === 'ultra' ? 2.2 : 1.5;
-      const shadowSpan = gfxPreset.id === 'ultra' ? 32 : 38;
-      sunLight.shadow.camera.left = -shadowSpan;
-      sunLight.shadow.camera.right = shadowSpan;
-      sunLight.shadow.camera.top = shadowSpan;
-      sunLight.shadow.camera.bottom = -shadowSpan;
-      sunLight.shadow.camera.near = 8;
-      sunLight.shadow.camera.far = 185;
-    }
+    sunLight.castShadow = false;
     scene.add(sunLight);
     scene.add(sunLight.target);
 
@@ -431,12 +394,15 @@ export const RaceView: React.FC<RaceViewProps> = ({
     let cubeRenderTarget: THREE.WebGLCubeRenderTarget | null = null;
     let carCubeCamera: THREE.CubeCamera | null = null;
     let composer: EffectComposer | null = null;
-    let broadcastLensPass: ShaderPass | null = null;
 
     if (gfxPreset.useEnvironmentReflections) {
-      // Dynamic uses a fast 128x128 cubemap so live 360° reflections never lag the GPU
+      // Dynamic modes use ultra-fast 128x128 cubemap so reflections never cause frame drops
       const cubeRes =
-        gfxPreset.id === 'ultra' ? 256 : gfxPreset.id === 'high' ? 192 : 128;
+        gfxPreset.id === 'ultra'
+          ? 256
+          : gfxPreset.id === 'high'
+          ? 192
+          : 128;
       cubeRenderTarget = new THREE.WebGLCubeRenderTarget(cubeRes, {
         generateMipmaps: true,
         minFilter: THREE.LinearMipmapLinearFilter,
@@ -447,9 +413,8 @@ export const RaceView: React.FC<RaceViewProps> = ({
       scene.add(carCubeCamera);
     }
 
-    // Only allocate heavy 4x MSAA HalfFloat Post-Processing Composer in Ultra mode (keeps Dynamic race start 100% lag-free and sharp!)
+    // Only allocate 4x MSAA HalfFloat Post-Processing Composer in Ultra mode (pure crystal-clear HDR bloom with zero dark lens vignette!)
     if (gfxPreset.id === 'ultra') {
-      // Multi-sampled HDR Post-Processing Composer (RenderPass -> UnrealBloomPass -> Broadcast Lens ShaderPass -> OutputPass)
       const pixelRatio = renderer.getPixelRatio();
       const rt = new THREE.WebGLRenderTarget(width * pixelRatio, height * pixelRatio, {
         samples: 4,
@@ -464,53 +429,11 @@ export const RaceView: React.FC<RaceViewProps> = ({
 
       const bloomPass = new UnrealBloomPass(
         new THREE.Vector2(width, height),
-        0.32, // subtle broadcast HDR bloom on sunlit specular edges & red brake lights
-        0.55,
-        0.86
+        0.22, // clean specular bloom on sunlit bodywork & red brake lights without darkening the screen
+        0.45,
+        0.88
       );
       composer.addPass(bloomPass);
-
-      broadcastLensPass = new ShaderPass({
-        uniforms: {
-          tDiffuse: { value: null },
-          uSpeedFactor: { value: 0.0 },
-        },
-        vertexShader: `
-          varying vec2 vUv;
-          void main() {
-            vUv = uv;
-            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-          }
-        `,
-        fragmentShader: `
-          uniform sampler2D tDiffuse;
-          uniform float uSpeedFactor;
-          varying vec2 vUv;
-          void main() {
-            vec2 uv = vUv;
-            vec2 centerDiff = uv - vec2(0.5);
-            float dist = length(centerDiff);
-
-            // Subtle optical lens chromatic aberration at edges (amplified at high F1 speeds)
-            float caOffset = dist * dist * (0.0018 + uSpeedFactor * 0.0042);
-            vec2 dir = dist > 0.0001 ? normalize(centerDiff) : vec2(0.0);
-            float r = texture2D(tDiffuse, uv + dir * caOffset).r;
-            float g = texture2D(tDiffuse, uv).g;
-            float b = texture2D(tDiffuse, uv - dir * caOffset).b;
-            vec3 col = vec3(r, g, b);
-
-            // Broadcast camera micro-contrast S-curve & rich shadow depth
-            col = mix(col, smoothstep(0.0, 1.0, col), 0.14);
-
-            // Natural optical lens vignette
-            float vignette = smoothstep(0.95, 0.32, dist);
-            col *= mix(0.76, 1.03, vignette);
-
-            gl_FragColor = vec4(col, 1.0);
-          }
-        `,
-      });
-      composer.addPass(broadcastLensPass);
 
       const outputPass = new OutputPass();
       composer.addPass(outputPass);
@@ -545,6 +468,7 @@ export const RaceView: React.FC<RaceViewProps> = ({
         hasTeammates: isMultiplayer && multiplayerRoom ? (effectiveBotCount === 0 ? false : multiplayerRoom.hasTeammates) : true,
         playerGridSlot: isQualifyingMode ? 1 : startingGridSlot,
         isQualifyingMode: Boolean(isQualifyingMode),
+        qualifyingGhostDelay3s: Boolean(qualifyingGhostDelay3s),
       }
     );
     if (isStrictPracticeMode) {
@@ -552,69 +476,15 @@ export const RaceView: React.FC<RaceViewProps> = ({
     }
     physicsRef.current = physics;
 
-    // Helper: Build a prominent 3D hovering indicator & beacon over opponent's car
-    const createRemotePlayer3DBeacon = (name: string, carNum: number, teamColor: string) => {
+    // Clean non-obstructive T-Cam marker for multiplayer rivals (never blocks camera lens)
+    const createRemotePlayer3DBeacon = (_name: string, _carNum: number, teamColor: string) => {
       const beaconGroup = new THREE.Group();
-
-      // 1. High-contrast billboard canvas with glow border, name, and downward chevron
-      const canvas = document.createElement('canvas');
-      canvas.width = 512;
-      canvas.height = 200;
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        // Dark translucent carbon panel with bright colored neon border
-        ctx.fillStyle = 'rgba(8, 9, 14, 0.94)';
-        ctx.strokeStyle = teamColor || '#ff2222';
-        ctx.lineWidth = 12;
-        ctx.beginPath();
-        ctx.roundRect(14, 14, 484, 122, 22);
-        ctx.fill();
-        ctx.stroke();
-
-        // Inverted pointer triangle directly above car roof
-        ctx.fillStyle = teamColor || '#ff2222';
-        ctx.beginPath();
-        ctx.moveTo(256 - 38, 138);
-        ctx.lineTo(256 + 38, 138);
-        ctx.lineTo(256, 188);
-        ctx.closePath();
-        ctx.fill();
-
-        // Top Header: ONLINE RIVAL
-        ctx.fillStyle = '#fef08a';
-        ctx.font = '900 28px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillText('⚡ MULTIPLAYER RIVAL ⚡', 256, 56);
-
-        // Driver Name & Number
-        ctx.fillStyle = '#ffffff';
-        ctx.font = '900 48px sans-serif';
-        ctx.fillText(`#${carNum} ${name.toUpperCase()}`, 256, 110);
-
-        const tex = new THREE.CanvasTexture(canvas);
-        tex.minFilter = THREE.LinearFilter;
-        const spriteMat = new THREE.SpriteMaterial({
-          map: tex,
-          transparent: true,
-          depthTest: false,
-        });
-        const sprite = new THREE.Sprite(spriteMat);
-        sprite.scale.set(4.4, 1.7, 1.0);
-        sprite.position.set(0, 3.2, 0);
-        beaconGroup.add(sprite);
-      }
-
-      // 2. Cockpit halo beacon ring
-      const haloGeom = new THREE.RingGeometry(1.25, 1.6, 32);
+      const haloGeom = new THREE.BoxGeometry(0.32, 0.045, 0.08);
       const haloMat = new THREE.MeshBasicMaterial({
         color: new THREE.Color(teamColor || '#ff2222'),
-        side: THREE.DoubleSide,
-        transparent: true,
-        opacity: 0.85,
       });
       const haloMesh = new THREE.Mesh(haloGeom, haloMat);
-      haloMesh.rotation.x = Math.PI / 2;
-      haloMesh.position.set(0, 0.75, 0);
+      haloMesh.position.set(0, 1.06, 0.15);
       beaconGroup.add(haloMesh);
 
       return { group: beaconGroup, halo: haloMesh };
@@ -734,7 +604,7 @@ export const RaceView: React.FC<RaceViewProps> = ({
       // Ignore if context is still initializing
     }
 
-    // 7. Render Loop with 60Hz Monitor Frame-Pacing Stabilization, Live FPS Counter & Smart 60 FPS Clear Governor
+    // 7. Uncapped Render Loop with Dual Dynamic Governors (Conservative Dynamic vs Aggressive Dynamic)
     let lastTime = performance.now();
     let animFrameId: number;
     let lastUiUpdateTime = 0;
@@ -742,126 +612,116 @@ export const RaceView: React.FC<RaceViewProps> = ({
     let raceCompleteNotified = false;
     let frameCount = 0;
 
-    // Smart 60 FPS Clear Governor:
-    // - Keeps screen resolution crisp & clear (1.0x–1.25x native clarity, never blurry!)
-    // - Eliminates race-start lag by starting from the learned GPU profile (defaulting to a fast 65% Hybrid profile with live CubeCamera deferred during initial grid load)
-    // - Independently toggles Shadows ON + Reflections OFF vs Reflections ON + Shadows OFF (or Both ON / Both OFF) to hold a locked 60 FPS
-    const storedGpuProfile = getStoredDynamicGpuProfile();
+    const isDynamicMode = isDynamicGraphics(gfxPreset.id);
+    const isConservativeDynamic = gfxPreset.id === 'dynamic_conservative';
+    const isAggressiveDynamic = gfxPreset.id === 'dynamic_aggressive';
+
+    const storedGpuProfile = getStoredDynamicGpuProfile(gfxPreset.id);
     let fpsSampleFrames = 0;
     let lastFpsSampleTime = performance.now();
     let dynamicQualityFactor = storedGpuProfile.qualityScore;
     let preferShadowsOverReflections = storedGpuProfile.preferShadowsOverReflections;
     let appliedPixelRatio = renderer.getPixelRatio();
-    let dynamicReflectionCadence = 0; // 0 = live CubeCamera off (uses pre-baked sky/horizon PMREM reflection with 0 GPU cost)
+    let dynamicReflectionCadence = isAggressiveDynamic ? 4 : 0;
     let shadowComboAvgFps = 60;
     let reflComboAvgFps = 60;
+    let lastEmergencyDropFrame = -999;
 
     const applyContinuousDynamicQuality = (q: number, persistProfile = false) => {
-      const clampedQ = Math.max(0.15, Math.min(1.0, q));
+      const minAllowedQ = isConservativeDynamic ? 0.05 : 0.08;
+      const clampedQ = Math.max(minAllowedQ, Math.min(1.0, q));
       dynamicQualityFactor = clampedQ;
 
-      // 1. Keep Screen Resolution Crisp & Clear!
-      // Instead of dropping resolution to a blurry 0.55x when the GPU struggles, we keep pixel ratio sharp (1.0x native at >= 35%, 0.92x floor in extreme emergencies, up to 1.25x at 100%)
-      // and shed heavy GPU passes (CubeCamera 6-face reflections or Shadow Map depth pass) first!
+      // 1. Crisp Native Resolution Lock (NEVER Pixelated!):
+      // "dont make conservative dynamic pixelated make it better"
+      // Both Conservative Dynamic and Aggressive Dynamic keep pixel ratio >= 1.0x so the car, road, and curbs are ALWAYS 100% razor-sharp!
+      // Instead of blurring/pixelating the screen, Conservative Dynamic hits 60+ FPS purely via draw-call, scenery, fog, and LOD distance culling.
       const devicePR = window.devicePixelRatio || 1;
-      const desiredScale =
-        clampedQ >= 0.85
-          ? Math.min(devicePR, 1.25)
-          : clampedQ >= 0.35
-          ? Math.min(devicePR, 1.0)
-          : Math.min(devicePR, 0.92);
-      const targetScale = Math.round(desiredScale / 0.04) * 0.04;
-      if (Math.abs(targetScale - appliedPixelRatio) >= 0.035) {
+      const desiredScale = isAggressiveDynamic
+        ? clampedQ >= 0.78
+          ? Math.min(devicePR, 1.4)
+          : clampedQ >= 0.45
+          ? Math.min(devicePR, 1.2)
+          : Math.min(devicePR, 1.0)
+        : clampedQ >= 0.72
+        ? Math.min(devicePR, 1.15)
+        : Math.min(devicePR, 1.0);
+
+      const targetScale = Math.max(1.0, Math.round(desiredScale / 0.05) * 0.05);
+      if (Math.abs(targetScale - appliedPixelRatio) >= 0.04) {
         appliedPixelRatio = Number(targetScale.toFixed(2));
         renderer.setPixelRatio(appliedPixelRatio);
       }
 
-      // 2. Smart Independent Feature Matrix:
-      //    - [78% – 100%]: BOTH ON (Shadows ON + Live 360° Reflections ON, cadence 3 to 10 frames)
-      //    - [58% – 77%]:  HYBRID A — Preferred feature ON, secondary heavy feature OFF
-      //                    (Default: Shadows ON + Live Reflections OFF [uses fast cached sky/horizon reflection],
-      //                     or Reflections ON + Shadows OFF if GPU benchmarked faster with reflections)
-      //    - [46% – 57%]:  HYBRID B — Alternate single feature ON (tests the opposite combo: e.g. Reflections ON [every 8f] + Shadows OFF, or Shadows ON + Reflections OFF)
-      //    - [15% – 45%]:  60 FPS CLEAR MODE — Both Live Reflections OFF & Dynamic Shadows OFF (cars keep contact shadow + cached sky reflection while screen stays 1.0x crystal clear!)
-      let enableShadows = false;
-      let reflCadence = 0;
-      let comboLabel = '60FPS Clear (Shd OFF · Refl OFF)';
+      // 2. Smart Scenery, Sky, Fog & Distance Culling Matrix (Zero Pixelation!):
+      const sceneryCullThreshold = isAggressiveDynamic ? 0.22 : 0.62;
+      const showOuterScenery = clampedQ >= sceneryCullThreshold;
+      if (track.sceneryGroup && track.sceneryGroup.visible !== showOuterScenery) {
+        track.sceneryGroup.visible = showOuterScenery;
+      }
 
-      if (clampedQ >= 0.78) {
-        enableShadows = true;
-        reflCadence = Math.max(
-          3,
-          Math.min(10, Math.round(10 - ((clampedQ - 0.78) / 0.22) * 7))
-        );
-        comboLabel = `Shadows ON · Refl ON (${reflCadence}f)`;
-      } else if (clampedQ >= 0.58) {
-        if (preferShadowsOverReflections) {
-          enableShadows = true;
-          reflCadence = 0; // Turn off live 6-face CubeCamera, keep crisp shadows!
-          comboLabel = 'Shadows ON · Refl OFF';
+      const showSkyAndFog = isAggressiveDynamic ? clampedQ >= 0.14 : clampedQ >= 0.32;
+      if (skyDomeMesh && skyDomeMesh.visible !== showSkyAndFog) {
+        skyDomeMesh.visible = showSkyAndFog;
+      }
+      scene.fog = showSkyAndFog ? activeSceneFog : null;
+
+      let comboLabel = 'Crisp 60+ FPS';
+      if (isConservativeDynamic) {
+        if (clampedQ < 0.25) {
+          comboLabel = 'Crisp 1.0x · Max LOD Cull';
+        } else if (clampedQ < 0.62) {
+          comboLabel = 'Crisp 1.0x · Fast Track';
         } else {
-          enableShadows = false; // Turn off shadow depth pass, keep live reflections!
-          reflCadence = 6;
-          comboLabel = 'Refl ON (6f) · Shadows OFF';
-        }
-      } else if (clampedQ >= 0.46) {
-        if (preferShadowsOverReflections) {
-          // Try the inverse hybrid: Reflections ON (every 8 frames) + Dynamic Shadows OFF
-          enableShadows = false;
-          reflCadence = 8;
-          comboLabel = 'Refl ON (8f) · Shadows OFF';
-        } else {
-          enableShadows = true;
-          reflCadence = 0;
-          comboLabel = 'Shadows ON · Refl OFF';
+          comboLabel = 'Crisp HD · 60+ FPS';
         }
       } else {
-        // Maximum FPS protection while keeping 1.0x crisp resolution
-        enableShadows = false;
-        reflCadence = 0;
-        comboLabel = '60FPS Clear (Shd OFF · Refl OFF)';
+        if (clampedQ >= 0.65) {
+          comboLabel = 'High Visuals · Full Scenery';
+        } else if (clampedQ >= 0.35) {
+          comboLabel = 'Balanced Visuals · Smooth Floor';
+        } else {
+          comboLabel = 'Playable Floor Guard (Scenery OFF)';
+        }
       }
 
-      dynamicReflectionCadence = reflCadence;
+      dynamicReflectionCadence = 0;
 
-      if (renderer.shadowMap.enabled !== enableShadows) {
-        renderer.shadowMap.enabled = enableShadows;
-        sunLight.castShadow = enableShadows;
-        renderer.shadowMap.needsUpdate = true;
-      }
-      if (enableShadows) {
-        sunLight.shadow.radius = 1.0 + clampedQ * 1.1;
-      }
-
-      // 3. Continuous Camera Draw Distance (900m at 15% up to 2200m at 100%)
-      const targetFar = Math.round(900 + clampedQ * 1300);
-      if (Math.abs(camera.far - targetFar) > 45) {
+      // 3. Continuous Camera Draw Distance (culls distant geometry without lowering screen resolution)
+      const targetFar = showOuterScenery
+        ? Math.round(900 + clampedQ * 1150)
+        : isConservativeDynamic && clampedQ < 0.30
+        ? Math.round(340 + clampedQ * 500)
+        : Math.round(480 + clampedQ * 650);
+      if (Math.abs(camera.far - targetFar) > 30) {
         camera.far = targetFar;
         camera.updateProjectionMatrix();
       }
 
-      // 4. Rim / Specular Fill Light (Active when >= 50%)
+      // 4. Rim / Specular Fill Light
       if (rimLight) {
-        const rimFactor = Math.max(0, Math.min(1, (clampedQ - 0.45) / 0.55));
+        const rimFactor = Math.max(0, Math.min(1, (clampedQ - 0.50) / 0.50));
         rimLight.visible = rimFactor > 0.02;
-        rimLight.intensity = rimFactor * 1.1;
+        rimLight.intensity = rimFactor * 0.9;
       }
 
-      setDynamicQualityPct(Math.round(clampedQ * 100));
+      setDynamicQualityPct(Math.max(5, Math.round(clampedQ * 100)));
       setDynamicRenderScale(Number(appliedPixelRatio.toFixed(2)));
-      setDynamicReflectionEvery(dynamicReflectionCadence);
+      setDynamicReflectionEvery(0);
       setDynamicFeatureCombo(comboLabel);
 
       if (persistProfile) {
-        setStoredDynamicGpuProfile({
-          qualityScore: Number(clampedQ.toFixed(3)),
-          preferShadowsOverReflections,
-        });
+        setStoredDynamicGpuProfile(
+          {
+            qualityScore: Number(clampedQ.toFixed(3)),
+            preferShadowsOverReflections,
+          },
+          gfxPreset.id
+        );
       }
     };
 
-    if (gfxPreset.id === 'dynamic') {
-      // Start at the learned GPU profile (or 0.65 fast hybrid on first boot) so the 20-car race start never lags on Frame 1!
+    if (isDynamicMode) {
       applyContinuousDynamicQuality(dynamicQualityFactor, false);
     }
 
@@ -872,13 +732,48 @@ export const RaceView: React.FC<RaceViewProps> = ({
 
       const rawDelta = (time - lastTime) / 1000;
       lastTime = time;
+      const singleFrameMs = rawDelta * 1000;
 
-      // Fast 110ms FPS check starting right at Frame 3 (~50ms after race launch) so Dynamic reacts immediately if FPS dips at race start
+      // INSTANT PER-FRAME GOVERNOR (Reacts on the exact nanosecond a single frame drops below target before rendering):
+      if (isDynamicMode && frameCount >= 2 && rawDelta > 0.001 && rawDelta < 0.25) {
+        if (isConservativeDynamic && singleFrameMs > 16.45) {
+          // CONSERVATIVE DYNAMIC INSTANT 60+ FPS GUARD:
+          // The nanosecond a single frame exceeds 16.45ms (< 60.8 FPS), immediately slash GPU load (all the way down to 1% Potato mode if needed!) BEFORE rendering!
+          lastEmergencyDropFrame = frameCount;
+          const instantDrop =
+            singleFrameMs > 23.0
+              ? 0.55
+              : singleFrameMs > 19.0
+              ? 0.36
+              : singleFrameMs > 17.2
+              ? 0.22
+              : 0.12;
+          applyContinuousDynamicQuality(dynamicQualityFactor - instantDrop, false);
+        } else if (isAggressiveDynamic && singleFrameMs > 23.0) {
+          // AGGRESSIVE DYNAMIC HARD PLAYABILITY FLOOR GUARD (Never allow drops into 20–30 FPS):
+          lastEmergencyDropFrame = frameCount;
+          const instantDrop =
+            singleFrameMs > 30.0
+              ? 0.44
+              : singleFrameMs > 26.0
+              ? 0.28
+              : 0.15;
+          applyContinuousDynamicQuality(dynamicQualityFactor - instantDrop, false);
+        }
+      }
+
+      // Multi-frame sample window for telemetry readout & smooth steady-state tuning
       const fpsElapsed = time - lastFpsSampleTime;
-      const sampleWindowMs = gfxPreset.id === 'dynamic' && frameCount < 45 ? 90 : 120;
+      const sampleWindowMs = isConservativeDynamic
+        ? 45
+        : isAggressiveDynamic
+        ? 95
+        : 120;
+
       if (fpsElapsed >= sampleWindowMs && fpsSampleFrames >= 2) {
         const exactFps = (fpsSampleFrames * 1000) / fpsElapsed;
-        const measuredFps = Math.min(240, Math.max(1, Math.round(exactFps)));
+        // Completely UNCAPPED FPS readout (supports 60Hz, 120Hz, 144Hz, 240Hz, 360Hz, 500Hz+)
+        const measuredFps = Math.max(1, Math.round(exactFps));
         const measuredMs = Number(
           (fpsElapsed / Math.max(1, fpsSampleFrames)).toFixed(1)
         );
@@ -887,47 +782,63 @@ export const RaceView: React.FC<RaceViewProps> = ({
         fpsSampleFrames = 0;
         lastFpsSampleTime = time;
 
-        // Track which hybrid mode (Shadows ON/Refl OFF vs Refl ON/Shadows OFF) runs faster on this PC's GPU
-        if (renderer.shadowMap.enabled && dynamicReflectionCadence === 0) {
-          shadowComboAvgFps = shadowComboAvgFps * 0.7 + exactFps * 0.3;
-        } else if (!renderer.shadowMap.enabled && dynamicReflectionCadence > 0) {
-          reflComboAvgFps = reflComboAvgFps * 0.7 + exactFps * 0.3;
-          // If Reflections-only consistently beats Shadows-only by > 4 FPS, remember that preference for this GPU
-          if (reflComboAvgFps > shadowComboAvgFps + 4 && preferShadowsOverReflections) {
-            preferShadowsOverReflections = false;
-          } else if (shadowComboAvgFps > reflComboAvgFps + 4 && !preferShadowsOverReflections) {
-            preferShadowsOverReflections = true;
-          }
-        }
-
-        // Smart 60 FPS Governor: Checks from Frame 3 onwards and immediately sheds reflections or shadows if FPS is below 58
-        if (gfxPreset.id === 'dynamic' && frameCount >= 3) {
-          const targetFps = 60.0;
-          const fpsDeficit = targetFps - exactFps; // positive when lagging (< 60 FPS)
-
-          if (fpsDeficit > 1.5 || measuredMs > 17.4) {
-            // GPU struggling (< 58.5 FPS): immediately step down quality to turn off reflections or shadows while keeping resolution sharp
-            const emergencyBoost = exactFps < 48 || measuredMs > 21 ? 0.14 : 0.04;
+        if (isConservativeDynamic && frameCount >= 2) {
+          // CONSERVATIVE DYNAMIC:
+          // Does whatever it takes to stay >= 60 FPS at all times, dropping down to 1% Potato mode if needed.
+          const guardFps = 61.5;
+          if (exactFps < guardFps || measuredMs > 16.25) {
+            lastEmergencyDropFrame = frameCount;
+            const deficit = Math.max(1, guardFps - exactFps);
+            const urgentDrop =
+              exactFps < 55 || measuredMs > 18.0
+                ? 0.32
+                : exactFps < 59.8
+                ? 0.18
+                : 0.09;
             const dropAmount = Math.min(
-              0.28,
-              Math.max(0.035, (fpsDeficit / 60) * 0.65 + emergencyBoost)
+              0.55,
+              Math.max(0.08, (deficit / 60) * 1.25 + urgentDrop)
             );
             applyContinuousDynamicQuality(dynamicQualityFactor - dropAmount, true);
           } else if (
-            frameCount > 35 &&
-            exactFps >= 58.8 &&
-            measuredMs <= 16.9 &&
+            frameCount - lastEmergencyDropFrame > 110 &&
+            exactFps >= 63.0 &&
+            measuredMs <= 15.8 &&
             dynamicQualityFactor < 1.0
           ) {
-            // Holding steady ~60 FPS after the race start grid settles: gently step quality upward (+1.5%) to test enabling shadows/reflections
-            applyContinuousDynamicQuality(dynamicQualityFactor + 0.015, true);
+            // Very cautious upward step (+0.5%) only when effortlessly holding 63+ FPS
+            applyContinuousDynamicQuality(dynamicQualityFactor + 0.005, true);
+          }
+        } else if (isAggressiveDynamic && frameCount >= 3) {
+          // AGGRESSIVE DYNAMIC:
+          // Prioritizes visual quality in the 46–60+ FPS zone, with a hard playable floor at 43.5 FPS so it NEVER drops to 20–30 FPS!
+          const playableFloorFps = 43.8;
+          const qualityTargetFps = 50.5;
+          if (exactFps < playableFloorFps || measuredMs > 22.8) {
+            lastEmergencyDropFrame = frameCount;
+            const deficit = Math.max(2, playableFloorFps - exactFps);
+            const dropAmount = Math.min(
+              0.35,
+              Math.max(0.14, (deficit / 45) * 0.70 + (exactFps < 36 ? 0.18 : 0.09))
+            );
+            applyContinuousDynamicQuality(dynamicQualityFactor - dropAmount, true);
+          } else if (exactFps < qualityTargetFps || measuredMs > 19.8) {
+            const deficit = Math.max(1, qualityTargetFps - exactFps);
+            const dropAmount = Math.min(0.09, Math.max(0.025, (deficit / 60) * 0.28));
+            applyContinuousDynamicQuality(dynamicQualityFactor - dropAmount, true);
+          } else if (
+            frameCount - lastEmergencyDropFrame > 45 &&
+            exactFps >= 55.5 &&
+            measuredMs <= 18.0 &&
+            dynamicQualityFactor < 1.0
+          ) {
+            applyContinuousDynamicQuality(dynamicQualityFactor + 0.02, true);
           }
         }
       }
 
-      // 60Hz monitor frame-pacing lock: if running near 60Hz (16.67ms ± 3.5ms), snap delta smoothly to 1/60s to eliminate browser timer jitter on 60Hz displays
-      const clampedDelta = Math.min(0.05, Math.max(0.001, rawDelta));
-      const delta = Math.abs(clampedDelta - 1 / 60) < 0.0035 ? 1 / 60 : clampedDelta;
+      // Uncapped native delta time: supports 60Hz, 120Hz, 144Hz, 240Hz, 360Hz+ with zero artificial frame-rate cap
+      const delta = Math.min(0.05, Math.max(0.0002, rawDelta));
 
       // Update multiplayer rival positions with high-framerate dead-reckoning extrapolation
       if (isMultiplayer) {
@@ -1108,41 +1019,40 @@ export const RaceView: React.FC<RaceViewProps> = ({
       camera.position.copy(currentCamPos);
       camera.lookAt(currentLookAt);
 
-      // Update real-time 360° CubeCamera + PMREM environment reflections (Dynamic smart cadence, Medium, High & Ultra)
-      // On Dynamic mode, skip live CubeCamera capture during the first 25 frames of the race countdown so the race starts at an instant 60 FPS with zero Frame-1 stall (cars already reflect the pre-baked sky/horizon PMREM texture!)
-      if (carCubeCamera && cubeRenderTarget && pmremGenerator && gfxPreset.useEnvironmentReflections) {
-        const reflectionInterval =
-          gfxPreset.id === 'dynamic'
-            ? dynamicReflectionCadence
-            : gfxPreset.id === 'ultra'
-            ? 2
-            : gfxPreset.id === 'high'
-            ? 3
-            : 6;
-        const shouldCaptureCube =
-          gfxPreset.id === 'dynamic'
-            ? frameCount > 25 && reflectionInterval > 0 && frameCount % reflectionInterval === 0
-            : frameCount === 1 || (reflectionInterval > 0 && frameCount % reflectionInterval === 0);
+      // Camera Near-Lens Guard + Potato Mode Distance Culling:
+      // 1. Never let any AI car within 3.6m of the camera lens render inside the camera frustum (prevents trailing cars from blocking the camera view!)
+      // 2. In Conservative Dynamic below 35% quality (Potato 60+ FPS mode), distance-cull AI cars beyond 75m–130m to save massive draw calls!
+      const usePotatoCarCull = isConservativeDynamic && dynamicQualityFactor < 0.35;
+      const maxAiDistSq =
+        dynamicQualityFactor < 0.16
+          ? 70 * 70
+          : dynamicQualityFactor < 0.25
+          ? 95 * 95
+          : 135 * 135;
 
-        if (shouldCaptureCube) {
-          playerCar.root.visible = false;
-          scene.fog = null;
-          carCubeCamera.position.set(carPos.x, carPos.y + 0.68, carPos.z);
-          carCubeCamera.update(renderer, scene);
-          scene.fog = activeSceneFog;
-          playerCar.root.visible = true;
-
-          const nextPmrem = pmremGenerator.fromCubemap(cubeRenderTarget.texture);
-          if (activePmremTarget) {
-            activePmremTarget.dispose();
-          }
-          activePmremTarget = nextPmrem;
-          scene.environment = activePmremTarget.texture;
+      for (let i = 0; i < physics.aiCars.length; i++) {
+        const ai = physics.aiCars[i];
+        if (ai.isHiddenByPracticeFilter) {
+          ai.builtCar.root.visible = false;
+          continue;
+        }
+        if (isQualifyingMode && qualifyingGhostDelay3s && physics.raceState === 'racing' && physics.raceTimer < 3.0) {
+          ai.builtCar.root.visible = false;
+          continue;
+        }
+        const camDistSq = camera.position.distanceToSquared(ai.pos);
+        if (camDistSq < 13.0) {
+          // Car is right on top of the camera position: hide mesh so it never creates a dark lens over the screen!
+          ai.builtCar.root.visible = false;
+        } else if (usePotatoCarCull) {
+          const playerDistSq = carPos.distanceToSquared(ai.pos);
+          ai.builtCar.root.visible = playerDistSq <= maxAiDistSq;
+        } else {
+          ai.builtCar.root.visible = true;
         }
       }
 
-      if (composer && broadcastLensPass && gfxPreset.id === 'ultra') {
-        broadcastLensPass.uniforms.uSpeedFactor.value = Math.min(1.0, Math.abs(speed) / 340);
+      if (composer && gfxPreset.id === 'ultra') {
         composer.render(delta);
       } else {
         renderer.render(scene, camera);
@@ -1290,6 +1200,8 @@ export const RaceView: React.FC<RaceViewProps> = ({
         physicsRef.current?.issueTeamOrder('push');
       } else if (e.key === '4' || e.code === 'Digit4' || e.code === 'Numpad4') {
         physicsRef.current?.issueTeamOrder('neutral');
+      } else if (e.key === 'p' || e.key === 'P' || e.code === 'KeyP') {
+        physicsRef.current?.requestPitStop();
       } else if (isStrictPracticeMode && (e.key === 'l' || e.key === 'L' || e.code === 'KeyL')) {
         setShowPracticeRacingLine((prev) => !prev);
       }
@@ -1304,15 +1216,6 @@ export const RaceView: React.FC<RaceViewProps> = ({
       soundEngine.stopAll();
       if (composer) {
         composer.dispose();
-      }
-      if (activePmremTarget) {
-        activePmremTarget.dispose();
-      }
-      if (pmremGenerator) {
-        pmremGenerator.dispose();
-      }
-      if (cubeRenderTarget) {
-        cubeRenderTarget.dispose();
       }
       renderer.dispose();
       if (containerRef.current && renderer.domElement && containerRef.current.contains(renderer.domElement)) {
@@ -1345,22 +1248,6 @@ export const RaceView: React.FC<RaceViewProps> = ({
     <div className="relative w-full h-full overflow-hidden select-none bg-black">
       <div ref={containerRef} className="w-full h-full cursor-none" />
 
-      {/* Cinematic High-Velocity Speed Tunnel Overlay (>240 km/h) */}
-      {telemetry && Math.abs(telemetry.speedKmh) > 240 && (
-        <div
-          className="absolute inset-0 pointer-events-none transition-opacity duration-300 z-10"
-          style={{
-            opacity: Math.min(0.6, (Math.abs(telemetry.speedKmh) - 240) / 110),
-            background: 'radial-gradient(ellipse at center, transparent 45%, rgba(0, 0, 0, 0.4) 80%, rgba(0, 0, 0, 0.75) 100%)',
-          }}
-        />
-      )}
-
-      {/* Heavy Impact Crash Trauma Vignette */}
-      {telemetry && telemetry.speedKmh === 0 && (telemetry.wrongWayWarning || (physicsRef.current && physicsRef.current.playerCrashWaitTimer > 0)) && (
-        <div className="absolute inset-0 pointer-events-none z-10 bg-red-950/25 ring-8 ring-red-600/30 animate-pulse" />
-      )}
-
       {telemetry && (
         <BroadcastHUD
           telemetry={telemetry}
@@ -1388,97 +1275,123 @@ export const RaceView: React.FC<RaceViewProps> = ({
           practiceLineCoach={isStrictPracticeMode && showPracticeRacingLine ? practiceLineCoach : null}
           practiceBotCount={isStrictPracticeMode ? activePracticeBots : undefined}
           onSetPracticeBotCount={isStrictPracticeMode ? handleSetPracticeBotCount : undefined}
+          onPitStop={(comp) => physicsRef.current?.requestPitStop(comp)}
         />
       )}
 
-      {/* Top-Right Live FPS Counter, Dynamic Graphics Selector & Exit to Paddock Bar */}
-      <div className="absolute top-4 right-4 z-40 flex flex-col items-end gap-1.5">
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          {/* Live Real-Time FPS & Frame-Time Counter */}
-          <div
-            className="flex items-center gap-2 bg-black/80 border border-white/15 backdrop-blur-md rounded-lg px-2.5 py-1 font-mono text-[11px] shadow-lg"
-            title="Live Frame Rate (FPS) & Frame Render Time (ms)"
-          >
-            <span
-              className={`w-2 h-2 rounded-full ${
-                liveFps >= 55
-                  ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]'
-                  : liveFps >= 40
-                  ? 'bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.8)]'
-                  : 'bg-red-500 animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.9)]'
-              }`}
-            />
-            <span
-              className={`font-black tabular-nums ${
-                liveFps >= 55
-                  ? 'text-emerald-400'
-                  : liveFps >= 40
-                  ? 'text-amber-400'
-                  : 'text-red-400'
-              }`}
-            >
-              {liveFps} FPS
-            </span>
-            <span className="text-neutral-500">·</span>
-            <span className="text-neutral-300 tabular-nums text-[10px]">
-              {frameTimeMs.toFixed(1)}ms
-            </span>
-            {graphicsQuality === 'dynamic' && (
-              <>
-                <span className="text-neutral-500">·</span>
-                <div
-                  className="flex items-center gap-1.5"
-                  title={`Smart 60 FPS Governor: ${dynamicQualityPct}% · Crisp ${dynamicRenderScale}x Resolution · ${dynamicFeatureCombo} · Reflections ${
-                    dynamicReflectionEvery > 0 ? `every ${dynamicReflectionEvery}f` : 'cached sky probe'
-                  }`}
+      {/* Guided FIA Academy Tutorial On-Track Practice Drill Banner */}
+      {tutorialPracticeStage && (
+        <div className="absolute top-14 left-1/2 -translate-x-1/2 z-40 w-[92%] max-w-xl bg-zinc-950/92 border-2 border-emerald-500/60 rounded-2xl px-4 py-3 shadow-2xl backdrop-blur-md flex flex-col sm:flex-row items-center justify-between gap-3">
+          <div className="text-left">
+            <div className="flex items-center gap-2">
+              <span className="px-2 py-0.5 rounded bg-emerald-500 text-black font-mono font-black text-[9px] uppercase">
+                ACADEMY DRILL
+              </span>
+              <span className="text-xs font-black text-white">{tutorialPracticeStage.title}</span>
+            </div>
+            <p className="text-[11px] text-zinc-300 mt-0.5">{tutorialPracticeStage.subtitle}</p>
+            <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+              {tutorialPracticeStage.objectives.map((obj, idx) => (
+                <span
+                  key={idx}
+                  className="text-[10px] font-mono bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 px-2 py-0.5 rounded"
                 >
-                  <span className="text-cyan-300 font-bold text-[10px] tabular-nums">
-                    DYN {dynamicQualityPct}% · {dynamicFeatureCombo}
-                  </span>
-                  <div className="w-12 h-1.5 bg-neutral-800 rounded-full overflow-hidden hidden sm:block">
-                    <div
-                      className="h-full bg-gradient-to-r from-emerald-400 via-cyan-400 to-amber-400 transition-all duration-150"
-                      style={{ width: `${dynamicQualityPct}%` }}
-                    />
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
-
-          <div className="flex items-center gap-1 bg-black/75 border border-white/10 backdrop-blur rounded-lg px-2 py-1">
-            <span className="text-[10px] font-mono text-neutral-400 uppercase mr-1 hidden sm:inline">
-              Graphics:
-            </span>
-            {GRAPHICS_QUALITY_OPTIONS.map((q) => (
-              <button
-                key={q}
-                onClick={() => setStoredGraphicsQuality(q)}
-                className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold transition-colors cursor-pointer ${
-                  graphicsQuality === q
-                    ? q === 'ultra'
-                      ? 'bg-amber-500 text-black'
-                      : q === 'dynamic'
-                      ? 'bg-cyan-400 text-black'
-                      : q === 'low'
-                      ? 'bg-emerald-500 text-black'
-                      : 'bg-red-600 text-white'
-                    : 'text-neutral-400 hover:text-white'
-                }`}
-                title={GRAPHICS_PRESETS[q].description}
-              >
-                {GRAPHICS_PRESETS[q].shortLabel}
-              </button>
-            ))}
+                  • {obj}
+                </span>
+              ))}
+            </div>
           </div>
 
           <button
-            onClick={onExitToPaddock}
-            className="px-3 py-1.5 bg-black/75 hover:bg-black/95 text-neutral-300 hover:text-white text-xs font-semibold rounded-lg border border-white/10 backdrop-blur transition-colors cursor-pointer"
+            type="button"
+            onClick={() => {
+              if (onCompleteTutorialStage) {
+                onCompleteTutorialStage(tutorialPracticeStage.id);
+              } else {
+                onExitToPaddock();
+              }
+            }}
+            className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-black font-black text-[11px] uppercase tracking-wider shadow-lg cursor-pointer whitespace-nowrap shrink-0"
           >
-            Exit to Paddock
+            Complete Drill & Next Step →
           </button>
         </div>
+      )}
+
+      {/* Top-Right Unified Performance, Graphics & Exit Dock */}
+      <div className="absolute top-3 right-4 z-40 flex items-center gap-2">
+        {/* Live Uncapped FPS & Frame-Time Pill */}
+        <div
+          className="flex items-center gap-2 bg-zinc-950/85 border border-white/10 backdrop-blur-md rounded-lg px-3 py-1.5 font-mono text-[11px] shadow-xl"
+          title={`Uncapped Frame Rate: ${liveFps} FPS (${frameTimeMs.toFixed(1)}ms)${
+            isDynamicGraphics(graphicsQuality)
+              ? ` · ${GRAPHICS_PRESETS[graphicsQuality].shortLabel}: ${dynamicQualityPct}% (${dynamicRenderScale}x) · ${dynamicFeatureCombo}`
+              : ''
+          }`}
+        >
+          <span
+            className={`font-black tabular-nums ${
+              liveFps >= 58
+                ? 'text-emerald-400'
+                : liveFps >= 45
+                ? 'text-amber-400'
+                : 'text-red-400'
+            }`}
+          >
+            {liveFps} FPS
+          </span>
+          <span className="text-zinc-600">·</span>
+          <span className="text-zinc-400 tabular-nums text-[10px]">
+            {frameTimeMs.toFixed(1)}ms
+          </span>
+          {isDynamicGraphics(graphicsQuality) && (
+            <>
+              <span className="text-zinc-600 hidden sm:inline">·</span>
+              <span
+                className={`font-semibold text-[10px] tabular-nums hidden sm:inline ${
+                  graphicsQuality === 'dynamic_conservative'
+                    ? 'text-emerald-300'
+                    : 'text-cyan-300'
+                }`}
+              >
+                {dynamicQualityPct}% ({dynamicFeatureCombo})
+              </span>
+            </>
+          )}
+        </div>
+
+        {/* Segmented Graphics Quality Selector (Conservative Dynamic, Aggressive Dynamic, Retro, Low, Med, High, Ultra) */}
+        <div className="flex items-center gap-0.5 bg-zinc-950/85 border border-white/10 backdrop-blur-md rounded-lg p-1 shadow-xl">
+          {GRAPHICS_QUALITY_OPTIONS.map((q) => (
+            <button
+              key={q}
+              onClick={() => setStoredGraphicsQuality(q)}
+              className={`px-2 py-1 rounded-md text-[10px] font-mono font-bold transition-colors cursor-pointer whitespace-nowrap ${
+                graphicsQuality === q
+                  ? q === 'ultra'
+                    ? 'bg-amber-500 text-black'
+                    : q === 'retro'
+                    ? 'bg-[#ff2a85] text-white shadow-[0_0_10px_#ff2a85]'
+                    : q === 'dynamic_conservative'
+                    ? 'bg-emerald-400 text-black'
+                    : q === 'dynamic_aggressive'
+                    ? 'bg-cyan-400 text-black'
+                    : 'bg-white text-black'
+                  : 'text-zinc-400 hover:text-white'
+              }`}
+              title={GRAPHICS_PRESETS[q].description}
+            >
+              {GRAPHICS_PRESETS[q].hudButtonLabel}
+            </button>
+          ))}
+        </div>
+
+        <button
+          onClick={onExitToPaddock}
+          className="px-3 py-1.5 bg-zinc-950/85 hover:bg-red-600 text-zinc-200 hover:text-white text-xs font-semibold rounded-lg border border-white/10 hover:border-red-500 backdrop-blur-md transition-colors cursor-pointer shadow-xl whitespace-nowrap"
+        >
+          Exit Race
+        </button>
       </div>
     </div>
   );

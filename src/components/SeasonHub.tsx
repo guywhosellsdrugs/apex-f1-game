@@ -70,6 +70,8 @@ import {
   Timer,
   Newspaper,
   BarChart3,
+  Sun,
+  Moon,
 } from 'lucide-react';
 import { soundEngine } from '../services/soundEngine';
 import { TrackLayoutPreview } from './TrackLayoutPreview';
@@ -88,11 +90,21 @@ import {
 import {
   GraphicsQuality,
   GRAPHICS_QUALITY_OPTIONS,
+  GRAPHICS_PRESETS,
   GRAPHICS_PRESET_LABELS,
   getStoredGraphicsQuality,
   setStoredGraphicsQuality,
   onGraphicsQualityChange,
 } from '../utils/graphicsSettings';
+import {
+  AppThemeId,
+  APP_THEMES,
+  THEME_OPTIONS,
+  getStoredTheme,
+  setStoredTheme,
+  onThemeChange,
+  applyThemeToDocument,
+} from '../utils/themeSettings';
 
 interface SeasonHubProps {
   season: SeasonState;
@@ -125,7 +137,9 @@ interface SeasonHubProps {
   onOpenControls?: () => void;
   onOpenCloud?: () => void;
   onOpenTutorial?: () => void;
-  onStartQualifying?: () => void;
+  onStartQualifying?: (ghostDelay3s?: boolean) => void;
+  qualifyingGhostDelay3s?: boolean;
+  onChangeQualifyingGhostDelay3s?: (delay3s: boolean) => void;
   qualifyingGridSlot?: number | null;
   onFoundNewsCompany?: (company: NewsCompanyConfig, startupFee: number) => void;
   onUpdateNewsCompany?: (company: NewsCompanyConfig, feeDelta?: number) => void;
@@ -155,6 +169,8 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
   onOpenCloud,
   onOpenTutorial,
   onStartQualifying,
+  qualifyingGhostDelay3s = true,
+  onChangeQualifyingGhostDelay3s,
   qualifyingGridSlot,
   onFoundNewsCompany,
   onUpdateNewsCompany,
@@ -164,6 +180,7 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
   const [selectedLaps, setSelectedLaps] = useState<number>(season.lapCount || 5);
   const [unitSystem, setUnitSystem] = useState<UnitSystem>(getStoredUnitSystem());
   const [graphicsQuality, setGraphicsQuality] = useState<GraphicsQuality>(getStoredGraphicsQuality());
+  const [appTheme, setAppTheme] = useState<AppThemeId>(getStoredTheme());
 
   // Off-Season Mandatory Press Interview State
   const [interviewQ1, setInterviewQ1] = useState<'confident' | 'humble' | 'hungry'>('confident');
@@ -181,6 +198,13 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
   const [hubFps, setHubFps] = useState<number>(60);
 
   React.useEffect(() => {
+    applyThemeToDocument(appTheme);
+    return onThemeChange((newTheme) => {
+      setAppTheme(newTheme);
+    });
+  }, []);
+
+  React.useEffect(() => {
     let frameCount = 0;
     let lastStamp = performance.now();
     let rafId: number;
@@ -188,7 +212,7 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
       frameCount++;
       const elapsed = now - lastStamp;
       if (elapsed >= 500) {
-        const currentFps = Math.min(240, Math.max(1, Math.round((frameCount * 1000) / elapsed)));
+        const currentFps = Math.max(1, Math.round((frameCount * 1000) / elapsed));
         setHubFps(currentFps);
         frameCount = 0;
         lastStamp = now;
@@ -214,6 +238,11 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
   const handleChangeGraphicsQuality = (q: GraphicsQuality) => {
     setGraphicsQuality(q);
     setStoredGraphicsQuality(q);
+  };
+
+  const handleChangeTheme = (nextTheme: AppThemeId) => {
+    setAppTheme(nextTheme);
+    setStoredTheme(nextTheme);
   };
 
   const toggleUnits = () => {
@@ -893,110 +922,90 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
   }, [season.constructorPoints, season.career.customTeam, season.selectedDriverId]);
 
   return (
-    <div className="flex flex-col w-full h-full bg-neutral-950 text-neutral-100 overflow-hidden select-none">
+    <div className="f1-paddock-surface flex flex-col w-full h-full bg-zinc-950 text-zinc-100 overflow-hidden select-none">
       {/* 1. TOP CARRIER STATUS BAR */}
-      <header className="h-16 border-b border-neutral-800 bg-neutral-900/90 px-6 flex items-center justify-between shrink-0 shadow-lg">
+      <header className="h-16 border-b border-white/10 bg-zinc-950/95 px-6 flex items-center justify-between gap-4 shrink-0">
         {/* Left: Driver Profile & Team */}
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3 shrink-0">
           <button
             onClick={() => setEditingProfile(true)}
-            className="flex items-center gap-3 px-3 py-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 transition-all text-left"
+            className="flex items-center gap-3 px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-white/10 transition-colors text-left cursor-pointer"
             title="Edit Driver Profile"
           >
-            <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-amber-500 to-red-500 flex items-center justify-center font-black text-black text-xs">
+            <div
+              className="w-8 h-8 rounded-lg flex items-center justify-center font-black text-white text-xs font-mono tabular-nums shadow-inner"
+              style={{ backgroundColor: playerTeam.primaryColor }}
+            >
               #{season.career.driverNumber}
             </div>
             <div>
-              <div className="text-xs font-bold text-white flex items-center gap-1.5">
+              <div className="text-xs font-bold text-white flex items-center gap-1.5 whitespace-nowrap">
                 <span>{season.career.driverName}</span>
-                <span className="text-[10px] text-neutral-400 font-normal">({season.career.country})</span>
+                <span className="text-[10px] text-zinc-400 font-normal">({season.career.country})</span>
               </div>
-              <div className="text-[10px] text-neutral-400 flex items-center gap-1">
-                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: playerTeam.primaryColor }} />
-                <span className="font-semibold text-neutral-300 truncate max-w-[150px]">{playerTeam.name}</span>
+              <div className="text-[10px] text-zinc-400 flex items-center gap-1.5">
+                <span className="font-semibold text-zinc-300 truncate max-w-[160px]">{playerTeam.name}</span>
               </div>
             </div>
           </button>
         </div>
 
         {/* Center: Career Metrics */}
-        <div className="hidden md:flex items-center gap-6">
-          <div className="flex items-center gap-2">
-            <div className="flex flex-col">
-              <span className="text-[10px] uppercase font-bold text-neutral-400">Driver Rating</span>
-              <div className="flex items-center gap-1.5">
-                <span className="text-sm font-black text-purple-400">{driverRating}</span>
-                {driverRating >= 100 ? (
-                  <span className="text-[9px] bg-purple-500/20 text-purple-300 border border-purple-500/40 px-1 py-0.2 rounded font-black tracking-wider">
-                    ★ LEGEND
-                  </span>
-                ) : (
-                  <span className="text-[10px] text-neutral-500 font-mono">Rating</span>
-                )}
-              </div>
-            </div>
-          </div>
-
-          <div className="h-6 w-px bg-neutral-800" />
-
-          <div className="flex items-center gap-2">
-            <div className="flex flex-col">
-              <span className="text-[10px] uppercase font-bold text-neutral-400">Paddock Reputation</span>
-              <span className="text-sm font-black text-amber-400">{season.career.reputation}%</span>
-            </div>
-          </div>
-
-          <div className="h-6 w-px bg-neutral-800" />
-
-          <div className="flex items-center gap-2">
-            <div className="flex flex-col">
-              <span className="text-[10px] uppercase font-bold text-neutral-400">Career Bank Balance</span>
-              <span className="text-sm font-black text-emerald-400 flex items-center gap-0.5">
-                <DollarSign className="w-3.5 h-3.5 text-emerald-400" />
-                {formatMoney(bankBalance)}
+        <div className="hidden lg:flex items-center gap-6">
+          <div className="flex flex-col">
+            <span className="text-[10px] uppercase font-semibold text-zinc-500 tracking-wider">Driver Rating</span>
+            <div className="flex items-center gap-1.5 font-mono tabular-nums">
+              <span className="text-sm font-black text-purple-400">{driverRating}</span>
+              <span className="text-[10px] text-zinc-500">
+                {driverRating >= 100 ? 'LEGEND' : 'OVR'}
               </span>
             </div>
           </div>
 
-          <div className="h-6 w-px bg-neutral-800" />
+          <div className="h-6 w-px bg-white/10" />
 
-          <div className="flex items-center gap-2">
-            <div className="flex flex-col">
-              <span className="text-[10px] uppercase font-bold text-neutral-400">Current Salary</span>
-              <span className="text-sm font-black text-cyan-400">{formatMoney(season.career.currentSalary)}/race</span>
-            </div>
+          <div className="flex flex-col">
+            <span className="text-[10px] uppercase font-semibold text-zinc-500 tracking-wider">Reputation</span>
+            <span className="text-sm font-black text-amber-400 font-mono tabular-nums">{season.career.reputation}%</span>
+          </div>
+
+          <div className="h-6 w-px bg-white/10" />
+
+          <div className="flex flex-col">
+            <span className="text-[10px] uppercase font-semibold text-zinc-500 tracking-wider">Bank Balance</span>
+            <span className="text-sm font-black text-emerald-400 font-mono tabular-nums">
+              {formatMoney(bankBalance)}
+            </span>
+          </div>
+
+          <div className="h-6 w-px bg-white/10" />
+
+          <div className="flex flex-col">
+            <span className="text-[10px] uppercase font-semibold text-zinc-500 tracking-wider">Contract Salary</span>
+            <span className="text-sm font-black text-cyan-400 font-mono tabular-nums">
+              {formatMoney(season.career.currentSalary)}/race
+            </span>
           </div>
         </div>
 
-        {/* Right: Controller Status & Mute */}
-        <div className="flex items-center gap-3">
-          {isGamepadConnected ? (
-            <div className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-md text-xs font-semibold">
-              <Gamepad className="w-3.5 h-3.5" />
-              <span className="text-[11px] truncate max-w-[110px]">{gamepadName ? 'Controller' : 'Gamepad'}</span>
-            </div>
-          ) : (
-            <div className="flex items-center gap-1.5 px-2.5 py-1 bg-neutral-800 text-neutral-300 border border-neutral-700 rounded-md text-xs font-semibold">
-              <Keyboard className="w-3.5 h-3.5 text-cyan-400" />
-              <span className="text-[11px]">Keyboard (WASD)</span>
-            </div>
-          )}
-
-          {onOpenControls && (
-            <button
-              onClick={onOpenControls}
-              className="flex items-center gap-1.5 px-3 py-1 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 border border-neutral-700 rounded-md text-xs font-semibold transition-colors cursor-pointer"
-              title="Custom Button Mapping (Keyboard & Gamepad)"
-            >
-              <Keyboard className="w-3.5 h-3.5 text-amber-400" />
-              <span className="hidden sm:inline">Controls</span>
-            </button>
-          )}
+        {/* Right: Quick Modes, Controller Status & Utilities */}
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            onClick={() => {
+              setPracticeSelectedCircuit(currentCircuit);
+              setShowPracticeModal(true);
+            }}
+            className="px-3 py-1.5 text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-400/30 cursor-pointer whitespace-nowrap"
+            title="Practice on any track without quitting your career"
+          >
+            <Gauge className="w-3.5 h-3.5 text-amber-400" />
+            <span>Free Practice</span>
+          </button>
 
           {onOpenMultiplayer && (
             <button
               onClick={onOpenMultiplayer}
-              className="flex items-center gap-1.5 px-3 py-1 bg-gradient-to-r from-red-600 via-rose-600 to-amber-600 hover:from-red-500 hover:to-amber-500 text-white rounded-md text-xs font-black shadow-md shadow-red-950/40 transition-all cursor-pointer animate-pulse hover:animate-none"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-500 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer whitespace-nowrap"
               title="Join or Host Multiplayer 4-Digit Rooms without quitting Career"
             >
               <Users className="w-3.5 h-3.5" />
@@ -1007,44 +1016,58 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
           {onOpenCloud && (
             <button
               onClick={onOpenCloud}
-              className="flex items-center gap-1.5 px-3 py-1 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white rounded-md text-xs font-black shadow-md shadow-amber-950/40 transition-all cursor-pointer"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border border-white/10 rounded-lg text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap"
               title="Firebase Cloud Save & Global Circuit Leaderboards"
             >
-              <Cloud className="w-3.5 h-3.5" />
-              <span>Cloud Save</span>
+              <Cloud className="w-3.5 h-3.5 text-amber-400" />
+              <span className="hidden sm:inline">Cloud Save</span>
+            </button>
+          )}
+
+          {onOpenControls && (
+            <button
+              onClick={onOpenControls}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border border-white/10 rounded-lg text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap"
+              title="Custom Button Mapping (Keyboard & Gamepad)"
+            >
+              <Keyboard className="w-3.5 h-3.5 text-cyan-400" />
+              <span className="hidden sm:inline">Controls</span>
             </button>
           )}
 
           {onOpenTutorial && (
             <button
               onClick={onOpenTutorial}
-              className="flex items-center gap-1.5 px-3 py-1 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 border border-neutral-700 rounded-md text-xs font-semibold transition-colors cursor-pointer"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-white/10 rounded-lg text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap"
               title="FIA Academy & Gameplay Tutorial Guide"
             >
-              <HelpCircle className="w-3.5 h-3.5 text-rose-400" />
-              <span className="hidden sm:inline">Tutorial</span>
+              <HelpCircle className="w-3.5 h-3.5 text-zinc-400" />
+              <span className="hidden xl:inline">Guide</span>
             </button>
           )}
 
-          <button
-            onClick={onTestRumble}
-            className="px-2 py-1 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded text-xs border border-neutral-700 font-mono transition-colors cursor-pointer"
-            title="Test Gamepad Rumble"
-          >
-            Haptics
-          </button>
+          {isGamepadConnected && (
+            <button
+              onClick={onTestRumble}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/25 rounded-lg text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap"
+              title="Controller Connected — Click to test rumble"
+            >
+              <Gamepad className="w-3.5 h-3.5" />
+              <span className="hidden xl:inline">Pad</span>
+            </button>
+          )}
         </div>
       </header>
 
       {/* 2. TAB NAVIGATION BAR */}
-      <nav className="h-12 bg-neutral-900 border-b border-neutral-800 px-6 flex items-center justify-between shrink-0">
+      <nav className="h-12 bg-zinc-900/80 border-b border-white/10 px-6 flex items-center justify-between gap-4 shrink-0 overflow-x-auto">
         <div className="flex items-center gap-1">
           <button
             onClick={() => setActiveTab('weekend')}
-            className={`px-4 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-2 ${
+            className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
               activeTab === 'weekend'
-                ? 'bg-red-600 text-white shadow-md'
-                : 'text-neutral-400 hover:text-white hover:bg-neutral-800'
+                ? 'bg-red-600 text-white'
+                : 'text-zinc-400 hover:text-white hover:bg-zinc-800/80'
             }`}
           >
             <Play className="w-3.5 h-3.5" />
@@ -1053,10 +1076,10 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
 
           <button
             onClick={() => setActiveTab('newsfeed')}
-            className={`px-4 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-2 ${
+            className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
               activeTab === 'newsfeed'
-                ? 'bg-red-600 text-white shadow-md'
-                : 'text-neutral-400 hover:text-white hover:bg-neutral-800'
+                ? 'bg-red-600 text-white'
+                : 'text-zinc-400 hover:text-white hover:bg-zinc-800/80'
             }`}
           >
             <Newspaper className="w-3.5 h-3.5" />
@@ -1065,34 +1088,34 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
 
           <button
             onClick={() => setActiveTab('contracts')}
-            className={`px-4 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-2 ${
+            className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
               activeTab === 'contracts'
-                ? 'bg-red-600 text-white shadow-md'
-                : 'text-neutral-400 hover:text-white hover:bg-neutral-800'
+                ? 'bg-red-600 text-white'
+                : 'text-zinc-400 hover:text-white hover:bg-zinc-800/80'
             }`}
           >
             <Briefcase className="w-3.5 h-3.5" />
-            <span>Driver Contracts & Teams</span>
+            <span>Contracts & Teams</span>
           </button>
 
           <button
             onClick={() => setActiveTab('myteam')}
-            className={`px-4 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-2 ${
+            className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
               activeTab === 'myteam'
-                ? 'bg-red-600 text-white shadow-md'
-                : 'text-neutral-400 hover:text-white hover:bg-neutral-800'
+                ? 'bg-red-600 text-white'
+                : 'text-zinc-400 hover:text-white hover:bg-zinc-800/80'
             }`}
           >
             <Building2 className="w-3.5 h-3.5" />
-            <span>My Team (11th Constructor)</span>
+            <span>My Team</span>
           </button>
 
           <button
             onClick={() => setActiveTab('standings')}
-            className={`px-4 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-2 ${
+            className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
               activeTab === 'standings'
-                ? 'bg-red-600 text-white shadow-md'
-                : 'text-neutral-400 hover:text-white hover:bg-neutral-800'
+                ? 'bg-red-600 text-white'
+                : 'text-zinc-400 hover:text-white hover:bg-zinc-800/80'
             }`}
           >
             <Trophy className="w-3.5 h-3.5" />
@@ -1101,108 +1124,104 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
 
           <button
             onClick={() => setActiveTab('analytics')}
-            className={`px-4 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-2 ${
+            className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
               activeTab === 'analytics'
-                ? 'bg-red-600 text-white shadow-md'
-                : 'text-neutral-400 hover:text-white hover:bg-neutral-800'
+                ? 'bg-red-600 text-white'
+                : 'text-zinc-400 hover:text-white hover:bg-zinc-800/80'
             }`}
           >
             <BarChart3 className="w-3.5 h-3.5" />
-            <span>Performance Analytics</span>
+            <span>Analytics</span>
           </button>
 
           <button
             onClick={() => setActiveTab('offseason')}
-            className={`px-4 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-2 ${
+            className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
               activeTab === 'offseason'
-                ? 'bg-amber-500 text-black font-black shadow-md'
+                ? 'bg-amber-500 text-black font-black'
                 : season.seasonFinished
-                ? 'bg-amber-500/20 text-amber-300 border border-amber-400/50 animate-pulse'
-                : 'text-neutral-400 hover:text-white hover:bg-neutral-800'
+                ? 'bg-amber-500/20 text-amber-300 border border-amber-400/50'
+                : 'text-zinc-400 hover:text-white hover:bg-zinc-800/80'
             }`}
           >
             <Wind className="w-3.5 h-3.5" />
             <span>
-              {season.seasonFinished ? '★ Off-Season Hub (Active)' : 'Off-Season & Winter R&D'}
+              {season.seasonFinished ? 'Off-Season Hub (Active)' : 'Off-Season'}
             </span>
           </button>
 
           <button
             onClick={() => setActiveTab('calendar')}
-            className={`px-4 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-2 ${
+            className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
               activeTab === 'calendar'
-                ? 'bg-red-600 text-white shadow-md'
-                : 'text-neutral-400 hover:text-white hover:bg-neutral-800'
+                ? 'bg-red-600 text-white'
+                : 'text-zinc-400 hover:text-white hover:bg-zinc-800/80'
             }`}
           >
             <Calendar className="w-3.5 h-3.5" />
-            <span>Calendar (10 GPs)</span>
-          </button>
-
-          <button
-            onClick={() => {
-              setPracticeSelectedCircuit(currentCircuit);
-              setShowPracticeModal(true);
-            }}
-            className="px-3.5 py-1.5 text-xs font-black rounded-lg transition-all flex items-center gap-1.5 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-400/30 shadow-sm cursor-pointer"
-            title="Practice on any track without quitting your career"
-          >
-            <Gauge className="w-3.5 h-3.5 text-amber-400" />
-            <span>Free Practice (All Tracks)</span>
+            <span>Calendar</span>
           </button>
 
           <button
             onClick={() => setActiveTab('records')}
-            className={`px-4 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-2 ${
+            className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
               activeTab === 'records'
-                ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-black font-black shadow-md'
-                : 'text-neutral-400 hover:text-white hover:bg-neutral-800'
+                ? 'bg-amber-500 text-black font-black'
+                : 'text-zinc-400 hover:text-white hover:bg-zinc-800/80'
             }`}
           >
             <Award className="w-3.5 h-3.5" />
-            <span>Trophies & Career Records</span>
+            <span>Records</span>
           </button>
-
-          {/* Dedicated Side Option: Join/Host Multiplayer Rooms without quitting Career */}
-          {onOpenMultiplayer && (
-            <button
-              onClick={onOpenMultiplayer}
-              className="px-3.5 py-1.5 text-xs font-black rounded-lg transition-all flex items-center gap-1.5 bg-gradient-to-r from-red-600 via-rose-600 to-amber-600 hover:from-red-500 hover:to-amber-500 text-white shadow-md shadow-red-950/40 cursor-pointer border border-red-400/40 animate-pulse hover:animate-none"
-              title="Join or host multiplayer 4-digit code rooms without quitting career"
-            >
-              <Users className="w-3.5 h-3.5" />
-              <span>Multiplayer Rooms (4-Digit Code)</span>
-            </button>
-          )}
-
-          {/* Button Mapping Option */}
-          {onOpenControls && (
-            <button
-              onClick={onOpenControls}
-              className="px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-white border border-neutral-700 cursor-pointer shadow-sm"
-              title="Configure custom button mapping"
-            >
-              <Keyboard className="w-3.5 h-3.5 text-cyan-400" />
-              <span>Button Mapping</span>
-            </button>
-          )}
         </div>
 
-        <div className="flex items-center gap-2">
-          {/* Live FPS Counter Badge */}
+        <div className="flex items-center gap-2 shrink-0">
+          {/* Interactive Multi-Theme Switcher (Light, Dark, Papaya, Rosso, Emerald) */}
+          <div className="flex items-center gap-0.5 bg-zinc-950 border border-white/10 rounded-lg p-1 shadow-inner">
+            <Palette className="w-3.5 h-3.5 text-orange-400 mx-1 shrink-0" />
+            {THEME_OPTIONS.map((tId) => {
+              const meta = APP_THEMES[tId];
+              const isSelected = appTheme === tId;
+              return (
+                <button
+                  key={tId}
+                  onClick={() => handleChangeTheme(tId)}
+                  className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer flex items-center gap-1 whitespace-nowrap ${
+                    isSelected
+                      ? tId === 'light'
+                        ? 'bg-amber-400 text-black shadow-sm'
+                        : tId === 'papaya'
+                        ? 'bg-orange-500 text-black shadow-sm'
+                        : tId === 'rosso'
+                        ? 'bg-red-600 text-white shadow-sm'
+                        : tId === 'emerald'
+                        ? 'bg-emerald-500 text-black shadow-sm'
+                        : 'bg-sky-400 text-black shadow-sm'
+                      : 'text-zinc-400 hover:text-white'
+                  }`}
+                  title={meta.description}
+                >
+                  {tId === 'light' ? (
+                    <Sun className="w-2.5 h-2.5" />
+                  ) : tId === 'dark' ? (
+                    <Moon className="w-2.5 h-2.5" />
+                  ) : (
+                    <span
+                      className="w-2 h-2 rounded-full shrink-0"
+                      style={{ backgroundColor: meta.badgeColor }}
+                    />
+                  )}
+                  <span>{meta.shortLabel}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Live FPS Counter */}
           <div
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-neutral-950 border border-neutral-800 font-mono text-[11px] font-bold"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-950 border border-white/10 font-mono text-[11px] font-bold tabular-nums"
             title="Live Frame Rate (FPS)"
           >
-            <span
-              className={`w-2 h-2 rounded-full ${
-                hubFps >= 55
-                  ? 'bg-emerald-400'
-                  : hubFps >= 40
-                  ? 'bg-amber-400'
-                  : 'bg-red-500 animate-pulse'
-              }`}
-            />
             <span
               className={
                 hubFps >= 55
@@ -1216,57 +1235,56 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
             </span>
           </div>
 
-          {/* Graphics Quality Preset Selector (Dynamic Auto-Adjust + Low to Ultra Realistic) */}
-          <div className="hidden xl:flex items-center gap-1 bg-neutral-950 border border-neutral-800 rounded-lg p-1">
-            <span className="text-[10px] font-mono text-neutral-400 px-1.5 font-bold">
-              GFX:
-            </span>
+          {/* Graphics Quality Preset Selector */}
+          <div className="hidden 2xl:flex items-center gap-0.5 bg-zinc-950 border border-white/10 rounded-lg p-1">
             {GRAPHICS_QUALITY_OPTIONS.map((q) => (
               <button
                 key={q}
                 onClick={() => handleChangeGraphicsQuality(q)}
-                className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase transition-colors cursor-pointer ${
+                className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold transition-colors cursor-pointer whitespace-nowrap ${
                   graphicsQuality === q
                     ? q === 'ultra'
                       ? 'bg-amber-500 text-black'
-                      : q === 'dynamic'
-                      ? 'bg-cyan-500 text-black'
-                      : 'bg-red-600 text-white'
-                    : 'text-neutral-400 hover:text-white'
+                      : q === 'dynamic_conservative'
+                      ? 'bg-emerald-400 text-black'
+                      : q === 'dynamic_aggressive'
+                      ? 'bg-cyan-400 text-black'
+                      : 'bg-white text-black'
+                    : 'text-zinc-400 hover:text-white'
                 }`}
                 title={GRAPHICS_PRESET_LABELS[q].subtitle}
               >
-                {q === 'ultra' ? 'Ultra' : q === 'dynamic' ? 'Dynamic' : q}
+                {GRAPHICS_PRESETS[q].hudButtonLabel}
               </button>
             ))}
           </div>
 
-          {/* American vs Metric Measurements Toggle Switch */}
+          {/* MPH / KM/H Toggle */}
           <button
             onClick={toggleUnits}
-            className="text-xs font-mono font-bold text-neutral-200 hover:text-white bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors shadow-sm cursor-pointer"
-            title="Switch measurements between American (MPH / Miles / °F) and Metric (KM/H / KM / °C)"
+            className="text-xs font-mono font-bold text-zinc-200 hover:text-white bg-zinc-950 hover:bg-zinc-800 border border-white/10 flex items-center gap-1.5 px-2.5 py-1 rounded-lg transition-colors cursor-pointer whitespace-nowrap"
+            title="Switch between American (MPH / Miles / °F) and Metric (KM/H / KM / °C)"
           >
             <Gauge className="w-3.5 h-3.5 text-cyan-400" />
-            <span>{unitSystem === 'imperial' ? '🇺🇸 American (MPH / Miles)' : '🌐 Metric (KM/H / KM)'}</span>
+            <span>{unitSystem === 'imperial' ? 'MPH' : 'KM/H'}</span>
           </button>
 
           <button
             onClick={() => setShowResetStandingsModal(true)}
-            className="text-xs text-neutral-400 hover:text-white flex items-center gap-1.5 px-3 py-1.5 rounded-lg hover:bg-neutral-800 transition-colors"
+            className="text-xs text-zinc-400 hover:text-white flex items-center gap-1 px-2.5 py-1 rounded-lg hover:bg-zinc-800 transition-colors cursor-pointer whitespace-nowrap"
             title="Reset current 10-race calendar standings"
           >
             <RotateCcw className="w-3.5 h-3.5" />
-            <span>Reset Season</span>
+            <span className="hidden 2xl:inline">Reset</span>
           </button>
 
           <button
             onClick={() => setShowQuitCareerModal(true)}
-            className="text-xs text-red-400 hover:text-white hover:bg-red-600/30 border border-red-500/30 flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors font-semibold"
+            className="text-xs text-red-400 hover:text-white hover:bg-red-600/30 border border-red-500/30 flex items-center gap-1 px-2.5 py-1 rounded-lg transition-colors font-semibold cursor-pointer whitespace-nowrap"
             title="Quit active career to choose a new AI difficulty"
           >
             <Lock className="w-3.5 h-3.5 text-red-400" />
-            <span>Quit Career</span>
+            <span className="hidden 2xl:inline">Quit</span>
           </button>
         </div>
       </nav>
@@ -1422,13 +1440,13 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
                 </div>
               </div>
 
-              {/* 3D Graphics Quality Selector (Low for Worse Devices up to Ultra Realistic) */}
+              {/* 3D Graphics Quality Selector (Conservative Dynamic, Aggressive Dynamic, Low -> Ultra Realistic) */}
               <div className="flex flex-col gap-2 p-3.5 bg-neutral-950/80 rounded-xl border border-neutral-800">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Cpu className="w-4 h-4 text-cyan-400" />
                     <label className="text-xs font-bold uppercase tracking-wider text-neutral-300">
-                      3D Engine Graphics Quality Preset
+                      3D Engine Graphics Quality Preset (Uncapped FPS)
                     </label>
                   </div>
                   <span className="text-xs font-mono text-amber-400 font-bold">
@@ -1438,7 +1456,7 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
                 <p className="text-[11px] text-neutral-400">
                   {GRAPHICS_PRESET_LABELS[graphicsQuality].subtitle}
                 </p>
-                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 pt-1">
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 pt-1">
                   {GRAPHICS_QUALITY_OPTIONS.map((q) => (
                     <button
                       key={q}
@@ -1448,7 +1466,9 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
                         graphicsQuality === q
                           ? q === 'ultra'
                             ? 'bg-amber-500 text-black border-amber-300 shadow-md'
-                            : q === 'dynamic'
+                            : q === 'dynamic_conservative'
+                            ? 'bg-emerald-500 text-black border-emerald-300 shadow-md'
+                            : q === 'dynamic_aggressive'
                             ? 'bg-cyan-500 text-black border-cyan-300 shadow-md'
                             : 'bg-red-600 text-white border-red-400 shadow-md'
                           : 'bg-neutral-900 text-neutral-400 border-neutral-800 hover:text-white'
@@ -1528,38 +1548,78 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
                 </div>
               ) : (
                 <>
-                  {/* Qualifying & Grid Position Indicator */}
-                  <div className="p-3.5 rounded-xl bg-neutral-950/90 border border-neutral-800 flex flex-col sm:flex-row items-center justify-between gap-3">
-                    <div className="flex items-center gap-2.5">
-                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-black text-xs ${qualifyingGridSlot ? 'bg-purple-500/20 text-purple-300 border border-purple-500/40' : 'bg-neutral-800 text-neutral-400'}`}>
-                        {qualifyingGridSlot ? `P${qualifyingGridSlot}` : 'Q'}
-                      </div>
-                      <div>
-                        <div className="text-xs font-bold text-white flex items-center gap-2">
-                          <span>Qualifying Session (1 Flying Lap)</span>
-                          {qualifyingGridSlot && (
-                            <span className="text-[10px] bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded font-mono font-bold border border-purple-400/30">
-                              {qualifyingGridSlot === 1 ? '👑 POLE POSITION' : `STARTING P${qualifyingGridSlot}`}
-                            </span>
-                          )}
+                  {/* Qualifying & Grid Position Indicator + Ghost Car 3s Delay Option */}
+                  <div className="p-3.5 rounded-xl bg-neutral-950/90 border border-neutral-800 flex flex-col gap-3">
+                    <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+                      <div className="flex items-center gap-2.5">
+                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-black text-xs ${qualifyingGridSlot ? 'bg-purple-500/20 text-purple-300 border border-purple-500/40' : 'bg-neutral-800 text-neutral-400'}`}>
+                          {qualifyingGridSlot ? `P${qualifyingGridSlot}` : 'Q'}
                         </div>
-                        <p className="text-[11px] text-neutral-400 mt-0.5">
-                          {qualifyingGridSlot
-                            ? `You qualified P${qualifyingGridSlot}. You can re-qualify or proceed directly to Grand Prix.`
-                            : 'Optional: Complete 1 fast flying lap to determine your Grand Prix starting grid slot!'}
-                        </p>
+                        <div>
+                          <div className="text-xs font-bold text-white flex items-center gap-2">
+                            <span>Qualifying Session (1 Flying Lap)</span>
+                            {qualifyingGridSlot && (
+                              <span className="text-[10px] bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded font-mono font-bold border border-purple-400/30">
+                                {qualifyingGridSlot === 1 ? '👑 POLE POSITION' : `STARTING P${qualifyingGridSlot}`}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-neutral-400 mt-0.5">
+                            {qualifyingGridSlot
+                              ? `You qualified P${qualifyingGridSlot}. You can re-qualify or proceed directly to Grand Prix.`
+                              : 'Optional: Complete 1 fast flying lap to determine your Grand Prix starting grid slot!'}
+                          </p>
+                        </div>
                       </div>
+
+                      {onStartQualifying && (
+                        <button
+                          onClick={() => onStartQualifying(qualifyingGhostDelay3s)}
+                          className="w-full sm:w-auto px-4 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-black text-xs uppercase tracking-wider rounded-lg shadow-md shadow-purple-950/40 transition-all flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap"
+                        >
+                          <Timer className="w-4 h-4 text-purple-200" />
+                          <span>{qualifyingGridSlot ? 'RE-QUALIFY' : 'START QUALIFYING'}</span>
+                        </button>
+                      )}
                     </div>
 
-                    {onStartQualifying && (
-                      <button
-                        onClick={onStartQualifying}
-                        className="w-full sm:w-auto px-4 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-black text-xs uppercase tracking-wider rounded-lg shadow-md shadow-purple-950/40 transition-all flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap"
-                      >
-                        <Timer className="w-4 h-4 text-purple-200" />
-                        <span>{qualifyingGridSlot ? 'RE-QUALIFY' : 'START QUALIFYING'}</span>
-                      </button>
-                    )}
+                    {/* Ghost Cars 3-Second Delay Option */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2.5 border-t border-white/10">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-purple-300">
+                          Qualifying Ghost Cars:
+                        </span>
+                        <span className="text-[10px] text-neutral-400">
+                          {qualifyingGhostDelay3s
+                            ? 'Ghost cars come in 3 seconds late so your start view is clear'
+                            : 'Ghost cars appear immediately at 0s alongside you at the start'}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1 bg-neutral-900 border border-white/10 rounded-lg p-1 self-start sm:self-auto">
+                        <button
+                          type="button"
+                          onClick={() => onChangeQualifyingGhostDelay3s?.(true)}
+                          className={`px-2.5 py-1 rounded-md text-[10px] font-mono font-bold transition-colors cursor-pointer whitespace-nowrap ${
+                            qualifyingGhostDelay3s
+                              ? 'bg-purple-500 text-white shadow'
+                              : 'text-neutral-400 hover:text-white'
+                          }`}
+                        >
+                          3s Late (Clear Start)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onChangeQualifyingGhostDelay3s?.(false)}
+                          className={`px-2.5 py-1 rounded-md text-[10px] font-mono font-bold transition-colors cursor-pointer whitespace-nowrap ${
+                            !qualifyingGhostDelay3s
+                              ? 'bg-purple-500 text-white shadow'
+                              : 'text-neutral-400 hover:text-white'
+                          }`}
+                        >
+                          Instant (0s Delay)
+                        </button>
+                      </div>
+                    </div>
                   </div>
 
                   {/* Launch Race & Practice Buttons */}

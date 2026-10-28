@@ -3,7 +3,6 @@ import { Team, Driver } from '../types/racing';
 import { GraphicsQuality, getGraphicsPresetConfig } from '../utils/graphicsSettings';
 
 let cachedCarbonTexture: THREE.CanvasTexture | null = null;
-let cachedContactShadowTexture: THREE.CanvasTexture | null = null;
 
 function getCarbonWeaveTexture(): THREE.CanvasTexture | null {
   if (typeof document === 'undefined') return null;
@@ -13,14 +12,14 @@ function getCarbonWeaveTexture(): THREE.CanvasTexture | null {
   canvas.height = 64;
   const ctx = canvas.getContext('2d');
   if (!ctx) return null;
-  ctx.fillStyle = '#121318';
+  ctx.fillStyle = '#181a20';
   ctx.fillRect(0, 0, 64, 64);
   for (let y = 0; y < 64; y += 8) {
     for (let x = 0; x < 64; x += 8) {
       const shift = (y / 8) % 2 === 0 ? 0 : 4;
-      ctx.fillStyle = '#1e2028';
+      ctx.fillStyle = '#242730';
       ctx.fillRect((x + shift) % 64, y, 4, 4);
-      ctx.fillStyle = '#0b0c10';
+      ctx.fillStyle = '#12141a';
       ctx.fillRect((x + shift + 4) % 64, y + 4, 4, 4);
     }
   }
@@ -29,27 +28,6 @@ function getCarbonWeaveTexture(): THREE.CanvasTexture | null {
   tex.wrapT = THREE.RepeatWrapping;
   tex.repeat.set(14, 14);
   cachedCarbonTexture = tex;
-  return tex;
-}
-
-function getCarContactShadowTexture(): THREE.CanvasTexture | null {
-  if (typeof document === 'undefined') return null;
-  if (cachedContactShadowTexture) return cachedContactShadowTexture;
-  const canvas = document.createElement('canvas');
-  canvas.width = 256;
-  canvas.height = 512;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return null;
-  ctx.clearRect(0, 0, 256, 512);
-  const grad = ctx.createRadialGradient(128, 256, 20, 128, 256, 230);
-  grad.addColorStop(0, 'rgba(0, 0, 0, 0.82)');
-  grad.addColorStop(0.55, 'rgba(0, 0, 0, 0.52)');
-  grad.addColorStop(0.85, 'rgba(0, 0, 0, 0.16)');
-  grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, 256, 512);
-  const tex = new THREE.CanvasTexture(canvas);
-  cachedContactShadowTexture = tex;
   return tex;
 }
 
@@ -139,184 +117,139 @@ export interface BuiltCar {
 export function buildF1Car(team: Team, driver?: Driver, quality?: GraphicsQuality): BuiltCar {
   const root = new THREE.Group();
   const preset = getGraphicsPresetConfig(quality);
-  const isLow = preset.id === 'low';
+  const isLow = preset.id === 'low' || preset.id === 'dynamic_conservative' || preset.id === 'retro';
+  const isRetro = preset.id === 'retro';
   const isUltra = preset.id === 'ultra';
   const radialSegs = preset.carGeometrySegments;
 
-  // Soft Ambient Occlusion Contact Shadow Pad directly under chassis (High & Ultra)
-  if (!isLow) {
-    const contactShadowTex = getCarContactShadowTexture();
-    if (contactShadowTex) {
-      const aoPlane = new THREE.Mesh(
-        new THREE.PlaneGeometry(2.35, 5.4),
-        new THREE.MeshBasicMaterial({
-          map: contactShadowTex,
-          transparent: true,
-          depthWrite: false,
-          opacity: isUltra ? 0.88 : 0.65,
-        })
-      );
-      aoPlane.rotation.x = -Math.PI / 2;
-      aoPlane.position.set(0, 0.02, -0.15);
-      root.add(aoPlane);
-    }
-  }
-
-  // 1. High-Fidelity Materials scaled by Graphics Quality Preset
+  // 1. Clean, Vibrant Materials scaled by Graphics Quality Preset (never pitch-black without envMap)
   const primaryColor = new THREE.Color(team.primaryColor || '#E80020');
   const secondaryColor = new THREE.Color(team.secondaryColor || '#1A1A1A');
   const accentColor = new THREE.Color(team.accentColor || '#FFFFFF');
-  const isHighOrDynamic = preset.id === 'high' || preset.id === 'dynamic';
-  const carbonTex = isUltra || isHighOrDynamic ? getCarbonWeaveTexture() : null;
+  const isHighOrUltra = preset.id === 'high' || preset.id === 'ultra';
+  const carbonTex = isHighOrUltra ? getCarbonWeaveTexture() : null;
   const flakeNormalTex = isUltra ? getMetallicFlakeNormalTexture() : null;
-  const tireTex = isUltra || isHighOrDynamic ? getTireRubberTexture() : null;
+  const tireTex = isHighOrUltra ? getTireRubberTexture() : null;
 
-  const carPaintMat: THREE.Material = isLow
+  const carPaintMat: THREE.Material = isRetro
+    ? new THREE.MeshPhongMaterial({
+        color: primaryColor,
+        flatShading: true,
+        shininess: 80,
+        specular: 0xffffff,
+      })
+    : isLow
     ? new THREE.MeshLambertMaterial({ color: primaryColor })
     : preset.usePhysicalClearcoat
     ? new THREE.MeshPhysicalMaterial({
         color: primaryColor,
-        metalness: isUltra ? 0.68 : 0.62,
-        roughness: isUltra ? 0.035 : 0.06,
+        metalness: 0.22,
+        roughness: 0.16,
         normalMap: flakeNormalTex || undefined,
-        normalScale: isUltra ? new THREE.Vector2(0.02, 0.02) : undefined,
-        clearcoat: 1.0,
-        clearcoatRoughness: 0.0,
-        reflectivity: 1.0,
-        ior: isUltra ? 1.7 : 1.55,
-        sheen: isUltra ? 0.25 : 0,
-        sheenRoughness: 0.15,
-        sheenColor: primaryColor,
-        envMapIntensity: preset.envMapIntensity,
+        normalScale: isUltra ? new THREE.Vector2(0.015, 0.015) : undefined,
+        clearcoat: 0.85,
+        clearcoatRoughness: 0.08,
       })
     : new THREE.MeshStandardMaterial({
         color: primaryColor,
-        metalness: 0.75,
-        roughness: 0.12,
-        envMapIntensity: preset.envMapIntensity,
+        metalness: 0.18,
+        roughness: 0.22,
       });
 
-  const secondaryPaintMat: THREE.Material = isLow
+  const secondaryPaintMat: THREE.Material = isRetro
+    ? new THREE.MeshPhongMaterial({
+        color: secondaryColor,
+        flatShading: true,
+        shininess: 65,
+      })
+    : isLow
     ? new THREE.MeshLambertMaterial({ color: secondaryColor })
-    : preset.usePhysicalClearcoat
-    ? new THREE.MeshPhysicalMaterial({
-        color: secondaryColor,
-        metalness: isUltra ? 0.72 : 0.65,
-        roughness: isUltra ? 0.04 : 0.08,
-        normalMap: flakeNormalTex || undefined,
-        normalScale: isUltra ? new THREE.Vector2(0.018, 0.018) : undefined,
-        clearcoat: 1.0,
-        clearcoatRoughness: 0.0,
-        reflectivity: 1.0,
-        envMapIntensity: preset.envMapIntensity,
-      })
     : new THREE.MeshStandardMaterial({
         color: secondaryColor,
-        metalness: 0.7,
-        roughness: 0.14,
-        envMapIntensity: preset.envMapIntensity,
+        metalness: 0.18,
+        roughness: 0.25,
       });
 
-  const accentPaintMat: THREE.Material = isLow
+  const accentPaintMat: THREE.Material = isRetro
+    ? new THREE.MeshPhongMaterial({
+        color: accentColor,
+        flatShading: true,
+        shininess: 90,
+      })
+    : isLow
     ? new THREE.MeshLambertMaterial({ color: accentColor })
-    : preset.usePhysicalClearcoat
-    ? new THREE.MeshPhysicalMaterial({
-        color: accentColor,
-        metalness: 0.65,
-        roughness: isUltra ? 0.04 : 0.08,
-        clearcoat: 1.0,
-        clearcoatRoughness: 0.0,
-        reflectivity: 1.0,
-        envMapIntensity: preset.envMapIntensity,
-      })
     : new THREE.MeshStandardMaterial({
         color: accentColor,
-        metalness: 0.65,
-        roughness: 0.14,
-        envMapIntensity: preset.envMapIntensity,
+        metalness: 0.16,
+        roughness: 0.22,
       });
 
-  const carbonMat = new THREE.MeshStandardMaterial({
-    color: 0x121318,
-    map: carbonTex || undefined,
-    bumpMap: isUltra && carbonTex ? carbonTex : undefined,
-    bumpScale: isUltra ? 0.01 : 0,
-    metalness: isUltra ? 0.72 : 0.58,
-    roughness: isUltra ? 0.16 : 0.28,
-    envMapIntensity: preset.envMapIntensity * 0.95,
-  });
-
-  const matteBlackMat = new THREE.MeshStandardMaterial({
-    color: 0x0a0a0c,
-    roughness: 0.85,
-  });
-
-  const tireRubberMat = isUltra
-    ? new THREE.MeshPhysicalMaterial({
-        color: 0x16171b,
-        map: tireTex || undefined,
-        bumpMap: tireTex || undefined,
-        bumpScale: 0.008,
-        roughness: 0.52,
-        metalness: 0.08,
-        clearcoat: 0.25,
-        clearcoatRoughness: 0.25,
-        envMapIntensity: preset.envMapIntensity * 0.8,
-      })
+  const carbonMat: THREE.Material = isRetro
+    ? new THREE.MeshPhongMaterial({ color: 0x241c3c, flatShading: true, shininess: 40 })
+    : isLow
+    ? new THREE.MeshLambertMaterial({ color: 0x1b1d24 })
     : new THREE.MeshStandardMaterial({
-        color: 0x18181c,
+        color: 0x1b1d24,
+        map: carbonTex || undefined,
+        metalness: 0.2,
+        roughness: 0.4,
+      });
+
+  const matteBlackMat: THREE.Material = isLow
+    ? new THREE.MeshLambertMaterial({ color: 0x14151a })
+    : new THREE.MeshStandardMaterial({
+        color: 0x14151a,
+        roughness: 0.85,
+      });
+
+  const tireRubberMat: THREE.Material = isRetro
+    ? new THREE.MeshPhongMaterial({ color: 0x1c1e26, flatShading: true, shininess: 25 })
+    : isLow
+    ? new THREE.MeshLambertMaterial({ color: 0x1e2026 })
+    : new THREE.MeshStandardMaterial({
+        color: 0x1e2026,
         map: tireTex || undefined,
-        roughness: 0.82,
+        roughness: 0.78,
         metalness: 0.05,
       });
 
-  const wheelRimMat = new THREE.MeshStandardMaterial({
-    color: 0x32343d,
-    metalness: 0.96,
-    roughness: isUltra ? 0.04 : 0.12,
-    envMapIntensity: preset.envMapIntensity * 1.15,
-  });
+  const wheelRimMat: THREE.Material = isRetro
+    ? new THREE.MeshPhongMaterial({ color: 0xffe600, flatShading: true, shininess: 90 })
+    : isLow
+    ? new THREE.MeshLambertMaterial({ color: 0x474b57 })
+    : new THREE.MeshStandardMaterial({
+        color: 0x474b57,
+        metalness: 0.35,
+        roughness: 0.28,
+      });
 
   const brakeDiscMat = new THREE.MeshStandardMaterial({
-    color: 0x333338,
-    metalness: 0.95,
-    roughness: 0.25,
+    color: 0x444650,
+    metalness: 0.35,
+    roughness: 0.35,
     emissive: 0x000000,
     emissiveIntensity: 0,
   });
 
-  const haloMat = new THREE.MeshStandardMaterial({
-    color: 0x16171d,
-    map: carbonTex || undefined,
-    metalness: 0.88,
-    roughness: isUltra ? 0.06 : 0.14,
-    envMapIntensity: preset.envMapIntensity,
-  });
+  const haloMat: THREE.Material = isLow
+    ? new THREE.MeshLambertMaterial({ color: 0x22242c })
+    : new THREE.MeshStandardMaterial({
+        color: 0x22242c,
+        map: carbonTex || undefined,
+        metalness: 0.25,
+        roughness: 0.32,
+      });
 
   const helmetColor = driver?.color ? new THREE.Color(driver.color) : accentColor;
   const helmetMat: THREE.Material = isLow
     ? new THREE.MeshLambertMaterial({ color: helmetColor })
-    : new THREE.MeshPhysicalMaterial({
+    : new THREE.MeshStandardMaterial({
         color: helmetColor,
-        metalness: 0.65,
-        roughness: 0.04,
-        clearcoat: 1.0,
-        clearcoatRoughness: 0.0,
-        envMapIntensity: preset.envMapIntensity * 1.1,
+        metalness: 0.2,
+        roughness: 0.18,
       });
 
-  const visorMat: THREE.Material = isLow
-    ? new THREE.MeshBasicMaterial({ color: 0x08080f })
-    : new THREE.MeshPhysicalMaterial({
-        color: 0x08080f,
-        metalness: 0.98,
-        roughness: 0.02,
-        reflectivity: 1.0,
-        clearcoat: 1.0,
-        iridescence: isUltra ? 0.65 : 0.2,
-        iridescenceIOR: 1.35,
-        envMapIntensity: preset.envMapIntensity * 1.2,
-      });
+  const visorMat: THREE.Material = new THREE.MeshLambertMaterial({ color: 0x1e293b });
 
   // 2. Main Monocoque & Sleek 2026 Aerodynamic Nose (Scaled Smooth Sculpted Geometry)
   const noseGeom = new THREE.CylinderGeometry(0.18, 0.52, 2.45, radialSegs, isLow ? 3 : isUltra ? 12 : 8);
@@ -468,29 +401,15 @@ export function buildF1Car(team: Team, driver?: Driver, quality?: GraphicsQualit
   intakeR.position.set(0.64, 0.36, -0.74);
   root.add(intakeR);
 
-  // Rear view mirrors with real mirror-reflective glass lenses
-  const mirrorGeom = new THREE.BoxGeometry(0.16, 0.08, 0.06);
-  const mirrorL = new THREE.Mesh(mirrorGeom, carPaintMat);
-  mirrorL.position.set(-0.52, 0.58, -0.42);
-  root.add(mirrorL);
-  const mirrorR = new THREE.Mesh(mirrorGeom, carPaintMat);
-  mirrorR.position.set(0.52, 0.58, -0.42);
-  root.add(mirrorR);
-
+  // Sidepod housings (no metallic mirror lenses that render black without envMap)
   if (!isLow) {
-    const mirrorGlassMat = new THREE.MeshStandardMaterial({
-      color: 0xffffff,
-      metalness: 1.0,
-      roughness: 0.0,
-      envMapIntensity: preset.envMapIntensity * 1.25,
-    });
-    const mirrorLensGeom = new THREE.PlaneGeometry(0.14, 0.064);
-    const lensL = new THREE.Mesh(mirrorLensGeom, mirrorGlassMat);
-    lensL.position.set(-0.52, 0.58, -0.388);
-    root.add(lensL);
-    const lensR = new THREE.Mesh(mirrorLensGeom, mirrorGlassMat);
-    lensR.position.set(0.52, 0.58, -0.388);
-    root.add(lensR);
+    const mirrorGeom = new THREE.BoxGeometry(0.16, 0.08, 0.06);
+    const mirrorL = new THREE.Mesh(mirrorGeom, carPaintMat);
+    mirrorL.position.set(-0.52, 0.58, -0.42);
+    root.add(mirrorL);
+    const mirrorR = new THREE.Mesh(mirrorGeom, carPaintMat);
+    mirrorR.position.set(0.52, 0.58, -0.42);
+    root.add(mirrorR);
   }
 
   // Ground Effect Venturi Floor & Diffuser
@@ -559,49 +478,21 @@ export function buildF1Car(team: Team, driver?: Driver, quality?: GraphicsQualit
   deflectorR.rotation.z = 0.15;
   root.add(deflectorR);
 
-  // Front Carbon Suspension Wishbones (Upper & Lower Wishbone Struts + Pushrod)
-  const wishboneMat = new THREE.MeshStandardMaterial({ color: 0x111116, metalness: 0.9, roughness: 0.25 });
-  [-1, 1].forEach((side) => {
-    // Upper Wishbone Arm Front
-    const upperWbF = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, 0.54, 8), wishboneMat);
-    upperWbF.position.set(side * 0.58, 0.44, -1.35);
-    upperWbF.rotation.z = side * 1.35;
-    upperWbF.rotation.y = side * 0.22;
-    root.add(upperWbF);
+  if (!isLow) {
+    // Front Carbon Suspension Wishbones (Upper & Lower Wishbone Struts + Pushrod)
+    const wishboneMat = new THREE.MeshStandardMaterial({ color: 0x1e2028, metalness: 0.4, roughness: 0.35 });
+    [-1, 1].forEach((side) => {
+      const upperWbF = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, 0.54, 6), wishboneMat);
+      upperWbF.position.set(side * 0.58, 0.44, -1.35);
+      upperWbF.rotation.z = side * 1.35;
+      upperWbF.rotation.y = side * 0.22;
+      root.add(upperWbF);
 
-    // Upper Wishbone Arm Rear
-    const upperWbR = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, 0.54, 8), wishboneMat);
-    upperWbR.position.set(side * 0.58, 0.44, -1.55);
-    upperWbR.rotation.z = side * 1.35;
-    upperWbR.rotation.y = -side * 0.22;
-    root.add(upperWbR);
-
-    // Lower Wishbone Arm
-    const lowerWb = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.58, 8), wishboneMat);
-    lowerWb.position.set(side * 0.60, 0.24, -1.45);
-    lowerWb.rotation.z = side * 1.45;
-    root.add(lowerWb);
-
-    // Diagonal Steering Pushrod
-    const pushrod = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.62, 8), wishboneMat);
-    pushrod.position.set(side * 0.56, 0.36, -1.42);
-    pushrod.rotation.z = side * 1.15;
-    root.add(pushrod);
-  });
-
-  // Sidepod Engine Cooling Louvers (5 aerodynamic gills on each sidepod shoulder)
-  const louverMat = new THREE.MeshStandardMaterial({ color: 0x050508, roughness: 0.95 });
-  for (let l = 0; l < 5; l++) {
-    const lz = -0.2 + l * 0.22;
-    const louverL = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.02, 0.06), louverMat);
-    louverL.position.set(-0.62, 0.54, lz);
-    louverL.rotation.y = 0.25;
-    root.add(louverL);
-
-    const louverR = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.02, 0.06), louverMat);
-    louverR.position.set(0.62, 0.54, lz);
-    louverR.rotation.y = -0.25;
-    root.add(louverR);
+      const lowerWb = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.58, 6), wishboneMat);
+      lowerWb.position.set(side * 0.60, 0.24, -1.45);
+      lowerWb.rotation.z = side * 1.45;
+      root.add(lowerWb);
+    });
   }
 
   // 4. Rear Wing with Swan-Neck Pylons & Active DRS Flap
@@ -801,56 +692,45 @@ export function buildF1Car(team: Team, driver?: Driver, quality?: GraphicsQualit
 
     const tireRadius = 0.36;
     const tireWidth = isFront ? 0.32 : 0.42;
+    const wheelSegs = isLow ? 16 : 36;
 
-    // Tire Rubber - 48 radial segments for a silky round tire silhouette
-    const tireGeom = new THREE.CylinderGeometry(tireRadius, tireRadius, tireWidth - 0.03, 48);
+    // Tire Rubber
+    const tireGeom = new THREE.CylinderGeometry(tireRadius, tireRadius, tireWidth - 0.03, wheelSegs);
     tireGeom.rotateZ(Math.PI / 2);
     tireGeom.computeVertexNormals();
     const tireMesh = new THREE.Mesh(tireGeom, tireRubberMat);
-    tireMesh.castShadow = true;
     wheelGroup.add(tireMesh);
 
-    // Rounded Tire Shoulders (Torus bevels on inner & outer tread edges)
-    const shoulderRadius = 0.024;
-    [-(tireWidth / 2 - 0.02), tireWidth / 2 - 0.02].forEach((sx) => {
-      const shoulderGeom = new THREE.TorusGeometry(tireRadius - shoulderRadius, shoulderRadius, 16, 48);
-      shoulderGeom.rotateY(Math.PI / 2);
-      shoulderGeom.computeVertexNormals();
-      const shoulderMesh = new THREE.Mesh(shoulderGeom, tireRubberMat);
-      shoulderMesh.position.x = sx;
-      wheelGroup.add(shoulderMesh);
-    });
+    if (!isLow) {
+      // Rounded Tire Shoulders (Torus bevels on inner & outer tread edges)
+      const shoulderRadius = 0.024;
+      [-(tireWidth / 2 - 0.02), tireWidth / 2 - 0.02].forEach((sx) => {
+        const shoulderGeom = new THREE.TorusGeometry(tireRadius - shoulderRadius, shoulderRadius, 10, 28);
+        shoulderGeom.rotateY(Math.PI / 2);
+        shoulderGeom.computeVertexNormals();
+        const shoulderMesh = new THREE.Mesh(shoulderGeom, tireRubberMat);
+        shoulderMesh.position.x = sx;
+        wheelGroup.add(shoulderMesh);
+      });
+    }
 
-    // Pirelli Colored Sidewall Ring (Soft Red) - 48 segments
-    const ringGeom = new THREE.RingGeometry(tireRadius * 0.72, tireRadius * 0.83, 48);
+    // Pirelli Colored Sidewall Ring (Soft Red)
+    const ringGeom = new THREE.RingGeometry(tireRadius * 0.72, tireRadius * 0.83, wheelSegs);
     ringGeom.rotateY(Math.PI / 2);
     const ringMat = new THREE.MeshBasicMaterial({ color: 0xe10600 });
     const ringOut = new THREE.Mesh(ringGeom, ringMat);
     ringOut.position.x = isFront ? 0.165 : 0.215;
     wheelGroup.add(ringOut);
 
-    // 18-inch Aerodynamic Wheel Rim Cover - 36 segments
-    const rimGeom = new THREE.CylinderGeometry(tireRadius * 0.66, tireRadius * 0.66, tireWidth * 0.88, 36);
+    // 18-inch Aerodynamic Wheel Rim Cover
+    const rimGeom = new THREE.CylinderGeometry(tireRadius * 0.66, tireRadius * 0.66, tireWidth * 0.88, wheelSegs);
     rimGeom.rotateZ(Math.PI / 2);
     rimGeom.computeVertexNormals();
     const rimMesh = new THREE.Mesh(rimGeom, wheelRimMat);
     wheelGroup.add(rimMesh);
 
-    // BBS Spoke design ring - 32 segments
-    const spokeGeom = new THREE.RingGeometry(0.08, tireRadius * 0.64, 32);
-    spokeGeom.rotateY(Math.PI / 2);
-    const spokeMesh = new THREE.Mesh(spokeGeom, carbonMat);
-    spokeMesh.position.x = isFront ? 0.162 : 0.212;
-    wheelGroup.add(spokeMesh);
-
-    // Central Wheel Lock Nut (Team colored) - 24 segments
-    const nutGeom = new THREE.CylinderGeometry(0.05, 0.05, tireWidth + 0.04, 24);
-    nutGeom.rotateZ(Math.PI / 2);
-    const nutMesh = new THREE.Mesh(nutGeom, new THREE.MeshStandardMaterial({ color: 0xcc1111, metalness: 0.9 }));
-    wheelGroup.add(nutMesh);
-
-    // Glowing Brake Disc behind the rim - 32 segments
-    const discGeom = new THREE.CylinderGeometry(0.24, 0.24, 0.06, 32);
+    // Glowing Brake Disc behind the rim
+    const discGeom = new THREE.CylinderGeometry(0.24, 0.24, 0.06, isLow ? 12 : 24);
     discGeom.rotateZ(Math.PI / 2);
     const discMat = brakeDiscMat.clone();
     const brakeDisc = new THREE.Mesh(discGeom, discMat);
@@ -1020,130 +900,8 @@ export function buildF1Car(team: Team, driver?: Driver, quality?: GraphicsQualit
     sparkGeom.attributes.position.needsUpdate = true;
   };
 
-  // 3D In-World Broadcast Overhead Halo Position Tag
-  const tagCanvas = typeof document !== 'undefined' ? document.createElement('canvas') : null;
-  if (tagCanvas) {
-    tagCanvas.width = 256;
-    tagCanvas.height = 72;
-  }
-  const tagTexture = tagCanvas ? new THREE.CanvasTexture(tagCanvas) : null;
-  const tagMat = new THREE.SpriteMaterial({
-    map: tagTexture,
-    transparent: true,
-    depthTest: true,
-    depthWrite: false,
-  });
-  const tagSprite = new THREE.Sprite(tagMat);
-  tagSprite.position.set(0, 1.85, -0.2);
-  tagSprite.scale.set(2.4, 0.68, 1);
-  root.add(tagSprite);
-
-  let lastTagPos = -1;
-  let lastTagName = '';
-  let lastTagTeam = false;
-  let lastTagPlayer = false;
-
-  const setPositionTag = (pos: number, name: string, isTeammate?: boolean, isPlayer?: boolean) => {
-    if (!tagCanvas || !tagTexture) return;
-    if (pos === lastTagPos && name === lastTagName && isTeammate === lastTagTeam && isPlayer === lastTagPlayer) {
-      return;
-    }
-    lastTagPos = pos;
-    lastTagName = name;
-    lastTagTeam = !!isTeammate;
-    lastTagPlayer = !!isPlayer;
-
-    const ctx = tagCanvas.getContext('2d');
-    if (!ctx) return;
-    ctx.clearRect(0, 0, 256, 72);
-
-    // Pill background
-    const bgGrad = ctx.createLinearGradient(0, 0, 256, 0);
-    bgGrad.addColorStop(0, 'rgba(8, 12, 22, 0.92)');
-    bgGrad.addColorStop(1, 'rgba(15, 23, 42, 0.90)');
-    ctx.fillStyle = bgGrad;
-    ctx.beginPath();
-    ctx.roundRect(4, 6, 248, 60, 16);
-    ctx.fill();
-
-    // Border styling
-    let borderColor = team.primaryColor || '#00e5ff';
-    let posBgColor = '#1e293b';
-    let posTextColor = '#ffffff';
-
-    if (pos === 1) {
-      borderColor = '#fbbf24';
-      posBgColor = '#d97706';
-      posTextColor = '#ffffff';
-    } else if (pos === 2) {
-      borderColor = '#cbd5e1';
-      posBgColor = '#64748b';
-      posTextColor = '#ffffff';
-    } else if (pos === 3) {
-      borderColor = '#f97316';
-      posBgColor = '#b45309';
-      posTextColor = '#ffffff';
-    } else if (isPlayer) {
-      borderColor = '#38bdf8';
-      posBgColor = '#0284c7';
-    } else if (isTeammate) {
-      borderColor = '#10b981';
-      posBgColor = '#059669';
-    }
-
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = borderColor;
-    ctx.stroke();
-
-    // Position Badge Box
-    ctx.fillStyle = posBgColor;
-    ctx.beginPath();
-    ctx.roundRect(10, 12, 62, 48, 10);
-    ctx.fill();
-
-    ctx.fillStyle = posTextColor;
-    ctx.font = '900 28px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(`P${pos}`, 41, 36);
-
-    // Team Accent Bar
-    ctx.fillStyle = team.primaryColor || '#ef4444';
-    ctx.fillRect(78, 16, 4, 40);
-
-    // Driver Name & Role
-    ctx.textAlign = 'left';
-    ctx.fillStyle = '#ffffff';
-    ctx.font = '900 24px sans-serif';
-    const cleanName = (name || driver?.shortName || 'DRV').toUpperCase().slice(0, 4);
-    ctx.fillText(cleanName, 90, 36);
-
-    // Subtag for YOU or TEAM
-    if (isPlayer) {
-      ctx.fillStyle = '#38bdf8';
-      ctx.font = '800 13px sans-serif';
-      ctx.fillText('YOU', 175, 36);
-    } else if (isTeammate) {
-      ctx.fillStyle = '#10b981';
-      ctx.font = '800 13px sans-serif';
-      ctx.fillText('TEAM', 165, 36);
-    }
-
-    tagTexture.needsUpdate = true;
-  };
-
-  // Enable full self-shadowing across all car bodywork, wings, halo, suspension & tires on High/Ultra
-  if (preset.shadowsEnabled) {
-    root.traverse((obj) => {
-      if (obj instanceof THREE.Mesh) {
-        // Skip translucent AO ground pad
-        const mat = obj.material as THREE.Material;
-        if (mat && mat.transparent && !mat.depthWrite) return;
-        obj.castShadow = true;
-        obj.receiveShadow = true;
-      }
-    });
-  }
+  // No floating dark 3D overhead sprites on cars so nothing ever blocks the camera view (HUD Timing Tower + Radar show all positions cleanly)
+  const setPositionTag = (_pos: number, _name: string, _isTeammate?: boolean, _isPlayer?: boolean) => {};
 
   return {
     root,

@@ -28,12 +28,21 @@ import { RaceView } from './components/RaceView';
 import { MultiplayerModal } from './components/MultiplayerModal';
 import { ButtonMappingModal } from './components/ButtonMappingModal';
 import { FirebaseCloudModal } from './components/FirebaseCloudModal';
-import { TutorialModal } from './components/TutorialModal';
+import { TutorialModal, TutorialPracticeDrillConfig } from './components/TutorialModal';
 import { multiplayerService, RoomPublicState } from './services/multiplayerService';
 import { inputManager } from './services/inputManager';
 import { auth, signInWithGoogle, saveCareerToCloud, loadCareerFromCloud } from './services/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
-import { Trophy, ArrowRight, DollarSign, Award, CheckCircle2, Shield, Flame, Gauge, Zap, Cloud, Timer } from 'lucide-react';
+import { Trophy, ArrowRight, DollarSign, Award, CheckCircle2, Shield, Flame, Gauge, Zap, Cloud, Timer, Palette, Sun, Moon } from 'lucide-react';
+import {
+  AppThemeId,
+  APP_THEMES,
+  THEME_OPTIONS,
+  getStoredTheme,
+  setStoredTheme,
+  onThemeChange,
+  applyThemeToDocument,
+} from './utils/themeSettings';
 
 const STORAGE_KEY = 'apex26_f1_career_v6';
 
@@ -150,18 +159,48 @@ export default function App() {
       return false;
     }
   });
+  const [tutorialStepIndex, setTutorialStepIndex] = useState<number>(0);
+  const [activeTutorialDrill, setActiveTutorialDrill] = useState<TutorialPracticeDrillConfig | null>(null);
+  const [completedTutorialDrills, setCompletedTutorialDrills] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('apex26_tutorial_drills_v1');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
   const [isMultiplayerRace, setIsMultiplayerRace] = useState(false);
   const [multiplayerRoom, setMultiplayerRoom] = useState<RoomPublicState | null>(null);
 
   // Qualifying session states
   const [isQualifyingMode, setIsQualifyingMode] = useState(false);
+  const [qualifyingGhostDelay3s, setQualifyingGhostDelay3s] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('apex26_qualifying_ghost_delay_3s') !== 'false';
+    } catch {
+      return true;
+    }
+  });
   const [qualifyingGridSlot, setQualifyingGridSlot] = useState<number | null>(null);
   const [qualifyingResults, setQualifyingResults] = useState<Array<{ position: number; driver: Driver; team: any; lapTime: number; gap: number }> | null>(null);
   const [showQualifyingModal, setShowQualifyingModal] = useState(false);
 
+  const handleSetQualifyingGhostDelay3s = (delay3s: boolean) => {
+    setQualifyingGhostDelay3s(delay3s);
+    try {
+      localStorage.setItem('apex26_qualifying_ghost_delay_3s', String(delay3s));
+    } catch {}
+  };
+
   // Pre-career sign in state
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [signInError, setSignInError] = useState<string | null>(null);
+  const [appTheme, setAppTheme] = useState<AppThemeId>(getStoredTheme());
+
+  useEffect(() => {
+    applyThemeToDocument(appTheme);
+    return onThemeChange((t) => setAppTheme(t));
+  }, []);
 
   // Seamless Firebase Firestore cloud profile synchronization (Cross-Device restoration)
   useEffect(() => {
@@ -317,8 +356,11 @@ export default function App() {
   const currentCircuit = CIRCUITS[season.currentRound] || CIRCUITS[0];
 
   // Optional Qualifying Session (1 Flying Lap shootout)
-  const handleStartQualifying = () => {
+  const handleStartQualifying = (ghostDelay3s?: boolean) => {
     if (season.seasonFinished) return;
+    if (typeof ghostDelay3s === 'boolean') {
+      handleSetQualifyingGhostDelay3s(ghostDelay3s);
+    }
     // When playing qualifying, auto-close any open multiplayer rooms
     multiplayerService.closeRoom('Room closed because host started Qualifying shootout.');
     setIsMultiplayerRace(false);
@@ -369,11 +411,48 @@ export default function App() {
 
     setIsPracticeMode(true);
     setIsQualifyingMode(false);
+    setActiveTutorialDrill(null);
     setPracticeCircuit(circuit);
     setPracticeDifficulty(diff);
     setPracticeBotCount(botCount);
     setRaceLaps(laps);
     setInRace(true);
+  };
+
+  const handleLaunchTutorialPracticeDrill = (drill: TutorialPracticeDrillConfig) => {
+    const targetCircuit = CIRCUITS.find((c) => c.id === drill.circuitId) || CIRCUITS[0];
+    multiplayerService.closeRoom('Room closed because host started Academy Practice Drill.');
+    setIsMultiplayerRace(false);
+    setMultiplayerRoom(null);
+    setShowMultiplayerModal(false);
+
+    setActiveTutorialDrill(drill);
+    setTutorialStepIndex(drill.stepIndex);
+    setShowTutorial(false);
+    setIsPracticeMode(true);
+    setIsQualifyingMode(false);
+    setPracticeCircuit(targetCircuit);
+    setPracticeDifficulty(drill.difficulty);
+    setPracticeBotCount(drill.botCount);
+    setRaceLaps(drill.laps);
+    setInRace(true);
+  };
+
+  const handleCompleteTutorialDrill = (drillId: string) => {
+    setCompletedTutorialDrills((prev) => {
+      const next = prev.includes(drillId) ? prev : [...prev, drillId];
+      try {
+        localStorage.setItem('apex26_tutorial_drills_v1', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+    const nextStep = activeTutorialDrill ? Math.min(3, activeTutorialDrill.stepIndex + 1) : tutorialStepIndex;
+    setTutorialStepIndex(nextStep);
+    setActiveTutorialDrill(null);
+    setInRace(false);
+    setIsPracticeMode(false);
+    setPracticeCircuit(null);
+    setShowTutorial(true);
   };
 
   const handleChangeDifficulty = (diff: 'rookie' | 'pro' | 'legend') => {
@@ -681,8 +760,12 @@ export default function App() {
       leadOverP2Seconds: number;
     }[]
   ) => {
-    // If completed session was Free Practice, exit back to paddock without modifying championship standings
+    // If completed session was Free Practice (or a Tutorial Practice Drill), exit cleanly
     if (isPracticeMode) {
+      if (activeTutorialDrill) {
+        handleCompleteTutorialDrill(activeTutorialDrill.id);
+        return;
+      }
       setInRace(false);
       setIsPracticeMode(false);
       setPracticeCircuit(null);
@@ -1416,7 +1499,7 @@ export default function App() {
   };
 
   return (
-    <div className="relative w-screen h-screen overflow-hidden bg-neutral-950 text-neutral-100 font-sans">
+    <div className="f1-app-shell relative w-screen h-screen overflow-hidden bg-neutral-950 text-neutral-100 font-sans">
       {inRace ? (
         <RaceView
           circuit={
@@ -1428,12 +1511,17 @@ export default function App() {
           season={season}
           onRaceComplete={handleRaceComplete}
           onExitToPaddock={() => {
+            const wasTutorialDrill = Boolean(activeTutorialDrill);
             setInRace(false);
             setIsPracticeMode(false);
             setIsQualifyingMode(false);
             setPracticeCircuit(null);
+            setActiveTutorialDrill(null);
             setIsMultiplayerRace(false);
             setMultiplayerRoom(null);
+            if (wasTutorialDrill) {
+              setShowTutorial(true);
+            }
           }}
           isPracticeMode={isPracticeMode}
           practiceDifficulty={isPracticeMode ? practiceDifficulty : undefined}
@@ -1442,8 +1530,11 @@ export default function App() {
           multiplayerRoom={multiplayerRoom}
           onOpenControls={() => setShowButtonMappingModal(true)}
           isQualifyingMode={isQualifyingMode}
+          qualifyingGhostDelay3s={qualifyingGhostDelay3s}
           startingGridSlot={qualifyingGridSlot || undefined}
           onQualifyingComplete={handleQualifyingComplete}
+          tutorialPracticeStage={activeTutorialDrill}
+          onCompleteTutorialStage={handleCompleteTutorialDrill}
         />
       ) : (
         <SeasonHub
@@ -1469,6 +1560,8 @@ export default function App() {
           onOpenCloud={() => setShowCloudModal(true)}
           onOpenTutorial={() => setShowTutorial(true)}
           onStartQualifying={handleStartQualifying}
+          qualifyingGhostDelay3s={qualifyingGhostDelay3s}
+          onChangeQualifyingGhostDelay3s={handleSetQualifyingGhostDelay3s}
           qualifyingGridSlot={qualifyingGridSlot}
           onFoundNewsCompany={handleFoundNewsCompany}
           onUpdateNewsCompany={handleUpdateNewsCompany}
@@ -1478,23 +1571,45 @@ export default function App() {
 
       {/* Difficulty Selection Modal (Choose CPU difficulty BEFORE starting career) */}
       {!hasChosenDifficulty && (
-        <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-lg flex items-center justify-center p-4">
-          <div className="bg-neutral-900 border border-neutral-700 max-w-2xl w-full rounded-3xl p-8 shadow-2xl flex flex-col gap-6 text-center">
-            <div className="flex justify-center">
-              <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-red-600 to-amber-500 flex items-center justify-center text-white shadow-lg">
-                <Gauge className="w-8 h-8" />
+        <div className="f1-paddock-surface fixed inset-0 z-50 bg-black/85 backdrop-blur-lg flex items-center justify-center p-4">
+          <div className="bg-neutral-900 border border-neutral-700 max-w-2xl w-full rounded-3xl p-8 shadow-2xl flex flex-col gap-5 text-center">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-left">
+                <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-red-600 to-amber-500 flex items-center justify-center text-white shadow-lg">
+                  <Gauge className="w-6 h-6" />
+                </div>
+                <div>
+                  <span className="text-[10px] uppercase font-black tracking-widest text-red-500 block">
+                    Official FIA Career Setup
+                  </span>
+                  <h2 className="text-xl font-black text-white">Select Career AI Difficulty</h2>
+                </div>
+              </div>
+
+              {/* Pre-Career Theme Switcher */}
+              <div className="flex items-center gap-1 bg-neutral-950 border border-white/10 rounded-xl p-1">
+                <Palette className="w-3.5 h-3.5 text-orange-400 mx-1" />
+                {THEME_OPTIONS.map((tId) => (
+                  <button
+                    key={tId}
+                    type="button"
+                    onClick={() => setStoredTheme(tId)}
+                    className={`px-2 py-1 rounded-lg text-[10px] font-bold transition-colors cursor-pointer flex items-center gap-1 ${
+                      appTheme === tId
+                        ? 'bg-orange-500 text-black'
+                        : 'text-neutral-400 hover:text-white'
+                    }`}
+                  >
+                    {tId === 'light' ? <Sun className="w-2.5 h-2.5" /> : tId === 'dark' ? <Moon className="w-2.5 h-2.5" /> : null}
+                    <span>{APP_THEMES[tId].shortLabel}</span>
+                  </button>
+                ))}
               </div>
             </div>
 
-            <div>
-              <span className="text-xs uppercase font-black tracking-widest text-red-500">
-                Official FIA Career Setup
-              </span>
-              <h2 className="text-3xl font-black text-white mt-1">Select Your Career AI Difficulty</h2>
-              <p className="text-sm text-neutral-400 mt-2 max-w-lg mx-auto">
-                Formula 1 driver career rules: you start with MoneyGram Haas F1 Team. Choose the CPU AI racing pace and collision penalty duration for your career.
-              </p>
-            </div>
+            <p className="text-xs text-neutral-400 max-w-lg mx-auto">
+              Formula 1 driver career rules: you start with MoneyGram Haas F1 Team. Choose the CPU AI racing pace and collision penalty duration for your career.
+            </p>
 
             {/* Pre-Career Cloud Sign-In for Cross-Device Restoration */}
             <div className="p-4 rounded-2xl bg-neutral-950 border border-amber-500/30 flex flex-col sm:flex-row items-center justify-between gap-4 text-left">
@@ -1962,6 +2077,9 @@ export default function App() {
       <TutorialModal
         isOpen={showTutorial}
         onClose={() => setShowTutorial(false)}
+        initialStep={tutorialStepIndex}
+        completedDrills={completedTutorialDrills}
+        onLaunchPracticeDrill={handleLaunchTutorialPracticeDrill}
       />
     </div>
   );

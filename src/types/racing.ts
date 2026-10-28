@@ -432,6 +432,13 @@ export interface TelemetryData {
   drsActive: boolean;
   drsAvailable: boolean;
   tireWear: number; // 0 (fresh) - 100% (worn)
+  tireLife?: number; // 100% (fresh) - 0% (dead/punctured)
+  tireGripMultiplier?: number; // 0.50 to 1.07
+  tireStatusLabel?: 'OPTIMAL' | 'GRAINING' | 'BLISTERING' | 'CRITICAL' | 'PUNCTURE';
+  tireCorners?: { fl: number; fr: number; rl: number; rr: number };
+  pitStopActive?: boolean;
+  pitStopTimer?: number;
+  pitStopsCount?: number;
   tireTemp: number; // degrees Celsius (80 - 120)
   tireCompound: TireCompound;
   currentLap: number;
