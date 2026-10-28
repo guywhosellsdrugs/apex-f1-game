@@ -404,6 +404,97 @@ export interface SeasonState {
   career: CareerProfile;
 }
 
+export const TIRE_COMPOUND_SPECS: Record<
+  TireCompound,
+  {
+    id: TireCompound;
+    name: string;
+    label: string;
+    code: string;
+    shortCode: string;
+    colorHex: string;
+    ringHex: number;
+    baseGripMultiplier: number;
+    wearRateMultiplier: number;
+    topSpeedDeltaKmh: number;
+    optimalTempRange: [number, number];
+    stintLapsGuide: string;
+    idealStintLaps: string;
+    summary: string;
+  }
+> = {
+  SOFT: {
+    id: 'SOFT',
+    name: 'Pirelli P-Zero Red Soft (C5)',
+    label: 'PIRELLI SOFT C5',
+    code: 'S',
+    shortCode: 'S',
+    colorHex: '#ef4444',
+    ringHex: 0xe10600,
+    baseGripMultiplier: 1.08,
+    wearRateMultiplier: 1.62,
+    topSpeedDeltaKmh: 3.5,
+    optimalTempRange: [86, 108],
+    stintLapsGuide: '2–4 Laps Peak',
+    idealStintLaps: '2–4 Laps',
+    summary: '+8% Cornering & Launch Grip · +3.5 km/h Speed · 1.62x Faster Wear',
+  },
+  MEDIUM: {
+    id: 'MEDIUM',
+    name: 'Pirelli P-Zero Yellow Medium (C3)',
+    label: 'PIRELLI MEDIUM C3',
+    code: 'M',
+    shortCode: 'M',
+    colorHex: '#facc15',
+    ringHex: 0xfacc15,
+    baseGripMultiplier: 1.0,
+    wearRateMultiplier: 1.0,
+    topSpeedDeltaKmh: 0,
+    optimalTempRange: [82, 112],
+    stintLapsGuide: '4–7 Laps Balanced',
+    idealStintLaps: '4–7 Laps',
+    summary: '100% Balanced Grip & Thermal Window · 1.0x Standard Wear',
+  },
+  HARD: {
+    id: 'HARD',
+    name: 'Pirelli P-Zero White Hard (C1)',
+    label: 'PIRELLI HARD C1',
+    code: 'H',
+    shortCode: 'H',
+    colorHex: '#f8fafc',
+    ringHex: 0xf8fafc,
+    baseGripMultiplier: 0.94,
+    wearRateMultiplier: 0.52,
+    topSpeedDeltaKmh: -2.5,
+    optimalTempRange: [78, 118],
+    stintLapsGuide: '6–10+ Laps Endurance',
+    idealStintLaps: '6–10+ Laps',
+    summary: '-6% Cold Grip · 0.52x Ultra-Low Wear (Full Race No-Stop Capable)',
+  },
+};
+
+const STARTING_TIRE_KEY = 'apex26_starting_tire_compound_v1';
+
+export function getStoredStartingTireCompound(): TireCompound {
+  if (typeof window === 'undefined') return 'SOFT';
+  try {
+    const raw = localStorage.getItem(STARTING_TIRE_KEY);
+    if (raw === 'SOFT' || raw === 'MEDIUM' || raw === 'HARD') return raw;
+  } catch {
+    // ignore
+  }
+  return 'SOFT';
+}
+
+export function setStoredStartingTireCompound(compound: TireCompound): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(STARTING_TIRE_KEY, compound);
+  } catch {
+    // ignore
+  }
+}
+
 export interface CarRadarPoint {
   progress: number;
   lateralOffset: number;
@@ -418,6 +509,9 @@ export interface CarRadarPoint {
   gapToAheadSeconds?: number;
   gapToPlayerSeconds?: number;
   leadOverP2Seconds?: number;
+  tireCompound?: TireCompound;
+  tireLife?: number;
+  pitStopsCount?: number;
 }
 
 export interface TelemetryData {
@@ -433,13 +527,14 @@ export interface TelemetryData {
   drsAvailable: boolean;
   tireWear: number; // 0 (fresh) - 100% (worn)
   tireLife?: number; // 100% (fresh) - 0% (dead/punctured)
-  tireGripMultiplier?: number; // 0.50 to 1.07
+  tireGripMultiplier?: number; // 0.50 to 1.08
   tireStatusLabel?: 'OPTIMAL' | 'GRAINING' | 'BLISTERING' | 'CRITICAL' | 'PUNCTURE';
+  tireThermalState?: 'COLD' | 'OPTIMAL_WINDOW' | 'OVERHEATING';
   tireCorners?: { fl: number; fr: number; rl: number; rr: number };
   pitStopActive?: boolean;
   pitStopTimer?: number;
   pitStopsCount?: number;
-  tireTemp: number; // degrees Celsius (80 - 120)
+  tireTemp: number; // degrees Celsius (70 - 130)
   tireCompound: TireCompound;
   currentLap: number;
   totalLaps: number;

@@ -1,7 +1,17 @@
 import * as THREE from 'three';
 import { BuiltCar } from './carBuilder';
 import { GeneratedTrack, SurfaceInfo } from './trackGenerator';
-import { Driver, Team, TelemetryData, TireCompound, CarRadarPoint, CustomTeamConfig } from '../types/racing';
+import {
+  Driver,
+  Team,
+  TelemetryData,
+  TireCompound,
+  CarRadarPoint,
+  CustomTeamConfig,
+  TIRE_COMPOUND_SPECS,
+  getStoredStartingTireCompound,
+  setStoredStartingTireCompound,
+} from '../types/racing';
 import { DRIVERS, TEAMS } from '../constants/f1Data';
 import { UnifiedInput, inputManager } from '../services/inputManager';
 import { soundEngine } from '../services/soundEngine';
@@ -40,6 +50,10 @@ export interface AICarState {
   apexFreq?: number;
   apexPhase?: number;
   isHiddenByPracticeFilter?: boolean;
+  tireCompound: TireCompound;
+  tireLife: number;
+  pitStopTimer: number;
+  pitStopsCount: number;
 }
 
 /**
@@ -115,7 +129,7 @@ export class PhysicsEngine {
 
   public ersBattery: number = 100;
   public drsActive: boolean = false;
-  public tireCompound: TireCompound = 'SOFT';
+  public tireCompound: TireCompound = getStoredStartingTireCompound();
   public tireLife: number = 100; // 100% Fresh -> 0% Punctured
   public tireCorners: { fl: number; fr: number; rl: number; rr: number } = {
     fl: 100,
@@ -126,6 +140,8 @@ export class PhysicsEngine {
   public tireTempValue: number = 88;
   public pitStopTimer: number = 0;
   public pitStopsCount: number = 0;
+  private warnedGraining: boolean = false;
+  private warnedCriticalTires: boolean = false;
 
   public lapTimeCurrent: number = 0;
   public lapTimeBest: number | null = null;
@@ -226,6 +242,11 @@ export class PhysicsEngine {
     const engineIdentifier = this.customTeamConfig?.engineId || this.customTeamConfig?.engine || this.playerTeam?.engine || 'ferrari';
     soundEngine.setEngineProfile(engineIdentifier);
 
+    // Sync initial 3D Pirelli sidewall compound color on player car
+    this.tireCompound = getStoredStartingTireCompound();
+    this.playerCar.setTireCompound(this.tireCompound);
+    this.playerCar.setTireHealthVisuals(100, 88);
+
     this.telemetry = {
       speedKmh: 0,
       gear: 1,
@@ -238,8 +259,10 @@ export class PhysicsEngine {
       drsActive: false,
       drsAvailable: false,
       tireWear: 0,
+      tireLife: 100,
       tireTemp: 90,
-      tireCompound: 'SOFT',
+      tireCompound: this.tireCompound,
+      tireThermalState: 'OPTIMAL_WINDOW',
       currentLap: 1,
       totalLaps: this.totalLaps,
       lapTimeCurrent: 0,
@@ -401,6 +424,17 @@ export class PhysicsEngine {
       const distinctApexFreq = [4.0, 6.0, 8.0, 10.0][aiIndex % 4];
       const distinctApexPhase = aiIndex * 1.15 + (driver.number % 7) * 0.55;
 
+      // Assign authentic starting Pirelli tire compound strategy per AI rival
+      const aiCompound: TireCompound = this.isQualifyingMode
+        ? 'SOFT'
+        : gridPos <= 6
+        ? (aiIndex % 2 === 0 ? 'SOFT' : 'MEDIUM')
+        : gridPos <= 14
+        ? (aiIndex % 3 === 0 ? 'MEDIUM' : aiIndex % 3 === 1 ? 'SOFT' : 'HARD')
+        : (aiIndex % 2 === 0 ? 'HARD' : 'MEDIUM');
+      builtCar.setTireCompound(aiCompound);
+      builtCar.setTireHealthVisuals(100, 90);
+
       this.aiCars.push({
         driver,
         team,
@@ -432,6 +466,10 @@ export class PhysicsEngine {
         crashTimer: 0,
         waitTimer: 0,
         protectionShieldTimer: 0,
+        tireCompound: aiCompound,
+        tireLife: 100,
+        pitStopTimer: 0,
+        pitStopsCount: 0,
       });
 
       aiIndex++;
@@ -581,32 +619,50 @@ export class PhysicsEngine {
    * and replenishing Tire Life back to 100% with a 2.2s FIA Pit Crew stop during racing (or instant pre-start/practice).
    */
   public requestPitStop(newCompound?: TireCompound): void {
+    if (newCompound) {
+      this.tireCompound = newCompound;
+      this.playerCar.setTireCompound(this.tireCompound);
+    }
+
+    this.warnedGraining = false;
+    this.warnedCriticalTires = false;
+
     if (this.isQualifyingMode) {
-      if (newCompound) this.tireCompound = newCompound;
       this.tireLife = 100;
       this.tireCorners = { fl: 100, fr: 100, rl: 100, rr: 100 };
-      this.tireTempValue = 88;
+      this.tireTempValue = 92;
+      this.playerCar.setTireHealthVisuals(100, 92);
       return;
     }
 
-    if (newCompound) {
-      this.tireCompound = newCompound;
+    // Pre-start grid tire choice: instant swap, saves preference, does not count as an in-race pit stop
+    if (this.raceState === 'countdown') {
+      this.pitStopTimer = 0;
+      this.tireLife = 100;
+      this.tireCorners = { fl: 100, fr: 100, rl: 100, rr: 100 };
+      this.tireTempValue = 88;
+      setStoredStartingTireCompound(this.tireCompound);
+      this.playerCar.setTireHealthVisuals(100, 88);
+      const spec = TIRE_COMPOUND_SPECS[this.tireCompound];
+      this.teammateRadioSpeaker = 'PIT WALL';
+      this.teammateRadioStatus = 'accepted';
+      this.teammateRadioMsg = `GRID STRATEGY: Starting on ${spec.label} (${spec.summary})!`;
+      this.teammateRadioTimer = 3.5;
+      return;
     }
 
-    // Instant swap before lights go out; 2.2s stationary pit crew service during active racing
-    if (this.raceState === 'countdown' || this.playerSpeedKmh < 5) {
-      this.pitStopTimer = this.raceState === 'racing' ? 1.8 : 0;
-    } else {
-      this.pitStopTimer = 2.2;
-    }
+    // 2.2s stationary pit crew service during active racing
+    this.pitStopTimer = this.playerSpeedKmh < 5 ? 1.8 : 2.2;
     this.tireLife = 100;
     this.tireCorners = { fl: 100, fr: 100, rl: 100, rr: 100 };
     this.tireTempValue = 86;
     this.pitStopsCount++;
+    this.playerCar.setTireHealthVisuals(100, 86);
+    const spec = TIRE_COMPOUND_SPECS[this.tireCompound];
     this.teammateRadioSpeaker = 'PIT WALL';
     this.teammateRadioStatus = 'accepted';
-    this.teammateRadioMsg = `BOX BOX! Fresh Pirelli ${this.tireCompound} set fitted (100% Tire Life)!`;
-    this.teammateRadioTimer = 4.0;
+    this.teammateRadioMsg = `BOX BOX! Fresh ${spec.label} fitted (100% Tire Health — ${spec.summary})!`;
+    this.teammateRadioTimer = 4.2;
   }
 
   /**
@@ -868,10 +924,9 @@ export class PhysicsEngine {
       }
     }
 
-    const compoundWearRate =
-      this.tireCompound === 'SOFT' ? 1.55 : this.tireCompound === 'MEDIUM' ? 1.0 : 0.58;
-    const compoundBaseGrip =
-      this.tireCompound === 'SOFT' ? 1.07 : this.tireCompound === 'MEDIUM' ? 1.0 : 0.95;
+    const compoundSpec = TIRE_COMPOUND_SPECS[this.tireCompound];
+    const compoundWearRate = compoundSpec.wearRateMultiplier;
+    const compoundBaseGrip = compoundSpec.baseGripMultiplier;
 
     if (this.raceState === 'racing' && !this.isQualifyingMode && Math.abs(this.playerSpeedKmh) > 8) {
       const speedNorm = Math.min(1.2, Math.abs(this.playerSpeedKmh) / 290);
@@ -881,20 +936,21 @@ export class PhysicsEngine {
 
       // Target tire temperature rises with hard cornering/braking/boosting and cools on straights or lift-and-coast
       const targetTemp =
-        84 +
+        83 +
         speedNorm * 16 +
-        steerLoad * 26 +
-        brakeLockupLoad * 18 +
-        (this.tireCompound === 'SOFT' ? 5 : this.tireCompound === 'HARD' ? -4 : 0);
+        steerLoad * 27 +
+        brakeLockupLoad * 19 +
+        (this.tireCompound === 'SOFT' ? 6 : this.tireCompound === 'HARD' ? -5 : 0);
       this.tireTempValue += (targetTemp - this.tireTempValue) * Math.min(1, dt * 1.8);
 
+      const maxOptTemp = compoundSpec.optimalTempRange[1];
       const thermalOverheatMultiplier =
-        this.tireTempValue > 112 ? 1.0 + (this.tireTempValue - 112) * 0.045 : 1.0;
+        this.tireTempValue > maxOptTemp ? 1.0 + (this.tireTempValue - maxOptTemp) * 0.048 : 1.0;
 
-      // Base wear scaled so a 5-lap race on Softs drops to ~22-35% if pushed hard, or ~48% if managed smoothly
+      // Base wear scaled so Softs degrade noticeably faster (requiring a pit stop or careful management), while Hards can run long stints
       const lapScale = Math.max(0.55, Math.min(1.35, 5 / Math.max(2, this.totalLaps)));
       const wearPerSec =
-        (0.22 * speedNorm + steerLoad * 0.68 + brakeLockupLoad * 0.55) *
+        (0.23 * speedNorm + steerLoad * 0.72 + brakeLockupLoad * 0.58) *
         compoundWearRate *
         surfaceAbrasion *
         thermalOverheatMultiplier *
@@ -912,25 +968,58 @@ export class PhysicsEngine {
       this.tireCorners.fr = Math.max(0, this.tireCorners.fr - wearPerSec * (0.9 + leftTurnLoad + frontBrakeLoad) * dt);
       this.tireCorners.rl = Math.max(0, this.tireCorners.rl - wearPerSec * (0.9 + rightTurnLoad + rearTractionLoad) * dt);
       this.tireCorners.rr = Math.max(0, this.tireCorners.rr - wearPerSec * (0.9 + leftTurnLoad + rearTractionLoad) * dt);
+
+      // Proactive Pit Wall tire health radio warnings
+      if (!this.warnedGraining && this.tireLife < 55 && this.tireLife > 25 && this.teammateRadioTimer <= 0) {
+        this.warnedGraining = true;
+        this.teammateRadioSpeaker = 'PIT WALL';
+        this.teammateRadioStatus = 'accepted';
+        this.teammateRadioMsg = `Tire health at ${Math.round(this.tireLife)}% (${this.tireCompound}). Surface graining starting — consider pit window soon.`;
+        this.teammateRadioTimer = 4.2;
+      } else if (!this.warnedCriticalTires && this.tireLife <= 22 && this.teammateRadioTimer <= 0) {
+        this.warnedCriticalTires = true;
+        this.teammateRadioSpeaker = 'PIT WALL';
+        this.teammateRadioStatus = 'refused';
+        this.teammateRadioMsg = `CRITICAL TIRE WEAR (${Math.round(this.tireLife)}%)! Heavy blistering & grip cliff — BOX NOW [1/2/3]!`;
+        this.teammateRadioTimer = 5.0;
+      }
     }
 
-    // Tire Life Grip Curve:
+    // Update 3D tire tread wear gloss & thermal glow
+    this.playerCar.setTireHealthVisuals(this.tireLife, this.tireTempValue);
+
+    // Thermal window grip modifier (Cold < minTemp, Optimal Window, Overheating > maxTemp)
+    const [minOptTemp, maxOptTemp] = compoundSpec.optimalTempRange;
+    const tireThermalState: 'COLD' | 'OPTIMAL_WINDOW' | 'OVERHEATING' =
+      this.tireTempValue < minOptTemp
+        ? 'COLD'
+        : this.tireTempValue > maxOptTemp
+        ? 'OVERHEATING'
+        : 'OPTIMAL_WINDOW';
+    const thermalGripFactor =
+      tireThermalState === 'COLD'
+        ? Math.max(0.93, 1.0 - (minOptTemp - this.tireTempValue) * 0.005)
+        : tireThermalState === 'OVERHEATING'
+        ? Math.max(0.88, 1.0 - (this.tireTempValue - maxOptTemp) * 0.007)
+        : 1.0;
+
+    // Tire Health Grip Curve:
     // 70–100% Life: Optimal peak grip (1.00x of compound)
-    // 40–69% Life: Graining phase (smooth drop to 0.87x)
-    // 15–39% Life: Blistering / The Cliff (drops to 0.70x)
-    // <15% Life: Critical / Punctured (0.52x grip + top speed drag)
+    // 40–69% Life: Graining phase (smooth drop to 0.86x)
+    // 15–39% Life: Blistering / The Cliff (drops to 0.68x)
+    // <15% Life: Critical / Punctured (0.48x grip + top speed drag + vibration)
     let tireLifeGripFactor = 1.0;
     if (this.tireLife >= 70) {
       tireLifeGripFactor = 1.0;
     } else if (this.tireLife >= 40) {
-      tireLifeGripFactor = 0.87 + ((this.tireLife - 40) / 30) * 0.13;
+      tireLifeGripFactor = 0.86 + ((this.tireLife - 40) / 30) * 0.14;
     } else if (this.tireLife >= 15) {
-      tireLifeGripFactor = 0.70 + ((this.tireLife - 15) / 25) * 0.17;
+      tireLifeGripFactor = 0.68 + ((this.tireLife - 15) / 25) * 0.18;
     } else {
-      tireLifeGripFactor = 0.52 + (this.tireLife / 15) * 0.18;
+      tireLifeGripFactor = 0.48 + (this.tireLife / 15) * 0.20;
     }
 
-    const effectiveTireGrip = compoundBaseGrip * tireLifeGripFactor;
+    const effectiveTireGrip = compoundBaseGrip * tireLifeGripFactor * thermalGripFactor;
     const surfaceGrip = surface.offTrack ? 0.45 : surface.onCurb ? 0.9 : 1.0;
     const gripMultiplier = surfaceGrip * effectiveTireGrip;
     // NO 380 KM/H LIMITER: Top speed is realistically determined by engine power, gear ratio, and aerodynamic drag
@@ -1045,20 +1134,17 @@ export class PhysicsEngine {
       const baseTerminalKmh = 318 + Math.max(0, this.enginePowerRating - 70) * 0.85;
       const drsBonus = this.drsActive ? 14 : 0;
       const boostBonus = (isBoosting ? 16 : 0) + (this.slipstreamActive ? 12 * this.slipstreamFactor : 0);
-      // Tire degradation rolling resistance & blister penalty when Tire Life drops below 40%
+      // Tire degradation rolling resistance, blister penalty & compound top-speed delta
+      const compoundSpeedDelta = compoundSpec.topSpeedDeltaKmh;
       const tireWearSpeedPenalty =
         this.tireLife < 15
-          ? 34 * (1 - this.tireLife / 15) + 12
+          ? 38 * (1 - this.tireLife / 15) + 14
           : this.tireLife < 40
-          ? 12 * (1 - (this.tireLife - 15) / 25)
-          : this.tireCompound === 'SOFT'
-          ? -3
-          : this.tireCompound === 'HARD'
-          ? 3
+          ? 14 * (1 - (this.tireLife - 15) / 25)
           : 0;
       const targetTerminalKmh = surface.offTrack
         ? 140
-        : Math.max(195, baseTerminalKmh + drsBonus + boostBonus - tireWearSpeedPenalty);
+        : Math.max(190, baseTerminalKmh + compoundSpeedDelta + drsBonus + boostBonus - tireWearSpeedPenalty);
 
       // Progressive acceleration punch: 0-100 in ~2.4s, 100-200 in ~2.8s
       const accelNorm = Math.max(0.2, (this.accelerationScore - 70) / 30);
@@ -1156,9 +1242,19 @@ export class PhysicsEngine {
 
     const turnRate = fluidSteer * naturalSensitivity * throttleUndersteer * corneringAgility * gripHold * gripMultiplier * dt;
 
+    // Asymmetric tire wear pull when tires are critically worn (< 18% health)
+    const asymmetricTirePull =
+      this.tireLife < 18 && Math.abs(this.playerSpeedKmh) > 60
+        ? ((this.tireCorners.fl - this.tireCorners.fr) * 0.0035 + Math.sin(this.raceTimer * 18) * 0.018) * dt
+        : 0;
+
     if (Math.abs(this.playerSpeedKmh) > 1.0) {
       const dirSign = this.playerSpeedKmh >= 0 ? 1 : -1;
-      this.playerHeading -= turnRate * dirSign;
+      this.playerHeading -= (turnRate + asymmetricTirePull) * dirSign;
+    }
+
+    if (this.tireLife <= 8 && Math.abs(this.playerSpeedKmh) > 85) {
+      this.playerCar.updateSparks(this.playerSpeedKmh, true, dt);
     }
 
     this.playerCar.setSteerAngle(-steerInput * 0.38);
@@ -1299,6 +1395,9 @@ export class PhysicsEngine {
       gapToAheadSeconds: this.currentIntervalsMap.get('player') || 0,
       gapToPlayerSeconds: 0,
       leadOverP2Seconds: playerLeadP2,
+      tireCompound: this.tireCompound,
+      tireLife: Math.round(this.tireLife),
+      pitStopsCount: this.pitStopsCount,
     });
 
     for (const ai of this.aiCars) {
@@ -1319,6 +1418,9 @@ export class PhysicsEngine {
         gapToAheadSeconds: this.currentIntervalsMap.get(ai.driver.id) || 0,
         gapToPlayerSeconds: this.currentGapsToPlayerMap.get(ai.driver.id) || 0,
         leadOverP2Seconds: aiPos === 1 ? this.currentP1LeadSeconds : undefined,
+        tireCompound: ai.tireCompound,
+        tireLife: Math.round(ai.tireLife),
+        pitStopsCount: ai.pitStopsCount,
       });
     }
 
@@ -1336,6 +1438,8 @@ export class PhysicsEngine {
         gapToLeaderSeconds: 0,
         gapToAheadSeconds: 0,
         gapToPlayerSeconds: 0,
+        tireCompound: 'SOFT',
+        tireLife: 100,
       });
     }
 
@@ -1362,6 +1466,7 @@ export class PhysicsEngine {
       tireWear: Math.min(100, Math.max(0, Math.round(100 - this.tireLife))),
       tireLife: Math.min(100, Math.max(0, Math.round(this.tireLife))),
       tireGripMultiplier: Number(effectiveTireGrip.toFixed(2)),
+      tireThermalState,
       tireStatusLabel:
         this.tireLife <= 5
           ? 'PUNCTURE'
@@ -1639,18 +1744,59 @@ export class PhysicsEngine {
         effectiveAccel = 80 + ((this.customTeamConfig?.enginePower || 105) - 80) * 0.8;
       }
 
-      // Straightaway top speed based on engine power rating + dynamic race-day form:
-      // "dont always make max verstappen win make other people win too"
-      // Top drivers (Norris, Leclerc, Hamilton, Piastri, Russell, Sainz, Alonso, Verstappen) have balanced championship parity
+      // AI Tire Compound & Tire Health Simulation:
+      const aiSpec = TIRE_COMPOUND_SPECS[ai.tireCompound];
+      if (this.raceState === 'racing' && !this.isQualifyingMode && ai.speedKmh > 15) {
+        const lapScale = Math.max(0.55, Math.min(1.35, 5 / Math.max(2, this.totalLaps)));
+        const aiWearPerSec = 0.42 * (ai.speedKmh / 270) * aiSpec.wearRateMultiplier * lapScale;
+        ai.tireLife = Math.max(0, ai.tireLife - aiWearPerSec * dt);
+        ai.builtCar.setTireHealthVisuals(ai.tireLife, 95);
+
+        // AI Pit Stop Strategy: when tire life drops below 19% before the final lap, AI pits for fresh rubber
+        if (ai.tireLife < 19 && ai.lap < this.totalLaps && ai.pitStopTimer <= 0) {
+          ai.pitStopTimer = 2.0;
+          ai.pitStopsCount++;
+          const nextCompound: TireCompound =
+            this.totalLaps - ai.lap <= 2 ? 'SOFT' : ai.tireCompound === 'SOFT' ? 'MEDIUM' : 'HARD';
+          ai.tireCompound = nextCompound;
+          ai.tireLife = 100;
+          ai.builtCar.setTireCompound(nextCompound);
+          ai.builtCar.setTireHealthVisuals(100, 88);
+          ai.protectionShieldTimer = 2.5;
+        }
+      }
+
+      if (ai.pitStopTimer > 0) {
+        ai.pitStopTimer = Math.max(0, ai.pitStopTimer - dt);
+        ai.speedKmh = Math.max(35, ai.speedKmh - 190 * dt * 3.6);
+      }
+
+      const aiTireGripFactor =
+        ai.tireLife >= 70
+          ? 1.0
+          : ai.tireLife >= 40
+          ? 0.88 + ((ai.tireLife - 40) / 30) * 0.12
+          : 0.72 + (ai.tireLife / 40) * 0.16;
+      const aiEffectiveTireMod = aiSpec.baseGripMultiplier * aiTireGripFactor;
+
+      // Straightaway top speed based on engine power rating + dynamic race-day form + tire compound delta:
       const formBoost = ai.raceFormPace || 0;
-      const straightTopSpeed = (318 + Math.max(0, effectiveEnginePower - 70) * 0.85 + formBoost * 0.3) * difficultyScale;
-      // High-speed cornering grip bonus based on handling, aero downforce, and driver skill:
-      const cornerBonus = ((handlingRating - 78) * 1.8 + (aeroRating - 78) * 1.5 + (ai.driver.rating - 78) * 0.8 + formBoost * 0.4) * difficultyScale;
-      let targetCornerSpeed = Math.max(75, cornerBaseKmh + cornerBonus);
+      const straightTopSpeed =
+        (318 + Math.max(0, effectiveEnginePower - 70) * 0.85 + aiSpec.topSpeedDeltaKmh + formBoost * 0.3) *
+        difficultyScale *
+        (ai.tireLife < 30 ? 0.96 : 1.0);
+      // High-speed cornering grip bonus based on handling, aero downforce, driver skill, and tire compound/health:
+      const cornerBonus =
+        ((handlingRating - 78) * 1.8 + (aeroRating - 78) * 1.5 + (ai.driver.rating - 78) * 0.8 + formBoost * 0.4) *
+        difficultyScale;
+      let targetCornerSpeed = Math.max(75, (cornerBaseKmh + cornerBonus) * aiEffectiveTireMod);
 
       // On straightaways (cornerBaseKmh >= 350), car unleashed to straightTopSpeed!
       // In bends & corners, governed by targetCornerSpeed:
       let desiredSpeed = cornerBaseKmh >= 350 ? straightTopSpeed : Math.min(straightTopSpeed, targetCornerSpeed);
+      if (ai.pitStopTimer > 0) {
+        desiredSpeed = Math.min(desiredSpeed, 65);
+      }
 
       // TEAMMATE STRATEGY EXECUTION:
       // "allow me to make stratagies and like for example my teammate is in a higher or lower position then me and i tell him to block for me like block other players for me and yield his position some drivers will listen some wont add like a listening rating or something"

@@ -426,15 +426,18 @@ class SoundEngine {
     }
 
     const t = this.ctx.currentTime;
+    if (!Number.isFinite(t)) return;
+
     const safeRpm = Number.isFinite(rpm) ? rpm : 4000;
     const safeThrottle = Number.isFinite(throttle) ? Math.max(0, Math.min(1, throttle)) : 0;
-    const safeSpeed = Number.isFinite(speedKmh) ? Math.abs(speedKmh) : 0;
+    const safeSpeed = Number.isFinite(speedKmh) ? Math.max(0, Math.abs(speedKmh)) : 0;
+    const safeTireSlip = Number.isFinite(tireSlip) ? Math.max(0, Math.min(1, tireSlip)) : 0;
 
     const clampedRpm = Math.max(2500, Math.min(15000, safeRpm));
     // Base frequency customized for each distinct engine manufacturer:
-    const baseFreq = (clampedRpm / 60) * this.activeProfile.baseFreqMultiplier;
+    const baseFreq = (clampedRpm / 60) * (this.activeProfile?.baseFreqMultiplier || 3.0);
 
-    if (this.osc1 && this.osc2 && this.osc3) {
+    if (this.osc1 && this.osc2 && this.osc3 && Number.isFinite(baseFreq)) {
       this.osc1.frequency.setTargetAtTime(baseFreq * this.activeProfile.harmonicMultipliers[0], t, 0.04);
       this.osc2.frequency.setTargetAtTime(baseFreq * this.activeProfile.harmonicMultipliers[1], t, 0.04);
       this.osc3.frequency.setTargetAtTime(baseFreq * this.activeProfile.harmonicMultipliers[2], t, 0.04);
@@ -442,28 +445,28 @@ class SoundEngine {
 
     if (this.turboOsc && this.turboGain) {
       const turboFreq = this.activeProfile.turboFreqBase + (clampedRpm / 15000) * 2200;
-      this.turboOsc.frequency.setTargetAtTime(turboFreq, t, 0.06);
       const turboVolume = safeThrottle * this.activeProfile.turboGainFactor * (clampedRpm / 15000);
-      this.turboGain.gain.setTargetAtTime(turboVolume, t, 0.06);
+      if (Number.isFinite(turboFreq)) this.turboOsc.frequency.setTargetAtTime(turboFreq, t, 0.06);
+      if (Number.isFinite(turboVolume)) this.turboGain.gain.setTargetAtTime(turboVolume, t, 0.06);
     }
 
     if (this.electricOsc && this.electricWhineGain) {
       const whineFreq = this.activeProfile.electricWhineFreqBase + (safeSpeed / 350) * 1600;
-      this.electricOsc.frequency.setTargetAtTime(whineFreq, t, 0.05);
       const whineVol = ersActive
         ? this.activeProfile.electricWhineGainFactor
         : (safeSpeed / 350) * (this.activeProfile.electricWhineGainFactor * 0.35);
-      this.electricWhineGain.gain.setTargetAtTime(whineVol, t, 0.05);
+      if (Number.isFinite(whineFreq)) this.electricOsc.frequency.setTargetAtTime(whineFreq, t, 0.05);
+      if (Number.isFinite(whineVol)) this.electricWhineGain.gain.setTargetAtTime(whineVol, t, 0.05);
     }
 
     if (this.engineGain) {
       const targetGain = Math.min(0.35, 0.06 + safeThrottle * 0.22 + (clampedRpm / 15000) * 0.1);
-      this.engineGain.gain.setTargetAtTime(targetGain, t, 0.05);
+      if (Number.isFinite(targetGain)) this.engineGain.gain.setTargetAtTime(targetGain, t, 0.05);
     }
 
     // Tire squeal
     if (this.tireGain) {
-      const slipAmount = Math.max(0, Math.min(1, (tireSlip - 0.25) * 1.8));
+      const slipAmount = Math.max(0, Math.min(1, (safeTireSlip - 0.25) * 1.8));
       this.tireGain.gain.setTargetAtTime(slipAmount * 0.25, t, 0.04);
       if (this.tireFilter) {
         this.tireFilter.frequency.setTargetAtTime(1100 + slipAmount * 600, t, 0.04);
@@ -472,19 +475,21 @@ class SoundEngine {
 
     // Kerb rumble
     if (this.kerbGain && this.kerbOsc) {
-      if (onCurb && speedKmh > 30) {
+      if (onCurb && safeSpeed > 30) {
         this.kerbGain.gain.setTargetAtTime(0.18, t, 0.03);
-        const kerbFreq = 40 + (speedKmh / 350) * 60;
-        this.kerbOsc.frequency.setTargetAtTime(kerbFreq, t, 0.03);
+        const kerbFreq = 40 + (safeSpeed / 350) * 60;
+        if (Number.isFinite(kerbFreq)) this.kerbOsc.frequency.setTargetAtTime(kerbFreq, t, 0.03);
       } else {
         this.kerbGain.gain.setTargetAtTime(0.0001, t, 0.05);
       }
     }
 
-    // Wind noise
+    // Wind noise (uses safeSpeed >= 0 so Math.pow never returns NaN in reverse gear)
     if (this.windGain) {
-      const windVol = Math.pow(speedKmh / 350, 1.8) * 0.15;
-      this.windGain.gain.setTargetAtTime(windVol, t, 0.06);
+      const windVol = Math.pow(safeSpeed / 350, 1.8) * 0.15;
+      if (Number.isFinite(windVol)) {
+        this.windGain.gain.setTargetAtTime(windVol, t, 0.06);
+      }
     }
   }
 

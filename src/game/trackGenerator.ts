@@ -27,6 +27,8 @@ export interface GeneratedTrack {
   startGantry: THREE.Group;
   startLights: THREE.Mesh[];
   setStartLights: (lightsLitCount: number, lightsOut: boolean) => void;
+  setReflectionTexture: (tex: THREE.Texture | null, intensity?: number) => void;
+  setReflectionPassMode: (active: boolean) => void;
   getTrackPointAtProgress: (t: number) => { position: THREE.Vector3; tangent: THREE.Vector3; normal: THREE.Vector3 };
   getTargetCornerSpeedKmh: (t: number) => number;
   checkSurfaceType: (pos: THREE.Vector3, hintProgress?: number) => SurfaceInfo;
@@ -126,7 +128,7 @@ export function generateTrack(circuit: CircuitInfo, quality?: GraphicsQuality): 
     // Default: FIA Red & White
     const curbStep = Math.floor((t * trackLength) / 2.2);
     let cr = 0.98, cg = 0.98, cb = 0.98;
-    if (preset.id === 'retro') {
+    if (preset.id === 'retro' || preset.id === 'retro_pixel') {
       const retroMod = curbStep % 3;
       if (retroMod === 0) { cr = 1.0; cg = 0.16; cb = 0.52; } // OutRun Neon Magenta
       else if (retroMod === 1) { cr = 1.0; cg = 0.90; cb = 0.0; } // Arcade Turbo Yellow
@@ -268,27 +270,32 @@ export function generateTrack(circuit: CircuitInfo, quality?: GraphicsQuality): 
   trackGeom.setIndex(trackIndices);
   trackGeom.computeVertexNormals();
 
-  // Clean, uniform motorsport asphalt texture (zero dark groove band or reflection smudge)
+  // Clean, uniform motorsport asphalt texture + Real-Time Planar Reflection Shader uniforms
   let trackMat: THREE.Material;
-  const isFastLambertPreset = preset.id === 'low' || preset.id === 'dynamic_conservative' || preset.id === 'retro';
+  const reflectionUniforms = {
+    uPlanarReflectionMap: { value: null as THREE.Texture | null },
+    uReflectionIntensity: { value: 0.0 },
+  };
+  const isRetroAny = preset.id === 'retro' || preset.id === 'retro_pixel';
+  const isFastLambertPreset = preset.id === 'low' || preset.id === 'dynamic_conservative' || isRetroAny;
   if (typeof document !== 'undefined') {
-    const texSize = 512; // Always crisp 512px+ canvas so road markings are never pixelated
+    const texSize = preset.id === 'retro_pixel' ? 128 : 512; // 128px with NearestFilter for Retro Pixel '92, 512px for Retro Arcade '89 & HD modes
     const canvas = document.createElement('canvas');
     canvas.width = texSize;
     canvas.height = texSize;
     const ctx = canvas.getContext('2d')!;
 
-    ctx.fillStyle = preset.id === 'retro' ? '#1e1638' : '#2a2e37';
+    ctx.fillStyle = isRetroAny ? '#1e1638' : '#020204';
     ctx.fillRect(0, 0, texSize, texSize);
 
-    if (preset.id !== 'retro') {
+    if (!isRetroAny) {
       const imgData = ctx.getImageData(0, 0, texSize, texSize);
       const data = imgData.data;
       for (let p = 0; p < data.length; p += 4) {
-        const grain = (Math.random() - 0.5) * 14;
-        data[p] = Math.max(30, Math.min(68, data[p] + grain));
-        data[p + 1] = Math.max(32, Math.min(72, data[p + 1] + grain));
-        data[p + 2] = Math.max(38, Math.min(80, data[p + 2] + grain));
+        const grain = (Math.random() - 0.5) * 4;
+        data[p] = Math.max(1, Math.min(8, data[p] + grain));
+        data[p + 1] = Math.max(1, Math.min(8, data[p + 1] + grain));
+        data[p + 2] = Math.max(2, Math.min(10, data[p + 2] + grain));
       }
       ctx.putImageData(imgData, 0, 0);
     } else {
@@ -296,23 +303,24 @@ export function generateTrack(circuit: CircuitInfo, quality?: GraphicsQuality): 
       ctx.fillStyle = '#251c44';
       ctx.fillRect(0, 0, texSize, texSize / 2);
       ctx.fillStyle = '#ffe600';
-      ctx.fillRect(Math.round(texSize * 0.49), 40, Math.round(texSize * 0.02), 180);
-      ctx.fillRect(Math.round(texSize * 0.49), 300, Math.round(texSize * 0.02), 180);
+      const dashScale = texSize / 512;
+      ctx.fillRect(Math.round(texSize * 0.49), Math.round(40 * dashScale), Math.max(2, Math.round(texSize * 0.02)), Math.round(180 * dashScale));
+      ctx.fillRect(Math.round(texSize * 0.49), Math.round(300 * dashScale), Math.max(2, Math.round(texSize * 0.02)), Math.round(180 * dashScale));
     }
 
     const scale = texSize / 1024;
 
-    // Boundary lines (Electric Cyan in Retro mode, Crisp White in standard modes)
-    ctx.fillStyle = preset.id === 'retro' ? '#00f0ff' : '#f8fafc';
-    ctx.fillRect(Math.round(16 * scale), 0, Math.max(4, Math.round(22 * scale)), texSize);
-    ctx.fillRect(Math.round(986 * scale), 0, Math.max(4, Math.round(22 * scale)), texSize);
+    // Boundary lines (Electric Cyan in Retro modes, Crisp White in standard modes)
+    ctx.fillStyle = isRetroAny ? '#00f0ff' : '#f8fafc';
+    ctx.fillRect(Math.round(16 * scale), 0, Math.max(3, Math.round(22 * scale)), texSize);
+    ctx.fillRect(Math.round(986 * scale), 0, Math.max(3, Math.round(22 * scale)), texSize);
 
     // DRS Zone Markings & Lines
-    ctx.fillStyle = preset.id === 'retro' ? 'rgba(255, 42, 133, 0.9)' : 'rgba(0, 230, 118, 0.85)';
-    ctx.fillRect(Math.round(36 * scale), Math.round(120 * scale), Math.round(952 * scale), Math.max(3, Math.round(12 * scale)));
+    ctx.fillStyle = isRetroAny ? 'rgba(255, 42, 133, 0.9)' : 'rgba(0, 230, 118, 0.85)';
+    ctx.fillRect(Math.round(36 * scale), Math.round(120 * scale), Math.round(952 * scale), Math.max(2, Math.round(12 * scale)));
 
     // Starting grid slot box markings
-    ctx.strokeStyle = preset.id === 'retro' ? 'rgba(0, 240, 255, 0.9)' : 'rgba(255, 255, 255, 0.85)';
+    ctx.strokeStyle = isRetroAny ? 'rgba(0, 240, 255, 0.9)' : 'rgba(255, 255, 255, 0.85)';
     ctx.lineWidth = Math.max(2, Math.round(6 * scale));
     ctx.strokeRect(Math.round(320 * scale), Math.round(180 * scale), Math.round(140 * scale), Math.round(90 * scale));
     ctx.strokeRect(Math.round(560 * scale), Math.round(680 * scale), Math.round(140 * scale), Math.round(90 * scale));
@@ -322,7 +330,7 @@ export function generateTrack(circuit: CircuitInfo, quality?: GraphicsQuality): 
       [-140, 0, 140].forEach((xOff) => {
         const cx = (512 + xOff) * scale;
         const yb = yBase * scale;
-        ctx.fillStyle = preset.id === 'retro' ? 'rgba(255, 230, 0, 0.95)' : 'rgba(255, 230, 40, 0.82)';
+        ctx.fillStyle = isRetroAny ? 'rgba(255, 230, 0, 0.95)' : 'rgba(255, 230, 40, 0.82)';
         ctx.strokeStyle = 'rgba(0, 0, 0, 0.85)';
         ctx.lineWidth = Math.max(1.5, 4 * scale);
         ctx.beginPath();
@@ -343,23 +351,111 @@ export function generateTrack(circuit: CircuitInfo, quality?: GraphicsQuality): 
     trackTexture.wrapT = THREE.RepeatWrapping;
     trackTexture.repeat.set(1, 48);
     trackTexture.colorSpace = THREE.SRGBColorSpace;
-    trackTexture.anisotropy = Math.max(4, preset.anisotropy);
+    if (preset.id === 'retro_pixel') {
+      trackTexture.magFilter = THREE.NearestFilter;
+      trackTexture.minFilter = THREE.NearestFilter;
+      trackTexture.generateMipmaps = false;
+    } else {
+      trackTexture.anisotropy = Math.max(4, preset.anisotropy);
+    }
 
     if (isFastLambertPreset) {
       trackMat = new THREE.MeshLambertMaterial({
         map: trackTexture,
       });
     } else {
+      let asphaltNormalTex: THREE.CanvasTexture | undefined;
+      if (isUltra || preset.id === 'high') {
+        const nCanvas = document.createElement('canvas');
+        nCanvas.width = 256;
+        nCanvas.height = 256;
+        const nCtx = nCanvas.getContext('2d');
+        if (nCtx) {
+          const nImg = nCtx.createImageData(256, 256);
+          const nData = nImg.data;
+          for (let i = 0; i < nData.length; i += 4) {
+            nData[i] = 128 + (Math.random() - 0.5) * 28;
+            nData[i + 1] = 128 + (Math.random() - 0.5) * 28;
+            nData[i + 2] = 255;
+            nData[i + 3] = 255;
+          }
+          nCtx.putImageData(nImg, 0, 0);
+          asphaltNormalTex = new THREE.CanvasTexture(nCanvas);
+          asphaltNormalTex.wrapS = THREE.RepeatWrapping;
+          asphaltNormalTex.wrapT = THREE.RepeatWrapping;
+          asphaltNormalTex.repeat.set(6, 260);
+          asphaltNormalTex.anisotropy = Math.max(4, preset.anisotropy);
+        }
+      }
+
       trackMat = new THREE.MeshStandardMaterial({
         map: trackTexture,
-        roughness: 0.88,
+        normalMap: asphaltNormalTex,
+        normalScale: new THREE.Vector2(0.08, 0.08),
+        roughness: 0.75,
         metalness: 0.0,
         envMapIntensity: 0.0,
       });
+
+      // Initialize default fallback sampler to trackTexture until planar reflection RT is bound
+      reflectionUniforms.uPlanarReflectionMap.value = trackTexture;
+
+      // Inject Real-Time Planar Road Reflection Shader on pure jet-black asphalt
+      trackMat.onBeforeCompile = (shader) => {
+        shader.uniforms.uPlanarReflectionMap = reflectionUniforms.uPlanarReflectionMap;
+        shader.uniforms.uReflectionIntensity = reflectionUniforms.uReflectionIntensity;
+
+        shader.vertexShader =
+          `varying vec2 vTrackUv;\nvarying vec4 vReflClipPos;\nvarying vec3 vReflWorldPos;\n` +
+          shader.vertexShader.replace(
+            '#include <project_vertex>',
+            `#include <project_vertex>
+            vTrackUv = uv;
+            vReflClipPos = gl_Position;
+            vReflWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;`
+          );
+
+        shader.fragmentShader =
+          `uniform sampler2D uPlanarReflectionMap;\nuniform float uReflectionIntensity;\nvarying vec2 vTrackUv;\nvarying vec4 vReflClipPos;\nvarying vec3 vReflWorldPos;\n` +
+          shader.fragmentShader.replace(
+            '#include <dithering_fragment>',
+            `#include <dithering_fragment>
+            vec4 rawTex = texture2D(map, vTrackUv * vec2(1.0, 48.0));
+            float isMarking = smoothstep(0.15, 0.35, max(rawTex.r, max(rawTex.g, rawTex.b)));
+            vec3 pureBlackRoad = vec3(0.01, 0.01, 0.012);
+            gl_FragColor.rgb = mix(pureBlackRoad, gl_FragColor.rgb, isMarking);
+            if (uReflectionIntensity > 0.001) {
+              vec2 reflUV = (vReflClipPos.xy / max(0.0001, vReflClipPos.w)) * 0.5 + 0.5;
+              reflUV.x = 1.0 - reflUV.x;
+              vec2 microRipple = sin(vReflWorldPos.xz * 5.5) * 0.0022 + cos(vReflWorldPos.zx * 13.0) * 0.0012;
+              vec2 uvSample = clamp(reflUV + microRipple, 0.006, 0.994);
+              vec2 b1 = vec2(0.0045, 0.0055);
+              vec2 b2 = vec2(0.0090, 0.0110);
+              vec3 reflColor = texture2D(uPlanarReflectionMap, uvSample).rgb * 0.24
+                + texture2D(uPlanarReflectionMap, clamp(uvSample + vec2(b1.x, 0.0), 0.004, 0.996)).rgb * 0.12
+                + texture2D(uPlanarReflectionMap, clamp(uvSample - vec2(b1.x, 0.0), 0.004, 0.996)).rgb * 0.12
+                + texture2D(uPlanarReflectionMap, clamp(uvSample + vec2(0.0, b1.y), 0.004, 0.996)).rgb * 0.12
+                + texture2D(uPlanarReflectionMap, clamp(uvSample - vec2(0.0, b1.y), 0.004, 0.996)).rgb * 0.12
+                + texture2D(uPlanarReflectionMap, clamp(uvSample + b1, 0.004, 0.996)).rgb * 0.07
+                + texture2D(uPlanarReflectionMap, clamp(uvSample - b1, 0.004, 0.996)).rgb * 0.07
+                + texture2D(uPlanarReflectionMap, clamp(uvSample + vec2(b2.x, -b2.y), 0.004, 0.996)).rgb * 0.07
+                + texture2D(uPlanarReflectionMap, clamp(uvSample + vec2(-b2.x, b2.y), 0.004, 0.996)).rgb * 0.07;
+              float luma = dot(reflColor, vec3(0.299, 0.587, 0.114));
+              vec3 blackScreenRefl = mix(reflColor, vec3(luma), 0.20);
+              vec3 viewVec = normalize(cameraPosition - vReflWorldPos);
+              float ndotv = clamp(abs(viewVec.y), 0.0, 1.0);
+              float fresnel = mix(0.45, 0.95, pow(1.0 - ndotv, 1.8));
+              float groovePolish = 1.0 - smoothstep(0.14, 0.49, abs(vTrackUv.x - 0.5));
+              float reflStrength = clamp(uReflectionIntensity * fresnel * mix(0.80, 1.10, groovePolish), 0.0, 0.22);
+              gl_FragColor.rgb = mix(gl_FragColor.rgb + blackScreenRefl * reflStrength, max(gl_FragColor.rgb, blackScreenRefl * 0.35), isMarking);
+            }`
+          );
+      };
+      trackMat.needsUpdate = true;
     }
   } else {
     trackMat = new THREE.MeshLambertMaterial({
-      color: 0x2a2e37,
+      color: 0x020204,
     });
   }
 
@@ -367,11 +463,12 @@ export function generateTrack(circuit: CircuitInfo, quality?: GraphicsQuality): 
   trackMesh.receiveShadow = false;
   group.add(trackMesh);
 
-  // Curbs with DoubleSide
+  // Curbs with DoubleSide (Glossy painted finish in Ultra Realistic)
   const curbMat = new THREE.MeshStandardMaterial({
     vertexColors: true,
-    roughness: 0.45,
-    metalness: 0.1,
+    roughness: isUltra ? 0.22 : 0.55,
+    metalness: isUltra ? 0.08 : 0.06,
+    envMapIntensity: isUltra ? 0.85 : 0.0,
     side: THREE.DoubleSide,
   });
 
@@ -391,10 +488,12 @@ export function generateTrack(circuit: CircuitInfo, quality?: GraphicsQuality): 
   curbMeshR.receiveShadow = true;
   group.add(curbMeshR);
 
-  // Runoff Left & Right
+  // Runoff Left & Right (Glossy painted FIA apron in Ultra Realistic)
   const runoffMat = new THREE.MeshStandardMaterial({
     vertexColors: true,
-    roughness: 0.65,
+    roughness: isUltra ? 0.30 : 0.78,
+    metalness: isUltra ? 0.05 : 0.0,
+    envMapIntensity: isUltra ? 0.65 : 0.0,
     side: THREE.DoubleSide,
   });
 
@@ -417,8 +516,9 @@ export function generateTrack(circuit: CircuitInfo, quality?: GraphicsQuality): 
   // Barriers on Left and Right with DoubleSide so both walls are 100% visible from every angle
   const barrierMat = new THREE.MeshStandardMaterial({
     vertexColors: true,
-    roughness: 0.35,
-    metalness: 0.45,
+    roughness: 0.42,
+    metalness: 0.35,
+    envMapIntensity: isUltra ? 0.45 : 0.15,
     side: THREE.DoubleSide,
   });
 
@@ -461,31 +561,37 @@ export function generateTrack(circuit: CircuitInfo, quality?: GraphicsQuality): 
   }
 
   let groundTex: THREE.CanvasTexture | undefined;
-  if (typeof document !== 'undefined' && preset.id === 'retro') {
+  if (typeof document !== 'undefined' && isRetroAny) {
+    const gSize = preset.id === 'retro_pixel' ? 64 : 256;
     const gCanvas = document.createElement('canvas');
-    gCanvas.width = 256;
-    gCanvas.height = 256;
+    gCanvas.width = gSize;
+    gCanvas.height = gSize;
     const gCtx = gCanvas.getContext('2d');
     if (gCtx) {
       gCtx.fillStyle = '#0e0424';
-      gCtx.fillRect(0, 0, 256, 256);
+      gCtx.fillRect(0, 0, gSize, gSize);
       // Synthwave OutRun Neon Grid
       gCtx.strokeStyle = 'rgba(255, 42, 133, 0.55)';
-      gCtx.lineWidth = 4;
-      gCtx.strokeRect(0, 0, 256, 256);
+      gCtx.lineWidth = preset.id === 'retro_pixel' ? 2 : 4;
+      gCtx.strokeRect(0, 0, gSize, gSize);
       gCtx.strokeStyle = 'rgba(0, 240, 255, 0.30)';
-      gCtx.lineWidth = 2;
+      gCtx.lineWidth = preset.id === 'retro_pixel' ? 1 : 2;
       gCtx.beginPath();
-      gCtx.moveTo(128, 0);
-      gCtx.lineTo(128, 256);
-      gCtx.moveTo(0, 128);
-      gCtx.lineTo(256, 128);
+      gCtx.moveTo(gSize / 2, 0);
+      gCtx.lineTo(gSize / 2, gSize);
+      gCtx.moveTo(0, gSize / 2);
+      gCtx.lineTo(gSize, gSize / 2);
       gCtx.stroke();
       groundTex = new THREE.CanvasTexture(gCanvas);
       groundTex.wrapS = THREE.RepeatWrapping;
       groundTex.wrapT = THREE.RepeatWrapping;
       groundTex.repeat.set(180, 180);
       groundTex.colorSpace = THREE.SRGBColorSpace;
+      if (preset.id === 'retro_pixel') {
+        groundTex.magFilter = THREE.NearestFilter;
+        groundTex.minFilter = THREE.NearestFilter;
+        groundTex.generateMipmaps = false;
+      }
     }
   } else if (typeof document !== 'undefined' && (isUltra || preset.id === 'high' || isDynamicGraphics(preset.id))) {
     const gCanvas = document.createElement('canvas');
@@ -516,7 +622,9 @@ export function generateTrack(circuit: CircuitInfo, quality?: GraphicsQuality): 
   const groundMat = new THREE.MeshStandardMaterial({
     color: groundTex ? 0xffffff : groundColor,
     map: groundTex,
-    roughness: 0.92,
+    roughness: 0.94,
+    metalness: 0.0,
+    envMapIntensity: 0.0,
   });
   const groundMesh = new THREE.Mesh(groundGeom, groundMat);
   groundMesh.position.y = -0.3;
@@ -531,7 +639,12 @@ export function generateTrack(circuit: CircuitInfo, quality?: GraphicsQuality): 
   startGantry.position.copy(startPt);
   startGantry.lookAt(startPt.clone().add(startTangent));
 
-  const metalMat = new THREE.MeshStandardMaterial({ color: 0x2a2b30, metalness: 0.85, roughness: 0.25 });
+  const metalMat = new THREE.MeshStandardMaterial({
+    color: 0x2a2b30,
+    metalness: 0.72,
+    roughness: 0.28,
+    envMapIntensity: isUltra ? 0.65 : 0.25,
+  });
   const pillarGeom = new THREE.BoxGeometry(1.0, 10.5, 1.0);
 
   // Pillar positions placed comfortably behind the outer barrier (half road 11 + curb 1.4 + runoff 3.6 + barrier 1.0 = 17m)
@@ -1141,6 +1254,22 @@ export function generateTrack(circuit: CircuitInfo, quality?: GraphicsQuality): 
     };
   };
 
+  const setReflectionTexture = (tex: THREE.Texture | null, intensity: number = 0.68) => {
+    if (tex) {
+      reflectionUniforms.uPlanarReflectionMap.value = tex;
+      reflectionUniforms.uReflectionIntensity.value = intensity;
+    } else {
+      reflectionUniforms.uReflectionIntensity.value = 0.0;
+    }
+  };
+
+  const setReflectionPassMode = (active: boolean) => {
+    trackMesh.visible = !active;
+    groundMesh.visible = !active;
+    runoffMeshL.visible = !active;
+    runoffMeshR.visible = !active;
+  };
+
   return {
     group,
     sceneryGroup,
@@ -1150,6 +1279,8 @@ export function generateTrack(circuit: CircuitInfo, quality?: GraphicsQuality): 
     startGantry,
     startLights,
     setStartLights,
+    setReflectionTexture,
+    setReflectionPassMode,
     getTrackPointAtProgress,
     getTargetCornerSpeedKmh,
     checkSurfaceType,

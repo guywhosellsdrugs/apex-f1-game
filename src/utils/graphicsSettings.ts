@@ -2,6 +2,7 @@ export type GraphicsQuality =
   | 'dynamic_conservative'
   | 'dynamic_aggressive'
   | 'retro'
+  | 'retro_pixel'
   | 'low'
   | 'medium'
   | 'high'
@@ -11,6 +12,7 @@ export const GRAPHICS_QUALITY_OPTIONS: GraphicsQuality[] = [
   'dynamic_conservative',
   'dynamic_aggressive',
   'retro',
+  'retro_pixel',
   'low',
   'medium',
   'high',
@@ -126,6 +128,32 @@ export const GRAPHICS_PRESETS: Record<GraphicsQuality, GraphicsPresetConfig> = {
     cameraSmoothingHz: 34,
     isRetroStyle: true,
   },
+  retro_pixel: {
+    id: 'retro_pixel',
+    label: "Retro Pixel '92 (Slightly Pixelated 16-Bit CRT Arcade · 60+ FPS)",
+    shortLabel: "Retro Pixel '92",
+    hudButtonLabel: 'Retro Pixel',
+    badge: '16-BIT PIXELATED · 60+ FPS',
+    description:
+      'Slightly pixelated 16-bit CRT arcade renderer with crisp nearest-neighbor pixel blocks, flat-shaded low-poly F1 cars, OutRun neon grid horizon, and ultra-fast 60+ FPS.',
+    maxPixelRatio: 0.42,
+    antialias: false,
+    shadowsEnabled: false,
+    shadowMapSize: 256,
+    useSoftShadows: false,
+    useEnvironmentReflections: false,
+    envMapIntensity: 0.5,
+    trackSegments: 320,
+    asphaltTextureSize: 512,
+    anisotropy: 1,
+    sceneryMode: 'standard',
+    carGeometrySegments: 8,
+    usePhysicalClearcoat: false,
+    enableRimAndFillLights: true,
+    enableSpeedParticlesAndSparks: true,
+    cameraSmoothingHz: 34,
+    isRetroStyle: true,
+  },
   low: {
     id: 'low',
     label: 'Low (Maximum FPS / Entry Devices · Crisp Native Resolution)',
@@ -183,14 +211,14 @@ export const GRAPHICS_PRESETS: Record<GraphicsQuality, GraphicsPresetConfig> = {
     hudButtonLabel: 'High',
     badge: 'HIGH PBR · UNCAPPED',
     description:
-      'High-definition F1 broadcast visuals with clearcoat bodywork, full circuit landmarks, and uncapped FPS.',
+      'High-definition F1 broadcast visuals with clearcoat bodywork, natural environment reflections, full circuit landmarks, and uncapped FPS.',
     maxPixelRatio: 1.4,
     antialias: true,
     shadowsEnabled: false,
     shadowMapSize: 1024,
     useSoftShadows: false,
-    useEnvironmentReflections: false,
-    envMapIntensity: 1.15,
+    useEnvironmentReflections: true,
+    envMapIntensity: 0.72,
     trackSegments: 880,
     asphaltTextureSize: 1024,
     anisotropy: 8,
@@ -203,19 +231,19 @@ export const GRAPHICS_PRESETS: Record<GraphicsQuality, GraphicsPresetConfig> = {
   },
   ultra: {
     id: 'ultra',
-    label: 'Ultra Realistic (Maximum Detail · Uncapped FPS)',
+    label: 'Ultra Realistic (Photorealistic Clearcoat Reflections · Uncapped FPS)',
     shortLabel: 'Ultra Realistic',
     hudButtonLabel: 'Ultra',
-    badge: 'ULTRA · UNCAPPED FPS',
+    badge: 'ULTRA PBR · TRUE REFLECTIONS',
     description:
-      'Maximum high-resolution 3D rendering with full circuit architecture, multi-layer clearcoat bodywork, and uncapped FPS.',
+      'Photorealistic 360° PMREM sky & horizon environment reflections, Neutral broadcast tone-mapping (zero harsh glare blowouts), multi-layer automotive clearcoat lacquer, satin carbon weave, and uncapped FPS.',
     maxPixelRatio: 1.75,
     antialias: true,
     shadowsEnabled: false,
     shadowMapSize: 2048,
     useSoftShadows: false,
-    useEnvironmentReflections: false,
-    envMapIntensity: 1.35,
+    useEnvironmentReflections: true,
+    envMapIntensity: 0.82,
     trackSegments: 1120,
     asphaltTextureSize: 2048,
     anisotropy: 16,
@@ -292,6 +320,7 @@ export function getStoredGraphicsQuality(): GraphicsQuality {
       raw === 'dynamic_conservative' ||
       raw === 'dynamic_aggressive' ||
       raw === 'retro' ||
+      raw === 'retro_pixel' ||
       raw === 'low' ||
       raw === 'medium' ||
       raw === 'high' ||
@@ -338,6 +367,10 @@ export const GRAPHICS_PRESET_LABELS: Record<
   retro: {
     label: GRAPHICS_PRESETS.retro.shortLabel,
     subtitle: GRAPHICS_PRESETS.retro.description,
+  },
+  retro_pixel: {
+    label: GRAPHICS_PRESETS.retro_pixel.shortLabel,
+    subtitle: GRAPHICS_PRESETS.retro_pixel.description,
   },
   low: {
     label: GRAPHICS_PRESETS.low.shortLabel,

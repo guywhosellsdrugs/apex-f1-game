@@ -1220,30 +1220,40 @@ export const TutorialModal: React.FC<TutorialModalProps> = ({
         <div className="space-y-4">
           {renderOnTrackPracticeCard(3)}
 
-          {/* 1-Click Retro Arcade '89 Showcase Banner */}
+          {/* 1-Click Retro Arcade '89 & Retro Pixel '92 Showcase Banner */}
           <div className="p-4 rounded-2xl bg-gradient-to-r from-[#1d063a] via-[#340952] to-[#120428] border-2 border-[#ff2a85] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-[0_0_25px_rgba(255,42,133,0.25)]">
             <div className="space-y-1">
               <div className="flex items-center gap-2">
                 <span className="px-2 py-0.5 rounded bg-[#ff2a85] text-white font-mono font-black text-[10px] uppercase">
-                  NEW · RETRO ARCADE &apos;89
+                  RETRO ARCADE &apos;89 + RETRO PIXEL &apos;92
                 </span>
                 <span className="text-xs font-mono text-[#00f0ff] font-bold">
-                  90s Virtua Racing Polygons + OutRun Synthwave Horizon
+                  Crisp Polygons or Slightly Pixelated 16-Bit CRT
                 </span>
               </div>
               <p className="text-xs text-neutral-200">
-                Activate both the <strong>Retro Arcade 3D Polygon Graphics</strong> and <strong>Synthwave Cabinet UI Theme</strong> with one click!
+                Choose between <strong>Retro Arcade &apos;89</strong> (crisp 90s polygons) or <strong>Retro Pixel &apos;92</strong> (slightly pixelated 16-bit CRT blocks)!
               </p>
             </div>
-            <button
-              type="button"
-              onClick={handleActivateRetroBundle}
-              className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-[#ff2a85] to-[#00f0ff] text-black font-black text-xs uppercase tracking-wider cursor-pointer whitespace-nowrap shrink-0 shadow-lg"
-            >
-              {selectedGfx === 'retro' && selectedTheme === 'retro'
-                ? '✓ Retro Style Active!'
-                : 'Activate Retro Style'}
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={handleActivateRetroBundle}
+                className="px-3.5 py-2.5 rounded-xl bg-gradient-to-r from-[#ff2a85] to-[#00f0ff] text-black font-black text-xs uppercase tracking-wider cursor-pointer whitespace-nowrap shadow-lg"
+              >
+                {selectedGfx === 'retro' ? "✓ Retro Arcade '89" : "Retro Arcade '89"}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  handleSelectGraphics('retro_pixel');
+                  handleSelectTheme('retro');
+                }}
+                className="px-3.5 py-2.5 rounded-xl bg-gradient-to-r from-purple-500 to-cyan-400 text-black font-black text-xs uppercase tracking-wider cursor-pointer whitespace-nowrap shadow-lg"
+              >
+                {selectedGfx === 'retro_pixel' ? "✓ Retro Pixel '92" : "Retro Pixel '92"}
+              </button>
+            </div>
           </div>
 
           {/* 2. Interactive Dynamic Graphics (Crisp 1.0x+ Conservative Dynamic + Retro + Presets) */}
@@ -1258,7 +1268,7 @@ export const TutorialModal: React.FC<TutorialModalProps> = ({
               </span>
             </div>
             <p className="text-xs text-neutral-400">
-              <strong>Conservative Dynamic</strong> now locks <strong>crisp 1.0x+ native screen resolution with anti-aliasing</strong> so the image is never blurry or pixelated, while keeping 60+ FPS via smart scenery and draw-call culling!
+              <strong>Conservative Dynamic</strong> locks <strong>crisp 1.0x+ native screen resolution with anti-aliasing</strong>, while <strong>Ultra Realistic</strong> uses physically calibrated 360° PMREM clearcoat reflections with Neutral broadcast tone-mapping!
             </p>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {GRAPHICS_QUALITY_OPTIONS.map((q) => (
@@ -1270,6 +1280,8 @@ export const TutorialModal: React.FC<TutorialModalProps> = ({
                     selectedGfx === q
                       ? q === 'retro'
                         ? 'bg-[#ff2a85]/25 border-[#ff2a85] text-white'
+                        : q === 'retro_pixel'
+                        ? 'bg-purple-500/25 border-purple-400 text-white'
                         : q === 'dynamic_conservative'
                         ? 'bg-emerald-500/20 border-emerald-400 text-white'
                         : q === 'dynamic_aggressive'

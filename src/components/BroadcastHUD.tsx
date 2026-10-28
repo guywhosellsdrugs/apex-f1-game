@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { TelemetryData, CircuitInfo, CameraView, Driver } from '../types/racing';
+import { TelemetryData, CircuitInfo, CameraView, Driver, TIRE_COMPOUND_SPECS, TireCompound } from '../types/racing';
 import { DRIVERS, TEAMS } from '../constants/f1Data';
 import {
   Gamepad,
@@ -211,6 +211,9 @@ export const BroadcastHUD: React.FC<BroadcastHUDProps> = ({
           gapToAheadSeconds: r.gapToAheadSeconds || 0,
           gapToPlayerSeconds: r.gapToPlayerSeconds || 0,
           leadOverP2Seconds: r.leadOverP2Seconds,
+          tireCompound: (r.tireCompound || 'SOFT') as TireCompound,
+          tireLife: r.tireLife ?? 100,
+          pitStopsCount: r.pitStopsCount || 0,
         };
       });
     }
@@ -234,6 +237,9 @@ export const BroadcastHUD: React.FC<BroadcastHUDProps> = ({
       gapToAheadSeconds: 1.5,
       gapToPlayerSeconds: (idx + 1 - telemetry.position) * 1.5,
       leadOverP2Seconds: idx === 0 ? 1.5 : undefined,
+      tireCompound: (idx % 3 === 0 ? 'SOFT' : idx % 3 === 1 ? 'MEDIUM' : 'HARD') as TireCompound,
+      tireLife: 100,
+      pitStopsCount: 0,
     }));
   }, [telemetry.carsRadar, telemetry.position, playerDriver, telemetry.teammateShortName]);
 
@@ -241,16 +247,18 @@ export const BroadcastHUD: React.FC<BroadcastHUDProps> = ({
   const tireLifePct = telemetry.tireLife ?? Math.max(0, 100 - telemetry.tireWear);
   const tireGripPct = Math.round((telemetry.tireGripMultiplier ?? 1.0) * 100);
   const tireStatus = telemetry.tireStatusLabel || (tireLifePct < 20 ? 'CRITICAL' : tireLifePct < 42 ? 'BLISTERING' : tireLifePct < 70 ? 'GRAINING' : 'OPTIMAL');
+  const activeCompoundSpec = TIRE_COMPOUND_SPECS[telemetry.tireCompound] || TIRE_COMPOUND_SPECS.SOFT;
+  const thermalState = telemetry.tireThermalState || 'OPTIMAL_WINDOW';
   const compoundRingClass =
     telemetry.tireCompound === 'SOFT'
-      ? 'border-red-500 text-red-500'
+      ? 'border-red-500 text-red-500 shadow-[0_0_8px_rgba(239,68,68,0.45)]'
       : telemetry.tireCompound === 'MEDIUM'
-      ? 'border-amber-400 text-amber-400'
-      : 'border-slate-200 text-slate-100';
+      ? 'border-amber-400 text-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.45)]'
+      : 'border-slate-200 text-slate-100 shadow-[0_0_8px_rgba(248,250,252,0.35)]';
 
   const renderTelemetryCluster = () => (
-    <div className="flex flex-col gap-2 w-[285px] sm:w-[315px] pointer-events-auto">
-      {/* Interactive Tire Life, Mechanical Grip & Pit Box Strategy Strip */}
+    <div className="flex flex-col gap-2 w-[295px] sm:w-[325px] pointer-events-auto">
+      {/* Interactive Tire Health, Compound Composition, Thermal Window & Pit Box Strategy Strip */}
       <div className={`flex flex-col gap-2 px-3.5 py-2.5 rounded-xl border ${panelSurface}`}>
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2.5">
@@ -258,12 +266,12 @@ export const BroadcastHUD: React.FC<BroadcastHUDProps> = ({
               {telemetry.tireCompound[0]}
             </div>
             <div className="flex flex-col leading-tight">
-              <div className="flex items-center gap-1.5">
-                <span className={`text-[9px] uppercase tracking-wider font-bold ${mutedText}`}>
-                  PIRELLI {telemetry.tireCompound}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className={`text-[9px] uppercase tracking-wider font-black ${primaryText}`}>
+                  {activeCompoundSpec.label}
                 </span>
                 <span
-                  className={`text-[9px] font-mono font-black px-1.5 py-0.2 rounded ${
+                  className={`text-[8px] font-mono font-black px-1.5 py-0.2 rounded ${
                     tireStatus === 'OPTIMAL'
                       ? 'bg-emerald-500/20 text-emerald-400'
                       : tireStatus === 'GRAINING'
@@ -274,13 +282,26 @@ export const BroadcastHUD: React.FC<BroadcastHUDProps> = ({
                   {tireGripPct}% GRIP · {tireStatus}
                 </span>
               </div>
-              <span className={`text-xs font-mono font-bold tabular-nums ${primaryText}`}>
-                {tireLifePct}% LIFE · {formatTemp(telemetry.tireTemp, unitSystem)}
-              </span>
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <span className={`text-xs font-mono font-bold tabular-nums ${primaryText}`}>
+                  {tireLifePct}% HEALTH · {formatTemp(telemetry.tireTemp, unitSystem)}
+                </span>
+                <span
+                  className={`text-[8px] font-mono font-bold px-1 rounded ${
+                    thermalState === 'OPTIMAL_WINDOW'
+                      ? 'bg-emerald-500/15 text-emerald-400'
+                      : thermalState === 'COLD'
+                      ? 'bg-sky-500/20 text-sky-300'
+                      : 'bg-orange-500/25 text-orange-400'
+                  }`}
+                >
+                  {thermalState === 'OPTIMAL_WINDOW' ? 'OPT TEMP' : thermalState}
+                </span>
+              </div>
             </div>
           </div>
 
-          <div className="flex flex-col items-end gap-1">
+          <div className="flex flex-col items-end gap-1 shrink-0">
             <div className="w-20 bg-zinc-800/80 h-2 rounded-full overflow-hidden border border-white/10">
               <div
                 className={`h-full transition-all duration-300 ${
@@ -301,9 +322,15 @@ export const BroadcastHUD: React.FC<BroadcastHUDProps> = ({
           </div>
         </div>
 
+        {/* Active Compound Composition Characteristics Summary */}
+        <div className={`flex items-center justify-between text-[9px] font-mono px-2 py-1 rounded border ${subSurface}`}>
+          <span className="truncate">{activeCompoundSpec.summary}</span>
+          <span className={mutedText}>Stint: {activeCompoundSpec.idealStintLaps}</span>
+        </div>
+
         {/* Compound Switcher + [P] Pit Box Service Controls */}
         {!isQualifyingMode && onPitStop && (
-          <div className="flex items-center justify-between gap-1 pt-1 border-t border-white/10">
+          <div className="flex items-center justify-between gap-1 pt-0.5">
             <div className="flex items-center gap-1">
               {(['SOFT', 'MEDIUM', 'HARD'] as const).map((comp) => {
                 const isSelected = telemetry.tireCompound === comp;
@@ -315,15 +342,15 @@ export const BroadcastHUD: React.FC<BroadcastHUDProps> = ({
                     className={`px-2 py-0.5 rounded text-[9px] font-mono font-bold transition-all cursor-pointer border ${
                       isSelected
                         ? comp === 'SOFT'
-                          ? 'bg-red-600 text-white border-red-400'
+                          ? 'bg-red-600 text-white border-red-400 shadow-sm'
                           : comp === 'MEDIUM'
-                          ? 'bg-amber-500 text-black border-amber-300'
-                          : 'bg-slate-200 text-black border-white'
+                          ? 'bg-amber-500 text-black border-amber-300 shadow-sm'
+                          : 'bg-slate-200 text-black border-white shadow-sm'
                         : `${subSurface} opacity-75 hover:opacity-100`
                     }`}
-                    title={`Pit & fit fresh 100% Pirelli ${comp} compound`}
+                    title={`${raceState === 'countdown' ? 'Start race on' : 'Pit & fit fresh 100%'} ${TIRE_COMPOUND_SPECS[comp].label} (${TIRE_COMPOUND_SPECS[comp].summary})`}
                   >
-                    {comp[0]} · {comp === 'SOFT' ? '+7% Grip' : comp === 'MEDIUM' ? 'Bal' : 'Long'}
+                    {comp[0]} · {comp === 'SOFT' ? '+8% Grip' : comp === 'MEDIUM' ? '1.0x Bal' : '0.52x Wear'}
                   </button>
                 );
               })}
@@ -547,7 +574,7 @@ export const BroadcastHUD: React.FC<BroadcastHUDProps> = ({
           {/* FIA Leaderboard Tower */}
           <div className={`hidden sm:flex flex-col gap-0.5 p-2.5 rounded-xl border w-full ${panelSurface}`}>
             <div className={`px-1.5 pb-1.5 mb-1 text-[10px] uppercase font-bold tracking-wider flex items-center justify-between border-b ${isLight ? 'border-slate-200 text-slate-500' : 'border-white/10 text-zinc-400'}`}>
-              <span>POS · DRIVER</span>
+              <span>POS · DRIVER · TIRE</span>
               <span>INTERVAL</span>
             </div>
             {timingTower.map((item) => {
@@ -558,9 +585,17 @@ export const BroadcastHUD: React.FC<BroadcastHUDProps> = ({
                 isTeammate,
                 gapToLeaderSeconds,
                 gapToPlayerSeconds,
+                tireCompound,
+                tireLife,
               } = item;
               const team = TEAMS.find((t) => t.id === driver.teamId);
               const teamColor = team?.primaryColor || '#e11d48';
+              const compBadgeClass =
+                tireCompound === 'SOFT'
+                  ? 'border-red-500 text-red-400 bg-red-950/70'
+                  : tireCompound === 'MEDIUM'
+                  ? 'border-amber-400 text-amber-300 bg-amber-950/70'
+                  : 'border-slate-200 text-slate-100 bg-zinc-900';
 
               return (
                 <div
@@ -618,6 +653,19 @@ export const BroadcastHUD: React.FC<BroadcastHUDProps> = ({
                           TM
                         </span>
                       )}
+                    </span>
+                    <span
+                      className={`w-3.5 h-3.5 rounded-full border text-[8px] font-mono font-black flex items-center justify-center shrink-0 ${compBadgeClass}`}
+                      title={`Pirelli ${tireCompound} (${tireLife}% Tire Health)`}
+                    >
+                      {tireCompound[0]}
+                    </span>
+                    <span
+                      className={`text-[8px] font-mono tabular-nums ${
+                        tireLife < 25 ? 'text-red-400 font-bold' : tireLife < 55 ? 'text-amber-400' : mutedText
+                      }`}
+                    >
+                      {tireLife}%
                     </span>
                   </div>
 

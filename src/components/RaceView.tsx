@@ -219,7 +219,13 @@ export const RaceView: React.FC<RaceViewProps> = ({
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, gfxPreset.maxPixelRatio));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.shadowMap.enabled = false;
-    renderer.toneMapping = THREE.NoToneMapping;
+    const isHighOrUltra = gfxPreset.id === 'high' || gfxPreset.id === 'ultra';
+    const isRetroAny = gfxPreset.id === 'retro' || gfxPreset.id === 'retro_pixel';
+    renderer.toneMapping = isHighOrUltra ? THREE.NeutralToneMapping : THREE.NoToneMapping;
+    renderer.toneMappingExposure = gfxPreset.id === 'ultra' ? 0.96 : 1.0;
+
+    // Apply crisp nearest-neighbor pixel upscaling ONLY for 'retro_pixel' (leave 'retro' completely untouched)
+    renderer.domElement.style.imageRendering = gfxPreset.id === 'retro_pixel' ? 'pixelated' : 'auto';
 
     containerRef.current.appendChild(renderer.domElement);
 
@@ -232,7 +238,7 @@ export const RaceView: React.FC<RaceViewProps> = ({
     const sCtx = skyCanvas.getContext('2d');
     if (sCtx) {
       const grad = sCtx.createLinearGradient(0, 0, 0, 512);
-      if (gfxPreset.id === 'retro') {
+      if (isRetroAny) {
         // 90s OutRun / Virtua Racing Synthwave Horizon Sky
         grad.addColorStop(0, '#070214');
         grad.addColorStop(0.32, '#1b063b');
@@ -278,12 +284,12 @@ export const RaceView: React.FC<RaceViewProps> = ({
       sCtx.fillRect(0, 0, 512, 512);
 
       // Stars & Synthwave bands for Retro or twilight circuits
-      if (gfxPreset.id === 'retro') {
+      if (isRetroAny) {
         sCtx.fillStyle = '#00f0ff';
         for (let s = 0; s < 220; s++) {
           const sx = Math.random() * 512;
           const sy = Math.random() * 260;
-          sCtx.fillRect(sx, sy, 2, 2);
+          sCtx.fillRect(sx, sy, gfxPreset.id === 'retro_pixel' ? 4 : 2, gfxPreset.id === 'retro_pixel' ? 4 : 2);
         }
         // Horizontal synthwave horizon scan stripes
         sCtx.fillStyle = 'rgba(20, 4, 48, 0.45)';
@@ -304,6 +310,10 @@ export const RaceView: React.FC<RaceViewProps> = ({
 
       const skyTex = new THREE.CanvasTexture(skyCanvas);
       skyTex.colorSpace = THREE.SRGBColorSpace;
+      if (gfxPreset.id === 'retro_pixel') {
+        skyTex.magFilter = THREE.NearestFilter;
+        skyTex.minFilter = THREE.NearestFilter;
+      }
       const skyGeom = new THREE.SphereGeometry(skyRadius, 32, 20);
       const skyMat = new THREE.MeshBasicMaterial({ map: skyTex, side: THREE.BackSide });
       skyDomeMesh = new THREE.Mesh(skyGeom, skyMat);
@@ -316,7 +326,7 @@ export const RaceView: React.FC<RaceViewProps> = ({
     let sunColor = 0xfffbeb;
     let sunIntensity = 1.65;
 
-    if (gfxPreset.id === 'retro') {
+    if (isRetroAny) {
       hemiSky = 0xff2a85;
       hemiGround = 0x00f0ff;
       sunColor = 0xffe600;
@@ -350,23 +360,119 @@ export const RaceView: React.FC<RaceViewProps> = ({
     const activeSceneFog = new THREE.FogExp2(circuit.fogColor, fogDensity);
     scene.fog = activeSceneFog;
 
-    const hemiLight = new THREE.HemisphereLight(hemiSky, hemiGround, 0.95);
+    // Physically Calibrated 360° PMREM Environment Reflections for High / Ultra Realistic
+    // Uses a smooth sky + horizon + soft studio bounce dome (zero harsh sun disk, so no circular lens ever forms)
+    let pmremGenerator: THREE.PMREMGenerator | null = null;
+    let pmremRenderTarget: THREE.WebGLRenderTarget | null = null;
+    if (gfxPreset.useEnvironmentReflections) {
+      pmremGenerator = new THREE.PMREMGenerator(renderer);
+      pmremGenerator.compileCubemapShader();
+
+      const envScene = new THREE.Scene();
+      const envCanvas = document.createElement('canvas');
+      envCanvas.width = 512;
+      envCanvas.height = 256;
+      const eCtx = envCanvas.getContext('2d');
+      if (eCtx) {
+        const skyCol = new THREE.Color(hemiSky);
+        const sunCol = new THREE.Color(sunColor);
+        const gndCol = new THREE.Color(hemiGround);
+        const eGrad = eCtx.createLinearGradient(0, 0, 0, 256);
+        // Smooth zenith -> soft sky -> natural horizon glow -> dark track asphalt bounce
+        eGrad.addColorStop(0.0, `#${skyCol.clone().multiplyScalar(0.55).getHexString()}`);
+        eGrad.addColorStop(0.36, `#${skyCol.clone().multiplyScalar(0.88).getHexString()}`);
+        eGrad.addColorStop(0.49, `#${sunCol.clone().lerp(skyCol, 0.45).multiplyScalar(0.92).getHexString()}`);
+        eGrad.addColorStop(0.53, '#222630');
+        eGrad.addColorStop(1.0, `#${gndCol.clone().multiplyScalar(0.35).getHexString()}`);
+        eCtx.fillStyle = eGrad;
+        eCtx.fillRect(0, 0, 512, 256);
+
+        // Subtle soft-edged horizon atmospheric band + circuit floodlight / grandstand reflection accents
+        const horizonBand = eCtx.createLinearGradient(0, 106, 0, 138);
+        horizonBand.addColorStop(0, 'rgba(255, 255, 255, 0.0)');
+        horizonBand.addColorStop(0.48, 'rgba(255, 248, 235, 0.42)');
+        horizonBand.addColorStop(0.55, 'rgba(56, 189, 248, 0.25)');
+        horizonBand.addColorStop(1, 'rgba(255, 255, 255, 0.0)');
+        eCtx.fillStyle = horizonBand;
+        eCtx.fillRect(0, 106, 512, 32);
+
+        // Soft circuit floodlight & grandstand reflection pillars along the horizon so the glossy track reflects varied light streaks
+        for (let x = 16; x < 512; x += 48) {
+          const beamGrad = eCtx.createLinearGradient(x, 82, x, 134);
+          beamGrad.addColorStop(0, 'rgba(255, 255, 255, 0.0)');
+          beamGrad.addColorStop(0.65, 'rgba(255, 250, 235, 0.38)');
+          beamGrad.addColorStop(1, 'rgba(255, 255, 255, 0.0)');
+          eCtx.fillStyle = beamGrad;
+          eCtx.fillRect(x, 82, 18, 52);
+        }
+
+        const envDomeTex = new THREE.CanvasTexture(envCanvas);
+        envDomeTex.colorSpace = THREE.SRGBColorSpace;
+        const envSphere = new THREE.Mesh(
+          new THREE.SphereGeometry(80, 32, 20),
+          new THREE.MeshBasicMaterial({ map: envDomeTex, side: THREE.BackSide })
+        );
+        envScene.add(envSphere);
+
+        // Soft diffused overhead broadcast gantry light panels for natural automotive & glossy track reflections
+        const softPanelMat = new THREE.MeshBasicMaterial({
+          color: sunCol.clone().lerp(new THREE.Color(0xffffff), 0.65).multiplyScalar(0.88),
+          side: THREE.DoubleSide,
+        });
+        const panelLeft = new THREE.Mesh(new THREE.PlaneGeometry(38, 7.5), softPanelMat);
+        panelLeft.position.set(-28, 32, 0);
+        panelLeft.lookAt(0, 0, 0);
+        envScene.add(panelLeft);
+
+        const panelRight = new THREE.Mesh(new THREE.PlaneGeometry(38, 7.5), softPanelMat);
+        panelRight.position.set(28, 28, -10);
+        panelRight.lookAt(0, 0, 0);
+        envScene.add(panelRight);
+
+        const panelFront = new THREE.Mesh(new THREE.PlaneGeometry(32, 6), softPanelMat);
+        panelFront.position.set(0, 26, -34);
+        panelFront.lookAt(0, 0, 0);
+        envScene.add(panelFront);
+
+        pmremRenderTarget = pmremGenerator.fromScene(envScene, 0.032);
+        scene.environment = pmremRenderTarget.texture;
+        envSphere.geometry.dispose();
+        (envSphere.material as THREE.MeshBasicMaterial).dispose();
+        envDomeTex.dispose();
+        panelLeft.geometry.dispose();
+        panelRight.geometry.dispose();
+        panelFront.geometry.dispose();
+        softPanelMat.dispose();
+      }
+    }
+
+    // Calibrate direct light intensities in High/Ultra so they complement the 360° PMREM reflections without over-bright specular glare
+    const hemiIntensity = gfxPreset.id === 'ultra' ? 0.72 : gfxPreset.id === 'high' ? 0.82 : 0.95;
+    const hemiLight = new THREE.HemisphereLight(hemiSky, hemiGround, hemiIntensity);
     scene.add(hemiLight);
 
-    const ambientLight = new THREE.AmbientLight(0xffffff, Math.max(0.75, circuit.ambientLight * 0.88));
+    const baseAmbient = Math.max(0.75, circuit.ambientLight * 0.88);
+    const ambientIntensity = gfxPreset.id === 'ultra' ? baseAmbient * 0.68 : gfxPreset.id === 'high' ? baseAmbient * 0.78 : baseAmbient;
+    const ambientLight = new THREE.AmbientLight(0xffffff, ambientIntensity);
     scene.add(ambientLight);
 
-    const sunLight = new THREE.DirectionalLight(sunColor, sunIntensity);
+    const calibratedSunIntensity =
+      gfxPreset.id === 'ultra'
+        ? sunIntensity * 0.68
+        : gfxPreset.id === 'high'
+        ? sunIntensity * 0.78
+        : sunIntensity;
+    const sunLight = new THREE.DirectionalLight(sunColor, calibratedSunIntensity);
     sunLight.castShadow = false;
     scene.add(sunLight);
     scene.add(sunLight.target);
 
-    // 3-Point Rim & Specular Fill Directional Light for High / Ultra Realistic presets
+    // 3-Point Rim & Specular Fill Directional Light — softly balanced in Ultra so it never causes white blowouts
     let rimLight: THREE.DirectionalLight | null = null;
     if (gfxPreset.enableRimAndFillLights) {
       rimLight = new THREE.DirectionalLight(
         circuit.id === 'abudhabi' ? 0x38bdf8 : 0xe0f2fe,
-        gfxPreset.id === 'ultra' ? 1.15 : 0.75
+        gfxPreset.id === 'ultra' ? 0.44 : gfxPreset.id === 'high' ? 0.56 : 0.75
       );
       rimLight.castShadow = false;
       scene.add(rimLight);
@@ -389,29 +495,25 @@ export const RaceView: React.FC<RaceViewProps> = ({
     const playerCar = buildF1Car(playerTeam, playerDriver, graphicsQuality);
     scene.add(playerCar.root);
 
-    // 5b. Real-Time 360° Dynamic CubeCamera + PMREM Reflection Probe (Medium, High & Ultra) & Post-Processing (Ultra)
-    // Calibrated so all modes run smoothly on 60Hz monitors while reflecting real 3D trees, buildings, bridges, curbs, barriers & rival cars!
-    let cubeRenderTarget: THREE.WebGLCubeRenderTarget | null = null;
-    let carCubeCamera: THREE.CubeCamera | null = null;
     let composer: EffectComposer | null = null;
+    let planarReflectionRT: THREE.WebGLRenderTarget | null = null;
+    let reflectionCamera: THREE.PerspectiveCamera | null = null;
 
-    if (gfxPreset.useEnvironmentReflections) {
-      // Dynamic modes use ultra-fast 128x128 cubemap so reflections never cause frame drops
-      const cubeRes =
-        gfxPreset.id === 'ultra'
-          ? 256
-          : gfxPreset.id === 'high'
-          ? 192
-          : 128;
-      cubeRenderTarget = new THREE.WebGLCubeRenderTarget(cubeRes, {
-        generateMipmaps: true,
-        minFilter: THREE.LinearMipmapLinearFilter,
-        colorSpace: THREE.SRGBColorSpace,
-      });
-      // near=0.15 captures adjacent curbs, barriers & rival cars; far=2600 captures the full 1900m sky dome, clouds, bridges & skyscrapers!
-      carCubeCamera = new THREE.CubeCamera(0.15, 2600, cubeRenderTarget);
-      scene.add(carCubeCamera);
+    if (gfxPreset.id === 'ultra' || gfxPreset.id === 'high') {
+      const reflScale = gfxPreset.id === 'ultra' ? 0.75 : 0.5;
+      planarReflectionRT = new THREE.WebGLRenderTarget(
+        Math.max(256, Math.floor(width * reflScale)),
+        Math.max(256, Math.floor(height * reflScale)),
+        {
+          minFilter: THREE.LinearFilter,
+          magFilter: THREE.LinearFilter,
+          colorSpace: THREE.SRGBColorSpace,
+        }
+      );
+      reflectionCamera = new THREE.PerspectiveCamera(camera.fov, width / height, 0.1, 1800);
+      track.setReflectionTexture(planarReflectionRT.texture, gfxPreset.id === 'ultra' ? 0.24 : 0.15);
     }
+    const reflectionBgColor = new THREE.Color(0x000000);
 
     // Only allocate 4x MSAA HalfFloat Post-Processing Composer in Ultra mode (pure crystal-clear HDR bloom with zero dark lens vignette!)
     if (gfxPreset.id === 'ultra') {
@@ -1052,6 +1154,45 @@ export const RaceView: React.FC<RaceViewProps> = ({
         }
       }
 
+      // Real-time planar road reflection pass (mirrors F1 cars, barriers, grandstands, trees, gantry, and sky across the asphalt plane)
+      if (planarReflectionRT && reflectionCamera) {
+        const trackPlaneY = carPos.y - 0.06;
+        reflectionCamera.fov = camera.fov;
+        reflectionCamera.aspect = camera.aspect;
+        reflectionCamera.updateProjectionMatrix();
+
+        reflectionCamera.position.set(
+          currentCamPos.x,
+          2 * trackPlaneY - currentCamPos.y,
+          currentCamPos.z
+        );
+        reflectionCamera.up.set(0, -1, 0);
+        reflectionCamera.lookAt(
+          currentLookAt.x,
+          2 * trackPlaneY - currentLookAt.y,
+          currentLookAt.z
+        );
+
+        track.setReflectionPassMode(true);
+        const prevBg = scene.background;
+        const prevFog = scene.fog;
+        const prevSkyVis = skyDomeMesh ? skyDomeMesh.visible : false;
+        scene.background = reflectionBgColor;
+        scene.fog = null;
+        if (skyDomeMesh) skyDomeMesh.visible = false;
+
+        const prevRenderTarget = renderer.getRenderTarget();
+        renderer.setRenderTarget(planarReflectionRT);
+        renderer.clear();
+        renderer.render(scene, reflectionCamera);
+        renderer.setRenderTarget(prevRenderTarget);
+
+        scene.background = prevBg;
+        scene.fog = prevFog;
+        if (skyDomeMesh) skyDomeMesh.visible = prevSkyVis;
+        track.setReflectionPassMode(false);
+      }
+
       if (composer && gfxPreset.id === 'ultra') {
         composer.render(delta);
       } else {
@@ -1183,6 +1324,13 @@ export const RaceView: React.FC<RaceViewProps> = ({
       if (composer) {
         composer.setSize(w, h);
       }
+      if (planarReflectionRT) {
+        const reflScale = gfxPreset.id === 'ultra' ? 0.75 : 0.5;
+        planarReflectionRT.setSize(
+          Math.max(256, Math.floor(w * reflScale)),
+          Math.max(256, Math.floor(h * reflScale))
+        );
+      }
     };
     window.addEventListener('resize', handleResize);
 
@@ -1214,8 +1362,17 @@ export const RaceView: React.FC<RaceViewProps> = ({
       window.removeEventListener('resize', handleResize);
       window.removeEventListener('keydown', handleKeyDown);
       soundEngine.stopAll();
+      if (pmremRenderTarget) {
+        pmremRenderTarget.dispose();
+      }
+      if (pmremGenerator) {
+        pmremGenerator.dispose();
+      }
       if (composer) {
         composer.dispose();
+      }
+      if (planarReflectionRT) {
+        planarReflectionRT.dispose();
       }
       renderer.dispose();
       if (containerRef.current && renderer.domElement && containerRef.current.contains(renderer.domElement)) {
@@ -1360,7 +1517,7 @@ export const RaceView: React.FC<RaceViewProps> = ({
           )}
         </div>
 
-        {/* Segmented Graphics Quality Selector (Conservative Dynamic, Aggressive Dynamic, Retro, Low, Med, High, Ultra) */}
+        {/* Segmented Graphics Quality Selector (Conservative Dynamic, Aggressive Dynamic, Retro Arcade, Retro Pixel, Low, Med, High, Ultra) */}
         <div className="flex items-center gap-0.5 bg-zinc-950/85 border border-white/10 backdrop-blur-md rounded-lg p-1 shadow-xl">
           {GRAPHICS_QUALITY_OPTIONS.map((q) => (
             <button
@@ -1372,6 +1529,8 @@ export const RaceView: React.FC<RaceViewProps> = ({
                     ? 'bg-amber-500 text-black'
                     : q === 'retro'
                     ? 'bg-[#ff2a85] text-white shadow-[0_0_10px_#ff2a85]'
+                    : q === 'retro_pixel'
+                    ? 'bg-purple-500 text-white shadow-[0_0_10px_#a855f7]'
                     : q === 'dynamic_conservative'
                     ? 'bg-emerald-400 text-black'
                     : q === 'dynamic_aggressive'

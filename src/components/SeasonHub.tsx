@@ -17,6 +17,10 @@ import {
   CustomerTeamPUOffer,
   NewsCompanyConfig,
   PublishedNewsReport,
+  TireCompound,
+  TIRE_COMPOUND_SPECS,
+  getStoredStartingTireCompound,
+  setStoredStartingTireCompound,
 } from '../types/racing';
 import {
   CIRCUITS,
@@ -178,6 +182,7 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'weekend' | 'newsfeed' | 'analytics' | 'offseason' | 'contracts' | 'myteam' | 'standings' | 'calendar' | 'records'>('weekend');
   const [selectedLaps, setSelectedLaps] = useState<number>(season.lapCount || 5);
+  const [startingTireCompound, setStartingTireCompound] = useState<TireCompound>(getStoredStartingTireCompound());
   const [unitSystem, setUnitSystem] = useState<UnitSystem>(getStoredUnitSystem());
   const [graphicsQuality, setGraphicsQuality] = useState<GraphicsQuality>(getStoredGraphicsQuality());
   const [appTheme, setAppTheme] = useState<AppThemeId>(getStoredTheme());
@@ -1456,7 +1461,7 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
                 <p className="text-[11px] text-neutral-400">
                   {GRAPHICS_PRESET_LABELS[graphicsQuality].subtitle}
                 </p>
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 pt-1">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
                   {GRAPHICS_QUALITY_OPTIONS.map((q) => (
                     <button
                       key={q}
@@ -1466,6 +1471,10 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
                         graphicsQuality === q
                           ? q === 'ultra'
                             ? 'bg-amber-500 text-black border-amber-300 shadow-md'
+                            : q === 'retro'
+                            ? 'bg-[#ff2a85] text-white border-[#00f0ff] shadow-md'
+                            : q === 'retro_pixel'
+                            ? 'bg-purple-600 text-white border-cyan-300 shadow-md'
                             : q === 'dynamic_conservative'
                             ? 'bg-emerald-500 text-black border-emerald-300 shadow-md'
                             : q === 'dynamic_aggressive'
@@ -1493,7 +1502,7 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
                     <button
                       key={laps}
                       onClick={() => setSelectedLaps(laps)}
-                      className={`py-2 rounded-lg font-bold text-xs transition-all ${
+                      className={`py-2 rounded-lg font-bold text-xs transition-all cursor-pointer ${
                         selectedLaps === laps
                           ? 'bg-red-600 text-white shadow-lg shadow-red-600/30 ring-2 ring-red-400'
                           : 'bg-neutral-800 text-neutral-400 hover:text-white hover:bg-neutral-700'
@@ -1502,6 +1511,79 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
                       {laps} LAPS
                     </button>
                   ))}
+                </div>
+              </div>
+
+              {/* Starting Pirelli Tire Composition & Stint Strategy Selector */}
+              <div className="flex flex-col gap-2.5 p-3.5 bg-neutral-950/85 rounded-xl border border-neutral-800">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Flame className="w-4 h-4 text-red-500" />
+                    <label className="text-xs font-bold uppercase tracking-wider text-neutral-300">
+                      Starting Pirelli Tire Composition & Stint Strategy
+                    </label>
+                  </div>
+                  <span className="text-xs font-mono font-bold text-amber-400">
+                    {TIRE_COMPOUND_SPECS[startingTireCompound].label} · Ideal Stint: {TIRE_COMPOUND_SPECS[startingTireCompound].idealStintLaps}
+                  </span>
+                </div>
+                <p className="text-[11px] text-neutral-400">
+                  Tire composition and health directly govern cornering bite, braking distance, top speed, and pit stop windows. You can also swap compounds mid-race in the Pit Box (<kbd className="px-1 py-0.5 bg-neutral-800 text-neutral-200 rounded font-mono text-[10px]">[P]</kbd>).
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
+                  {(['SOFT', 'MEDIUM', 'HARD'] as const).map((comp) => {
+                    const spec = TIRE_COMPOUND_SPECS[comp];
+                    const isSelected = startingTireCompound === comp;
+                    return (
+                      <button
+                        key={comp}
+                        type="button"
+                        onClick={() => {
+                          setStartingTireCompound(comp);
+                          setStoredStartingTireCompound(comp);
+                        }}
+                        className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex flex-col gap-1.5 ${
+                          isSelected
+                            ? comp === 'SOFT'
+                              ? 'bg-red-950/60 border-red-500 ring-1 ring-red-400/60 shadow-lg'
+                              : comp === 'MEDIUM'
+                              ? 'bg-amber-950/50 border-amber-400 ring-1 ring-amber-300/60 shadow-lg'
+                              : 'bg-zinc-800/90 border-slate-200 ring-1 ring-white/60 shadow-lg'
+                            : 'bg-neutral-900/90 border-neutral-800 hover:border-neutral-700 opacity-85 hover:opacity-100'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span
+                              className={`w-6 h-6 rounded-full border-2 bg-zinc-950 flex items-center justify-center font-black font-mono text-xs ${
+                                comp === 'SOFT'
+                                  ? 'border-red-500 text-red-500'
+                                  : comp === 'MEDIUM'
+                                  ? 'border-amber-400 text-amber-400'
+                                  : 'border-slate-200 text-slate-100'
+                              }`}
+                            >
+                              {spec.shortCode}
+                            </span>
+                            <span className="text-xs font-black text-white">{spec.label}</span>
+                          </div>
+                          {isSelected && (
+                            <span className="text-[9px] font-mono font-black uppercase px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                              FITTED
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center justify-between text-[10px] font-mono text-neutral-300 mt-0.5">
+                          <span>Grip: {Math.round(spec.baseGripMultiplier * 100)}%</span>
+                          <span>Wear: {spec.wearRateMultiplier}x</span>
+                          <span>Stint: {spec.idealStintLaps}</span>
+                        </div>
+                        <p className="text-[10px] text-neutral-400 leading-snug">
+                          {spec.summary}
+                        </p>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
