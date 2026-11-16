@@ -99,7 +99,7 @@ export const PerformanceAnalytics: React.FC<PerformanceAnalyticsProps> = ({
   onStartRaceClick,
 }) => {
   const currentSeasonNumber = season.career.seasonNumber || 1;
-  const currentYear = 2026 + currentSeasonNumber - 1;
+  const currentYear = currentSeasonNumber;
   const careerHistory: SeasonHistoryEntry[] = season.career.seasonHistory || [];
 
   // Season Selector State: 'current' | 'archive_2025' | 'archive_2024' | 'career_<num>' | 'multi_year'

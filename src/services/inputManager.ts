@@ -8,6 +8,8 @@ export interface UnifiedInput {
   switchCamera: boolean;
   reset: boolean;
   pause: boolean;
+  shiftUp: boolean; // F: Force shift up gear
+  shiftDown: boolean; // V: Force shift down gear
   orderBlock: boolean; // 1: Tell teammate to block pack
   orderYield: boolean; // 2: Tell teammate to yield position
   orderPush: boolean; // 3: Tell teammate to push pace
@@ -26,24 +28,44 @@ export interface CustomControlBindings {
   switchCamera: string[];
   reset: string[];
   pause: string[];
+  shiftUp: string[];
+  shiftDown: string[];
   orderBlock: string[];
   orderYield: string[];
   orderPush: string[];
   orderNeutral: string[];
+  // Universal City, Police & Vehicle Lighting Keybinds
+  policePullOver: string[]; // Order vehicle ahead to pull over
+  policeArrest: string[]; // Issue ticket or arrest suspect
+  policeSiren: string[]; // Emergency Code 3 Siren & Lightbar
+  horn: string[]; // Vehicle horn
+  signalLeft: string[]; // Left turn blinker
+  signalRight: string[]; // Right turn blinker
+  hazards: string[]; // Hazard warning flashers
+  cityTablet: string[]; // Metro OS Tablet / MDT
+  toggleMinimap: string[]; // Toggle minimap size or visibility
+  toggleHud: string[]; // Toggle HUD visibility / Cinematic Mode
 }
 
 export interface CustomGamepadBindings {
   throttleButton: number; // default 7 (RT/R2)
   brakeButton: number; // default 6 (LT/L2)
   boostButton: number; // default 0 (A / Cross)
-  drsButton: number; // default 5 (RB / R1)
+  drsButton: number; // default 2 (X / Square)
   switchCameraButton: number; // default 3 (Y / Triangle)
   resetButton: number; // default 1 (B / Circle)
   pauseButton: number; // default 9 (Start / Options)
+  shiftUpButton: number; // default 5 (RB / R1)
+  shiftDownButton: number; // default 4 (LB / L1)
   orderBlockButton: number; // default 14 (D-Pad Left)
   orderYieldButton: number; // default 13 (D-Pad Down)
   orderPushButton: number; // default 15 (D-Pad Right)
   orderNeutralButton: number; // default 12 (D-Pad Up)
+  // Gamepad bindings for city & police
+  policePullOverButton?: number;
+  policeSirenButton?: number;
+  hornButton?: number;
+  cityTabletButton?: number;
 }
 
 export const DEFAULT_KEY_BINDINGS: CustomControlBindings = {
@@ -51,29 +73,48 @@ export const DEFAULT_KEY_BINDINGS: CustomControlBindings = {
   brake: ['KeyS', 'ArrowDown', 'Space'],
   steerLeft: ['KeyA', 'ArrowLeft'],
   steerRight: ['KeyD', 'ArrowRight'],
-  boost: ['KeyE', 'ShiftLeft', 'ShiftRight', 'KeyX'],
-  drs: ['KeyF', 'KeyZ'],
-  switchCamera: ['KeyC', 'KeyV'],
-  reset: ['KeyR'],
-  pause: ['Escape', 'KeyP'],
+  boost: ['ShiftLeft', 'ShiftRight'],
+  drs: ['KeyZ'],
+  switchCamera: ['KeyC'],
+  reset: ['KeyK'],
+  pause: ['Escape'],
+  shiftUp: ['KeyF'],
+  shiftDown: ['KeyV'],
   orderBlock: ['Digit1', 'Numpad1', '1'],
   orderYield: ['Digit2', 'Numpad2', '2'],
   orderPush: ['Digit3', 'Numpad3', '3'],
   orderNeutral: ['Digit4', 'Numpad4', '4'],
+  // Default City & Police Mappings
+  policePullOver: ['KeyR'],
+  policeArrest: ['KeyF'],
+  policeSiren: ['KeyP'],
+  horn: ['KeyH'],
+  signalLeft: ['KeyQ'],
+  signalRight: ['KeyE'],
+  hazards: ['KeyX'],
+  cityTablet: ['Tab', 'KeyM'],
+  toggleMinimap: ['KeyN'],
+  toggleHud: ['KeyU'],
 };
 
 export const DEFAULT_GAMEPAD_BINDINGS: CustomGamepadBindings = {
   throttleButton: 7, // RT
   brakeButton: 6, // LT
   boostButton: 0, // A
-  drsButton: 5, // RB
+  drsButton: 2, // X
   switchCameraButton: 3, // Y
   resetButton: 1, // B
   pauseButton: 9, // Start
+  shiftUpButton: 5, // RB
+  shiftDownButton: 4, // LB
   orderBlockButton: 14, // D-Pad Left
   orderYieldButton: 13, // D-Pad Down
   orderPushButton: 15, // D-Pad Right
   orderNeutralButton: 12, // D-Pad Up
+  policePullOverButton: 2, // X button
+  policeSirenButton: 10, // L3 stick click
+  hornButton: 11, // R3 stick click
+  cityTabletButton: 8, // Select / Share
 };
 
 const STORAGE_KEY_CONTROLS = 'apex26_custom_button_mapping_v2';
@@ -87,6 +128,8 @@ class InputManager {
   private cameraJustPressed: boolean = false;
   private resetJustPressed: boolean = false;
   private pauseJustPressed: boolean = false;
+  private shiftUpJustPressed: boolean = false;
+  private shiftDownJustPressed: boolean = false;
   private orderBlockJustPressed: boolean = false;
   private orderYieldJustPressed: boolean = false;
   private orderPushJustPressed: boolean = false;
@@ -115,7 +158,19 @@ class InputManager {
     try {
       const saved = localStorage.getItem(STORAGE_KEY_CONTROLS);
       if (saved) {
-        this.keyBindings = { ...DEFAULT_KEY_BINDINGS, ...JSON.parse(saved) };
+        const parsed = JSON.parse(saved);
+        const merged: CustomControlBindings = { ...DEFAULT_KEY_BINDINGS, ...parsed };
+        if (!parsed.shiftUp) {
+          merged.shiftUp = [...DEFAULT_KEY_BINDINGS.shiftUp];
+          merged.drs = (merged.drs || []).filter((k) => k !== 'KeyF' && k !== 'F' && k !== 'f');
+          if (merged.drs.length === 0) merged.drs = ['KeyZ'];
+        }
+        if (!parsed.shiftDown) {
+          merged.shiftDown = [...DEFAULT_KEY_BINDINGS.shiftDown];
+          merged.switchCamera = (merged.switchCamera || []).filter((k) => k !== 'KeyV' && k !== 'V' && k !== 'v');
+          if (merged.switchCamera.length === 0) merged.switchCamera = ['KeyC'];
+        }
+        this.keyBindings = merged;
       }
       const savedGp = localStorage.getItem(STORAGE_KEY_GAMEPAD);
       if (savedGp) {
@@ -282,7 +337,7 @@ class InputManager {
     }
   }
 
-  private isActionPressed(action: keyof CustomControlBindings): boolean {
+  public isActionPressed(action: keyof CustomControlBindings): boolean {
     const boundKeys = this.keyBindings[action] || [];
     return boundKeys.some((k) => {
       if (!k) return false;
@@ -303,6 +358,8 @@ class InputManager {
     let switchCamera = false;
     let reset = false;
     let pause = false;
+    let shiftUp = false;
+    let shiftDown = false;
     let isGamepadActive = false;
     let gamepadName: string | null = null;
 
@@ -347,6 +404,24 @@ class InputManager {
       }
     } else {
       this.pauseJustPressed = false;
+    }
+
+    if (this.isActionPressed('shiftUp')) {
+      if (!this.shiftUpJustPressed) {
+        shiftUp = true;
+        this.shiftUpJustPressed = true;
+      }
+    } else {
+      this.shiftUpJustPressed = false;
+    }
+
+    if (this.isActionPressed('shiftDown')) {
+      if (!this.shiftDownJustPressed) {
+        shiftDown = true;
+        this.shiftDownJustPressed = true;
+      }
+    } else {
+      this.shiftDownJustPressed = false;
     }
 
     // Teammate Radio Orders: 1 = Block Pack, 2 = Yield Position, 3 = Push Pace, 4 = Free Racing
@@ -420,6 +495,8 @@ class InputManager {
           b[this.gamepadBindings.resetButton]?.pressed ||
           b[this.gamepadBindings.switchCameraButton]?.pressed ||
           b[this.gamepadBindings.pauseButton]?.pressed ||
+          b[this.gamepadBindings.shiftUpButton]?.pressed ||
+          b[this.gamepadBindings.shiftDownButton]?.pressed ||
           b[this.gamepadBindings.orderBlockButton]?.pressed ||
           b[this.gamepadBindings.orderYieldButton]?.pressed ||
           b[this.gamepadBindings.orderPushButton]?.pressed ||
@@ -461,6 +538,21 @@ class InputManager {
         }
         this.prevGamepadButtons[this.gamepadBindings.pauseButton] = !!pauseBtnPressed;
 
+        // Custom Shift Up / Shift Down buttons
+        const suBtn = this.gamepadBindings.shiftUpButton ?? 5;
+        const shiftUpBtnPressed = b[suBtn] && b[suBtn].pressed;
+        if (shiftUpBtnPressed && !this.prevGamepadButtons[suBtn]) {
+          shiftUp = true;
+        }
+        this.prevGamepadButtons[suBtn] = !!shiftUpBtnPressed;
+
+        const sdBtn = this.gamepadBindings.shiftDownButton ?? 4;
+        const shiftDownBtnPressed = b[sdBtn] && b[sdBtn].pressed;
+        if (shiftDownBtnPressed && !this.prevGamepadButtons[sdBtn]) {
+          shiftDown = true;
+        }
+        this.prevGamepadButtons[sdBtn] = !!shiftDownBtnPressed;
+
         // Gamepad Teammate Orders (D-Pad or custom buttons)
         const obBtn = this.gamepadBindings.orderBlockButton;
         if (b[obBtn] && b[obBtn].pressed && !this.prevGamepadButtons[obBtn]) {
@@ -498,6 +590,8 @@ class InputManager {
       switchCamera,
       reset,
       pause,
+      shiftUp,
+      shiftDown,
       orderBlock,
       orderYield,
       orderPush,

@@ -121,6 +121,14 @@ export const CUSTOMER_PU_OFFERS: CustomerTeamPUOffer[] = [
     description: 'Wants grid-leading straightaway velocity and low electrical harvest drag down DRS straights.',
   },
   {
+    teamId: 'cadillac',
+    teamName: 'Cadillac Formula 1 Team',
+    minPowerRequired: 86,
+    feePerRace: 4400000,
+    signingBonus: 6000000,
+    description: 'American motorsport powerhouse seeking customer V6 turbo supply for their factory F1 campaign.',
+  },
+  {
     teamId: 'audi',
     teamName: 'Audi Revolut F1 Team',
     minPowerRequired: 88,
@@ -380,7 +388,7 @@ export const TEAM_CONTRACTS: TeamContractOffer[] = [
   {
     teamId: 'williams',
     minRating: 78,
-    minPoints: 10,
+    minPoints: 0,
     minWins: 0,
     minPodiums: 0,
     salaryPerRace: 320000,
@@ -392,7 +400,7 @@ export const TEAM_CONTRACTS: TeamContractOffer[] = [
   {
     teamId: 'rb',
     minRating: 80,
-    minPoints: 16,
+    minPoints: 0,
     minWins: 0,
     minPodiums: 0,
     salaryPerRace: 420000,
@@ -402,9 +410,21 @@ export const TEAM_CONTRACTS: TeamContractOffer[] = [
     teamExpectation: 'Fighting for top 8 and developing for Red Bull Racing.',
   },
   {
+    teamId: 'cadillac',
+    minRating: 81,
+    minPoints: 0,
+    minWins: 0,
+    minPodiums: 0,
+    salaryPerRace: 580000,
+    signingBonus: 1500000,
+    midSeasonBuyoutFee: 1150000,
+    prestigeTier: 'Midfield',
+    teamExpectation: 'Spearheading the American factory effort into consistent Q3 & top-7 points finishes.',
+  },
+  {
     teamId: 'audi',
     minRating: 82,
-    minPoints: 24,
+    minPoints: 0,
     minWins: 0,
     minPodiums: 0,
     salaryPerRace: 680000,
@@ -416,7 +436,7 @@ export const TEAM_CONTRACTS: TeamContractOffer[] = [
   {
     teamId: 'alpine',
     minRating: 83,
-    minPoints: 30,
+    minPoints: 0,
     minWins: 0,
     minPodiums: 1,
     salaryPerRace: 780000,
@@ -428,7 +448,7 @@ export const TEAM_CONTRACTS: TeamContractOffer[] = [
   {
     teamId: 'astonmartin',
     minRating: 86,
-    minPoints: 42,
+    minPoints: 0,
     minWins: 0,
     minPodiums: 2,
     salaryPerRace: 1100000,
@@ -440,7 +460,7 @@ export const TEAM_CONTRACTS: TeamContractOffer[] = [
   {
     teamId: 'mercedes',
     minRating: 89,
-    minPoints: 60,
+    minPoints: 0,
     minWins: 1,
     minPodiums: 3,
     salaryPerRace: 1750000,
@@ -452,7 +472,7 @@ export const TEAM_CONTRACTS: TeamContractOffer[] = [
   {
     teamId: 'ferrari',
     minRating: 92,
-    minPoints: 75,
+    minPoints: 0,
     minWins: 1,
     minPodiums: 4,
     salaryPerRace: 2200000,
@@ -464,7 +484,7 @@ export const TEAM_CONTRACTS: TeamContractOffer[] = [
   {
     teamId: 'mclaren',
     minRating: 93,
-    minPoints: 85,
+    minPoints: 0,
     minWins: 2,
     minPodiums: 5,
     salaryPerRace: 2500000,
@@ -476,7 +496,7 @@ export const TEAM_CONTRACTS: TeamContractOffer[] = [
   {
     teamId: 'redbull',
     minRating: 95,
-    minPoints: 95,
+    minPoints: 0,
     minWins: 3,
     minPodiums: 6,
     salaryPerRace: 3000000,
@@ -530,6 +550,28 @@ export const TEAMS: Team[] = [
       brakesRating: 82,
       strengths: ['Monstrous low-drag aerodynamic profile with blistering straightaway top speed (370+ km/h)', 'Lethal DRS slipstream overtaking down main straights'],
       weaknesses: ['Lower aerodynamic downforce causing slides in medium-speed sweepers', 'Prone to front axle lockups under heavy braking'],
+    },
+  },
+  {
+    id: 'cadillac',
+    name: 'Cadillac Formula 1 Team',
+    shortName: 'Cadillac',
+    engine: 'Ferrari 066/14 V6 Turbo',
+    primaryColor: '#D4AF37',
+    secondaryColor: '#0F172A',
+    accentColor: '#E11D48',
+    performanceTier: 3,
+    drivers: ['perez', 'herta'],
+    reputationRequired: 30,
+    baseSalary: 580000,
+    carProfile: {
+      topSpeedRating: 92,
+      handlingRating: 86,
+      aeroDownforce: 85,
+      acceleration: 91,
+      brakesRating: 88,
+      strengths: ['Strong Ferrari customer turbo punch out of medium corners', 'High straight-line stability and low drag over curbs'],
+      weaknesses: ['Slightly wider turning radius in tight street hairpins', 'Elevated rear tire thermal degradation on soft compounds'],
     },
   },
   {
@@ -730,6 +772,10 @@ export const DRIVERS: Driver[] = [
   // Aston Martin
   { id: 'alonso', name: 'Fernando Alonso', shortName: 'ALO', number: 14, country: 'Spain', countryCode: 'ES', teamId: 'astonmartin', rating: 94, aggression: 0.92, color: '#00594F', contractExpiring: true, willingToJoinCustomTeam: false, salaryPerRaceDemand: 2200000, obedienceRating: 74 },
   { id: 'stroll', name: 'Lance Stroll', shortName: 'STR', number: 18, country: 'Canada', countryCode: 'CA', teamId: 'astonmartin', rating: 84, aggression: 0.79, color: '#CEDC00', contractExpiring: false, willingToJoinCustomTeam: false, salaryPerRaceDemand: 1200000, obedienceRating: 80 },
+
+  // Cadillac
+  { id: 'perez', name: 'Sergio Pérez', shortName: 'PER', number: 11, country: 'Mexico', countryCode: 'MX', teamId: 'cadillac', rating: 89, aggression: 0.85, color: '#D4AF37', contractExpiring: true, willingToJoinCustomTeam: true, salaryPerRaceDemand: 850000, obedienceRating: 86 },
+  { id: 'herta', name: 'Colton Herta', shortName: 'HER', number: 26, country: 'United States', countryCode: 'US', teamId: 'cadillac', rating: 85, aggression: 0.86, color: '#E11D48', contractExpiring: true, willingToJoinCustomTeam: true, salaryPerRaceDemand: 380000, obedienceRating: 90 },
 
   // Audi
   { id: 'hulkenberg', name: 'Nico Hülkenberg', shortName: 'HUL', number: 27, country: 'Germany', countryCode: 'DE', teamId: 'audi', rating: 88, aggression: 0.82, color: '#94A3B8', contractExpiring: true, willingToJoinCustomTeam: true, salaryPerRaceDemand: 700000, obedienceRating: 90 },
@@ -1145,7 +1191,7 @@ export const CIRCUITS: CircuitInfo[] = [
     turns: 11,
     lapRecord: '1:21.046',
     recordHolder: 'Rubens Barrichello',
-    description: 'The Temple of Speed. Maximum engine deployment, low-drag 2026 wings, slipstreaming duels, and precision chicane kerbs.',
+    description: 'The Temple of Speed. Maximum engine deployment, low-drag aero wings, slipstreaming duels, and precision chicane kerbs.',
     skyColor: 0xd98638,
     fogColor: 0xb56928,
     ambientLight: 0.9,
@@ -1221,3 +1267,60 @@ export const CIRCUITS: CircuitInfo[] = [
     ]),
   },
 ];
+
+// Dedicated Infinite Full-Road Open-Field & Skidpad Proving Ground for unrestricted 360° car testing, endless highway top-speed runs, and R&D telemetry
+export const OPEN_FIELD_PROVING_GROUND_CIRCUIT: CircuitInfo = {
+  id: 'open_field_proving_ground',
+  name: 'FIA Infinite Road Proving Ground',
+  location: 'Infinite Full-Road Tarmac, Endless Highway & Skidpad',
+  country: 'R&D Proving Ground',
+  countryCode: 'UN',
+  lengthKm: 999.9,
+  turns: 0,
+  lapRecord: 'INFINITE ROAD',
+  recordHolder: 'R&D Dyno Telemetry',
+  description:
+    'Infinitely long and wide full-road asphalt proving ground. Drive forever in any 360° direction on high-grip racing tarmac or blast down the endless multi-lane top-speed highway with live 0–100/200/300 km/h, 1/4 mile, 100–0 braking distance, and R&D spec telemetry.',
+  skyColor: 0x0f172a,
+  fogColor: 0x1e293b,
+  ambientLight: 0.98,
+  timeOfDay: 'day',
+  trackPoints: createTrackSpline([
+    [0, 0.25, 350],
+    [0, 0.25, 0],
+    [0, 0.25, -350],
+    [260, 0.25, -350],
+    [260, 0.25, 0],
+    [260, 0.25, 350],
+  ]),
+};
+
+// Dedicated Maryland Metro Open World: Baltimore <-> I-270 Corridor <-> Gaithersburg with live weather & time sync
+export const CITY_DRIVING_METRO_CIRCUIT: CircuitInfo = {
+  id: 'city_driving_metro',
+  name: 'Maryland Metro: Baltimore & Gaithersburg',
+  location: 'Baltimore Inner Harbor · I-270 / MD-355 · Gaithersburg Suburbs',
+  country: 'Maryland, USA',
+  countryCode: 'US',
+  lengthKm: 56.0,
+  turns: 49,
+  lapRecord: 'FREE ROAM',
+  recordHolder: 'Gaithersburg Live Weather',
+  description:
+    'Open-world Maryland map linking Downtown Baltimore (Rowhomes, Inner Harbor, Islamic Society of Baltimore, Baltimore Basilica) via I-270 & MD-355 to Gaithersburg (Islamic Center of Maryland, Old Town B&O Depot, St. Martin of Tours, Kentlands & RIO Lakefront), featuring 120+ traffic cars and live Gaithersburg MD weather & time physics.',
+  skyColor: 0x0284c7,
+  fogColor: 0x38bdf8,
+  ambientLight: 0.92,
+  timeOfDay: 'day',
+  trackPoints: createTrackSpline([
+    [0, 0.25, 320],
+    [0, 0.25, 0],
+    [0, 0.25, -320],
+    [320, 0.25, -320],
+    [320, 0.25, 0],
+    [320, 0.25, 320],
+  ]),
+};
+
+
+

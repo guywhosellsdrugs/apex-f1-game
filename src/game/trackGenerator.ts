@@ -2,6 +2,22 @@ import * as THREE from 'three';
 import { CircuitInfo } from '../types/racing';
 import { buildCircuitScenery } from './environmentBuilder';
 import { GraphicsQuality, getGraphicsPresetConfig, isDynamicGraphics } from '../utils/graphicsSettings';
+import {
+  ALL_MARYLAND_ROADS,
+  MARYLAND_SIGNAL_JUNCTIONS,
+  renderMarylandRoadSpecs,
+  isOnMarylandPavedSurface,
+  distSqPointToSeg,
+} from './marylandRoadNetwork';
+import {
+  CityBuildingBox,
+  CityTrafficLightGantry,
+  getIntersectionSignalState,
+  BuiltSuburbanHouse,
+} from './cityTrafficBuilder';
+import { buildGaithersburgDistrict } from './gaithersburgBuilder';
+import { buildBaltimoreDistrict } from './baltimoreBuilder';
+import { buildMarylandStateDistrict } from './marylandStateBuilder';
 
 export interface SurfaceInfo {
   offTrack: boolean;
@@ -24,6 +40,12 @@ export interface GeneratedTrack {
   curve: THREE.CatmullRomCurve3;
   trackLength: number;
   barrierLimit: number;
+  isOpenField?: boolean;
+  isCityDriving?: boolean;
+  cityBuildings?: CityBuildingBox[];
+  suburbanHouses?: BuiltSuburbanHouse[];
+  bankPosition?: { x: number; z: number };
+  policeStationPosition?: { x: number; z: number };
   startGantry: THREE.Group;
   startLights: THREE.Mesh[];
   setStartLights: (lightsLitCount: number, lightsOut: boolean) => void;
@@ -32,9 +54,99 @@ export interface GeneratedTrack {
   getTrackPointAtProgress: (t: number) => { position: THREE.Vector3; tangent: THREE.Vector3; normal: THREE.Vector3 };
   getTargetCornerSpeedKmh: (t: number) => number;
   checkSurfaceType: (pos: THREE.Vector3, hintProgress?: number) => SurfaceInfo;
+  updateInfiniteRoadOrigin?: (playerX: number, playerZ: number) => void;
+  updateCityTrafficLights?: (timeSec: number, playerX: number, playerZ: number) => void;
+}
+
+/**
+ * Attaches a realistic dark asphalt road specular sheen shader
+ * to road materials (Metro City streets, Proving Ground, and F1 circuits).
+ * - Preserves asphalt aggregate texture and crisp road markings
+ * - Provides subtle, diffused grazing specular sheen (reflecting brake lights,
+ *   headlights, and ambient city lights at grazing angles without turning the road into a mirror)
+ */
+function attachBlackScreenRoadReflectionShader(
+  mat: THREE.Material,
+  reflectionUniforms: {
+    uPlanarReflectionMap: { value: THREE.Texture | null };
+    uReflectionIntensity: { value: number };
+  },
+  uvRepeatX: number,
+  uvRepeatY: number,
+  isUltra: boolean
+) {
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uPlanarReflectionMap = reflectionUniforms.uPlanarReflectionMap;
+    shader.uniforms.uReflectionIntensity = reflectionUniforms.uReflectionIntensity;
+
+    shader.vertexShader =
+      `varying vec2 vTrackUv;\nvarying vec4 vReflClipPos;\nvarying vec3 vReflWorldPos;\n` +
+      shader.vertexShader.replace(
+        '#include <project_vertex>',
+        `#include <project_vertex>
+        vTrackUv = uv;
+        vReflClipPos = gl_Position;
+        vReflWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;`
+      );
+
+    shader.fragmentShader =
+      `uniform sampler2D uPlanarReflectionMap;\nuniform float uReflectionIntensity;\nvarying vec2 vTrackUv;\nvarying vec4 vReflClipPos;\nvarying vec3 vReflWorldPos;\n` +
+      shader.fragmentShader.replace(
+        '#include <dithering_fragment>',
+        `#include <dithering_fragment>
+        vec4 rawTex = texture2D(map, vTrackUv * vec2(${uvRepeatX.toFixed(1)}, ${uvRepeatY.toFixed(1)}));
+        float isMarking = smoothstep(0.18, 0.42, max(rawTex.r, max(rawTex.g, rawTex.b)));
+
+        // Polished Nero Marquina Black Marble base with subtle organic mineral veining
+        float veinCoord = sin(vReflWorldPos.x * 0.045 + sin(vReflWorldPos.z * 0.035) * 3.4) * 0.5 + 0.5;
+        float veinCoord2 = sin(vReflWorldPos.z * 0.065 + cos(vReflWorldPos.x * 0.05) * 2.8) * 0.5 + 0.5;
+        float veinPattern = smoothstep(0.72, 0.96, veinCoord) * 0.16 + smoothstep(0.76, 0.98, veinCoord2) * 0.10;
+        
+        // Deep obsidian-black marble body
+        vec3 marbleBaseCol = vec3(0.012, 0.014, 0.018);
+        vec3 marbleVeinCol = vec3(0.085, 0.095, 0.115);
+        vec3 blackMarbleSurface = mix(marbleBaseCol, marbleVeinCol, veinPattern);
+        
+        // Retain crisp painted lane markings atop the marble surface
+        gl_FragColor.rgb = mix(blackMarbleSurface, gl_FragColor.rgb, isMarking);
+
+        if (uReflectionIntensity > 0.001) {
+          vec2 reflUV = (vReflClipPos.xy / max(0.0001, vReflClipPos.w)) * 0.5 + 0.5;
+          reflUV.x = 1.0 - reflUV.x;
+
+          // Polished high-gloss marble micro-sheen (minimal distortion, high reflection clarity)
+          vec2 microRipple = (sin(vReflWorldPos.xz * 22.0) * 0.0012 + cos(vReflWorldPos.zx * 44.0) * 0.0008) * (1.0 - isMarking * 0.6);
+          vec2 uvSample = clamp(reflUV + microRipple, 0.004, 0.996);
+          vec2 b1 = vec2(0.0028, 0.0035);
+          vec3 reflColor = texture2D(uPlanarReflectionMap, uvSample).rgb * 0.44
+            + texture2D(uPlanarReflectionMap, clamp(uvSample + vec2(b1.x, 0.0), 0.004, 0.996)).rgb * 0.14
+            + texture2D(uPlanarReflectionMap, clamp(uvSample - vec2(b1.x, 0.0), 0.004, 0.996)).rgb * 0.14
+            + texture2D(uPlanarReflectionMap, clamp(uvSample + vec2(0.0, b1.y), 0.004, 0.996)).rgb * 0.14
+            + texture2D(uPlanarReflectionMap, clamp(uvSample - vec2(0.0, b1.y), 0.004, 0.996)).rgb * 0.14;
+
+          vec3 viewVec = normalize(cameraPosition - vReflWorldPos);
+          float ndotv = clamp(abs(viewVec.y), 0.0, 1.0);
+          
+          // Polished marble specular Fresnel: lustrous reflection that deepens realistically down the road
+          float grazingFresnel = pow(1.0 - ndotv, 2.1);
+          float marbleReflFactor = clamp(uReflectionIntensity * (0.18 + 0.52 * grazingFresnel), 0.0, 0.48);
+          
+          // Painted markings have lower specular polish than the bare stone
+          marbleReflFactor *= (1.0 - isMarking * 0.55);
+          gl_FragColor.rgb += reflColor * marbleReflFactor;
+        }`
+      );
+  };
+  mat.needsUpdate = true;
 }
 
 export function generateTrack(circuit: CircuitInfo, quality?: GraphicsQuality): GeneratedTrack {
+  if (circuit.id === 'open_field_proving_ground') {
+    return generateOpenFieldTrack(circuit, quality);
+  }
+  if (circuit.id === 'city_driving_metro') {
+    return generateCityDrivingTrack(circuit, quality);
+  }
   const group = new THREE.Group();
   const preset = getGraphicsPresetConfig(quality);
   const isLow = preset.id === 'low';
@@ -392,66 +504,16 @@ export function generateTrack(circuit: CircuitInfo, quality?: GraphicsQuality): 
         map: trackTexture,
         normalMap: asphaltNormalTex,
         normalScale: new THREE.Vector2(0.08, 0.08),
-        roughness: 0.75,
-        metalness: 0.0,
-        envMapIntensity: 0.0,
+        roughness: isUltra ? 0.44 : 0.75,
+        metalness: isUltra ? 0.08 : 0.0,
+        envMapIntensity: isUltra ? 0.18 : 0.0,
       });
 
       // Initialize default fallback sampler to trackTexture until planar reflection RT is bound
       reflectionUniforms.uPlanarReflectionMap.value = trackTexture;
 
-      // Inject Real-Time Planar Road Reflection Shader on pure jet-black asphalt
-      trackMat.onBeforeCompile = (shader) => {
-        shader.uniforms.uPlanarReflectionMap = reflectionUniforms.uPlanarReflectionMap;
-        shader.uniforms.uReflectionIntensity = reflectionUniforms.uReflectionIntensity;
-
-        shader.vertexShader =
-          `varying vec2 vTrackUv;\nvarying vec4 vReflClipPos;\nvarying vec3 vReflWorldPos;\n` +
-          shader.vertexShader.replace(
-            '#include <project_vertex>',
-            `#include <project_vertex>
-            vTrackUv = uv;
-            vReflClipPos = gl_Position;
-            vReflWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;`
-          );
-
-        shader.fragmentShader =
-          `uniform sampler2D uPlanarReflectionMap;\nuniform float uReflectionIntensity;\nvarying vec2 vTrackUv;\nvarying vec4 vReflClipPos;\nvarying vec3 vReflWorldPos;\n` +
-          shader.fragmentShader.replace(
-            '#include <dithering_fragment>',
-            `#include <dithering_fragment>
-            vec4 rawTex = texture2D(map, vTrackUv * vec2(1.0, 48.0));
-            float isMarking = smoothstep(0.15, 0.35, max(rawTex.r, max(rawTex.g, rawTex.b)));
-            vec3 pureBlackRoad = vec3(0.01, 0.01, 0.012);
-            gl_FragColor.rgb = mix(pureBlackRoad, gl_FragColor.rgb, isMarking);
-            if (uReflectionIntensity > 0.001) {
-              vec2 reflUV = (vReflClipPos.xy / max(0.0001, vReflClipPos.w)) * 0.5 + 0.5;
-              reflUV.x = 1.0 - reflUV.x;
-              vec2 microRipple = sin(vReflWorldPos.xz * 5.5) * 0.0022 + cos(vReflWorldPos.zx * 13.0) * 0.0012;
-              vec2 uvSample = clamp(reflUV + microRipple, 0.006, 0.994);
-              vec2 b1 = vec2(0.0045, 0.0055);
-              vec2 b2 = vec2(0.0090, 0.0110);
-              vec3 reflColor = texture2D(uPlanarReflectionMap, uvSample).rgb * 0.24
-                + texture2D(uPlanarReflectionMap, clamp(uvSample + vec2(b1.x, 0.0), 0.004, 0.996)).rgb * 0.12
-                + texture2D(uPlanarReflectionMap, clamp(uvSample - vec2(b1.x, 0.0), 0.004, 0.996)).rgb * 0.12
-                + texture2D(uPlanarReflectionMap, clamp(uvSample + vec2(0.0, b1.y), 0.004, 0.996)).rgb * 0.12
-                + texture2D(uPlanarReflectionMap, clamp(uvSample - vec2(0.0, b1.y), 0.004, 0.996)).rgb * 0.12
-                + texture2D(uPlanarReflectionMap, clamp(uvSample + b1, 0.004, 0.996)).rgb * 0.07
-                + texture2D(uPlanarReflectionMap, clamp(uvSample - b1, 0.004, 0.996)).rgb * 0.07
-                + texture2D(uPlanarReflectionMap, clamp(uvSample + vec2(b2.x, -b2.y), 0.004, 0.996)).rgb * 0.07
-                + texture2D(uPlanarReflectionMap, clamp(uvSample + vec2(-b2.x, b2.y), 0.004, 0.996)).rgb * 0.07;
-              float luma = dot(reflColor, vec3(0.299, 0.587, 0.114));
-              vec3 blackScreenRefl = mix(reflColor, vec3(luma), 0.20);
-              vec3 viewVec = normalize(cameraPosition - vReflWorldPos);
-              float ndotv = clamp(abs(viewVec.y), 0.0, 1.0);
-              float fresnel = mix(0.45, 0.95, pow(1.0 - ndotv, 1.8));
-              float groovePolish = 1.0 - smoothstep(0.14, 0.49, abs(vTrackUv.x - 0.5));
-              float reflStrength = clamp(uReflectionIntensity * fresnel * mix(0.80, 1.10, groovePolish), 0.0, 0.22);
-              gl_FragColor.rgb = mix(gl_FragColor.rgb + blackScreenRefl * reflStrength, max(gl_FragColor.rgb, blackScreenRefl * 0.35), isMarking);
-            }`
-          );
-      };
-      trackMat.needsUpdate = true;
+      // Inject Real-Time Turned-Off Black Screen Planar Road Reflection Shader
+      attachBlackScreenRoadReflectionShader(trackMat, reflectionUniforms, 1.0, 48.0, isUltra);
     }
   } else {
     trackMat = new THREE.MeshLambertMaterial({
@@ -1276,6 +1338,7 @@ export function generateTrack(circuit: CircuitInfo, quality?: GraphicsQuality): 
     curve,
     trackLength,
     barrierLimit: 18.4,
+    isOpenField: false,
     startGantry,
     startLights,
     setStartLights,
@@ -1286,3 +1349,1124 @@ export function generateTrack(circuit: CircuitInfo, quality?: GraphicsQuality): 
     checkSurfaceType,
   };
 }
+
+/**
+ * Generates the truly INFINITE Full-Road Car Testing & R&D Proving Ground:
+ * - Infinitely long and wide 100% High-Grip Racing Road Tarmac (seamlessly tiled 8,000m × 8,000m road plane that snaps every 50m around the car forever)
+ * - Endless Multi-Lane Top-Speed Super-Highway (X = -230) with infinite repeating overhead speed-trap gantries, lane dividers & FIA curbs
+ * - Central 560m × 560m Proving Ground Hub with concentric G-force skidpad rings (R = 45m, 95m, 155m, 215m)
+ * - High-Speed Slalom Weaving Cone Course (X = +195)
+ * - Dedicated 300–0 KM/H Braking Distance Calibration Strip (X = +340) with painted meter markers
+ */
+function generateOpenFieldTrack(circuit: CircuitInfo, quality?: GraphicsQuality): GeneratedTrack {
+  const group = new THREE.Group();
+  const sceneryGroup = new THREE.Group();
+  group.add(sceneryGroup);
+  const preset = getGraphicsPresetConfig(quality);
+  const isUltra = preset.id === 'ultra';
+  const up = new THREE.Vector3(0, 1, 0);
+
+  const reflectionUniforms = {
+    uPlanarReflectionMap: { value: null as THREE.Texture | null },
+    uReflectionIntensity: { value: 0.0 },
+  };
+
+  const points = circuit.trackPoints.map((p) => new THREE.Vector3(p.x, p.y, p.z));
+  const curve = new THREE.CatmullRomCurve3(points, true, 'catmullrom', 0.25);
+  const trackLength = curve.getLength();
+
+  // 1. INFINITE FULL-ROAD RACING ASPHALT TEXTURE (Each 512x512 repeat = 50m × 50m of road tarmac)
+  const roadCanvas = document.createElement('canvas');
+  roadCanvas.width = 512;
+  roadCanvas.height = 512;
+  const rCtx = roadCanvas.getContext('2d');
+  if (rCtx) {
+    // Pure obsidian black base in Ultra Realistic mode
+    rCtx.fillStyle = isUltra ? '#030306' : '#181c24';
+    rCtx.fillRect(0, 0, 512, 512);
+
+    // Subtle alternating asphalt paving lanes so 300-420 km/h speed across the infinite road is visceral
+    rCtx.fillStyle = isUltra ? '#05060b' : '#1b2029';
+    rCtx.fillRect(0, 0, 256, 512);
+
+    // Crisp 50m tarmac grid lines
+    rCtx.strokeStyle = 'rgba(255, 255, 255, 0.14)';
+    rCtx.lineWidth = 3;
+    rCtx.strokeRect(1.5, 1.5, 509, 509);
+
+    // Sub-grid 25m road calibration line
+    rCtx.strokeStyle = 'rgba(56, 189, 248, 0.09)';
+    rCtx.lineWidth = 2;
+    rCtx.beginPath();
+    rCtx.moveTo(256, 0);
+    rCtx.lineTo(256, 512);
+    rCtx.moveTo(0, 256);
+    rCtx.lineTo(512, 256);
+    rCtx.stroke();
+
+    // Dashed white road lane reference ticks every 12.5m
+    rCtx.fillStyle = 'rgba(255, 255, 255, 0.26)';
+    for (let y = 16; y < 512; y += 64) {
+      rCtx.fillRect(126, y, 4, 28);
+      rCtx.fillRect(382, y, 4, 28);
+    }
+
+    // Fine asphalt aggregate grain
+    for (let i = 0; i < 2400; i++) {
+      rCtx.fillStyle = i % 2 === 0 ? 'rgba(255, 255, 255, 0.035)' : 'rgba(0, 0, 0, 0.22)';
+      rCtx.fillRect(Math.random() * 512, Math.random() * 512, 2, 2);
+    }
+  }
+
+  const infiniteRoadTex = new THREE.CanvasTexture(roadCanvas);
+  infiniteRoadTex.wrapS = THREE.RepeatWrapping;
+  infiniteRoadTex.wrapT = THREE.RepeatWrapping;
+  // 8,000m / 160 repeats = exactly 50.0m per tile
+  infiniteRoadTex.repeat.set(160, 160);
+  infiniteRoadTex.colorSpace = THREE.SRGBColorSpace;
+  reflectionUniforms.uPlanarReflectionMap.value = infiniteRoadTex;
+
+  const openFieldMat = new THREE.MeshStandardMaterial({
+    map: infiniteRoadTex,
+    roughness: isUltra ? 0.44 : 0.54,
+    metalness: isUltra ? 0.08 : 0.1,
+  });
+  if (isUltra || preset.id === 'high') {
+    attachBlackScreenRoadReflectionShader(openFieldMat, reflectionUniforms, 160, 160, isUltra);
+  }
+
+  const openFieldMesh = new THREE.Mesh(new THREE.PlaneGeometry(8000, 8000), openFieldMat);
+  openFieldMesh.rotation.x = -Math.PI / 2;
+  openFieldMesh.position.y = 0.20;
+  group.add(openFieldMesh);
+
+  // 2. High-Contrast Proving Ground Hub & Highway Surface Material
+  const padCanvas = document.createElement('canvas');
+  padCanvas.width = 512;
+  padCanvas.height = 512;
+  const pCtx = padCanvas.getContext('2d');
+  if (pCtx) {
+    pCtx.fillStyle = isUltra ? '#0c0f16' : '#141820';
+    pCtx.fillRect(0, 0, 512, 512);
+    pCtx.strokeStyle = 'rgba(255, 255, 255, 0.10)';
+    pCtx.lineWidth = 2;
+    pCtx.strokeRect(0, 0, 512, 512);
+    for (let i = 0; i < 2000; i++) {
+      pCtx.fillStyle = i % 2 === 0 ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.22)';
+      pCtx.fillRect(Math.random() * 512, Math.random() * 512, 2, 2);
+    }
+  }
+  const padTex = new THREE.CanvasTexture(padCanvas);
+  padTex.wrapS = THREE.RepeatWrapping;
+  padTex.wrapT = THREE.RepeatWrapping;
+  padTex.repeat.set(28, 28);
+  padTex.colorSpace = THREE.SRGBColorSpace;
+
+  const asphaltMat = new THREE.MeshStandardMaterial({
+    map: padTex,
+    roughness: isUltra ? 0.42 : 0.46,
+    metalness: isUltra ? 0.08 : 0.14,
+  });
+  if (isUltra || preset.id === 'high') {
+    attachBlackScreenRoadReflectionShader(asphaltMat, reflectionUniforms, 28, 28, isUltra);
+  }
+
+  // Central 560m × 560m Proving Ground Hub at (0, 0.24, 0)
+  const centralPadMesh = new THREE.Mesh(new THREE.PlaneGeometry(560, 560), asphaltMat);
+  centralPadMesh.rotation.x = -Math.PI / 2;
+  centralPadMesh.position.set(0, 0.24, 0);
+  group.add(centralPadMesh);
+
+  // Concentric G-Force Skidpad & High-Speed Drift Rings on Central Hub (R = 45m, 95m, 155m, 215m)
+  const ringSpecs = [
+    { r: 45, color: 0x06b6d4 },
+    { r: 95, color: 0xf59e0b },
+    { r: 155, color: 0xef4444 },
+    { r: 215, color: 0x10b981 },
+  ];
+  ringSpecs.forEach(({ r, color }) => {
+    const ringMesh = new THREE.Mesh(
+      new THREE.RingGeometry(r - 1.3, r + 1.3, 84),
+      new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide })
+    );
+    ringMesh.rotation.x = -Math.PI / 2;
+    ringMesh.position.set(0, 0.26, 0);
+    group.add(ringMesh);
+
+    const innerDash = new THREE.Mesh(
+      new THREE.RingGeometry(r - 4.4, r - 3.8, 72),
+      new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide })
+    );
+    innerDash.rotation.x = -Math.PI / 2;
+    innerDash.position.set(0, 0.258, 0);
+    group.add(innerDash);
+  });
+
+  // 3. INFINITE MULTI-LANE TOP-SPEED SUPER-HIGHWAY (X = -230, shifts seamlessly every 200m along Z forever!)
+  const dragStripX = -230;
+  const infiniteHighwayGroup = new THREE.Group();
+  infiniteHighwayGroup.position.set(dragStripX, 0, 0);
+  group.add(infiniteHighwayGroup);
+
+  const highwaySegmentLen = 4800;
+  const dragStripMesh = new THREE.Mesh(new THREE.PlaneGeometry(46, highwaySegmentLen), asphaltMat);
+  dragStripMesh.rotation.x = -Math.PI / 2;
+  dragStripMesh.position.set(0, 0.242, 0);
+  infiniteHighwayGroup.add(dragStripMesh);
+
+  // Highway outer solid white lines & center yellow/cyan speed lanes
+  const whiteBasic = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide });
+  const cyanBasic = new THREE.MeshBasicMaterial({ color: 0x38bdf8, side: THREE.DoubleSide });
+  const amberBasic = new THREE.MeshBasicMaterial({ color: 0xf59e0b, side: THREE.DoubleSide });
+  const sideStripeGeom = new THREE.PlaneGeometry(0.65, highwaySegmentLen);
+
+  const leftLine = new THREE.Mesh(sideStripeGeom, whiteBasic);
+  leftLine.rotation.x = -Math.PI / 2;
+  leftLine.position.set(-19.5, 0.26, 0);
+  infiniteHighwayGroup.add(leftLine);
+
+  const rightLine = new THREE.Mesh(sideStripeGeom, whiteBasic);
+  rightLine.rotation.x = -Math.PI / 2;
+  rightLine.position.set(19.5, 0.26, 0);
+  infiniteHighwayGroup.add(rightLine);
+
+  const centerLineL = new THREE.Mesh(new THREE.PlaneGeometry(0.35, highwaySegmentLen), amberBasic);
+  centerLineL.rotation.x = -Math.PI / 2;
+  centerLineL.position.set(-0.45, 0.26, 0);
+  infiniteHighwayGroup.add(centerLineL);
+
+  const centerLineR = new THREE.Mesh(new THREE.PlaneGeometry(0.35, highwaySegmentLen), amberBasic);
+  centerLineR.rotation.x = -Math.PI / 2;
+  centerLineR.position.set(0.45, 0.26, 0);
+  infiniteHighwayGroup.add(centerLineR);
+
+  // Dashed lane dividers & repeating overhead speed-trap gantries every 200m along the 4,800m scrolling highway window
+  const metalMat = new THREE.MeshStandardMaterial({ color: 0x22262e, metalness: 0.85, roughness: 0.22 });
+  const pillarGeom = new THREE.CylinderGeometry(0.45, 0.55, 10.5, 10);
+  const dashGeom = new THREE.PlaneGeometry(0.35, 12);
+
+  for (let z = -2200; z <= 2200; z += 40) {
+    const dL = new THREE.Mesh(dashGeom, cyanBasic);
+    dL.rotation.x = -Math.PI / 2;
+    dL.position.set(-9.75, 0.262, z);
+    infiniteHighwayGroup.add(dL);
+
+    const dR = new THREE.Mesh(dashGeom, cyanBasic);
+    dR.rotation.x = -Math.PI / 2;
+    dR.position.set(9.75, 0.262, z);
+    infiniteHighwayGroup.add(dR);
+  }
+
+  const archColors = [0x10b981, 0x38bdf8, 0xf59e0b, 0xa855f7, 0xef4444];
+  let archIdx = 0;
+  for (let z = -2200; z <= 2200; z += 200) {
+    const color = archColors[archIdx % archColors.length];
+    archIdx++;
+    const stripLine = new THREE.Mesh(
+      new THREE.PlaneGeometry(38, 2.0),
+      new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide })
+    );
+    stripLine.rotation.x = -Math.PI / 2;
+    stripLine.position.set(0, 0.265, z);
+    infiniteHighwayGroup.add(stripLine);
+
+    const arch = new THREE.Group();
+    arch.position.set(0, 0.25, z);
+    const aL = new THREE.Mesh(pillarGeom, metalMat);
+    aL.position.set(-22, 5.25, 0);
+    arch.add(aL);
+    const aR = new THREE.Mesh(pillarGeom, metalMat);
+    aR.position.set(22, 5.25, 0);
+    arch.add(aR);
+    const topBar = new THREE.Mesh(
+      new THREE.BoxGeometry(46, 1.4, 1.4),
+      new THREE.MeshStandardMaterial({ color, roughness: 0.3, metalness: 0.45 })
+    );
+    topBar.position.set(0, 9.6, 0);
+    arch.add(topBar);
+    infiniteHighwayGroup.add(arch);
+  }
+
+  // Start Gantry & 5 Green Launch Lights at the Highway Launch Origin (x = -230, z = +450)
+  const dragStartZ = 450;
+  const startGantry = new THREE.Group();
+  const startLights: THREE.Mesh[] = [];
+  const pL = new THREE.Mesh(pillarGeom, metalMat);
+  pL.position.set(-22, 5.25, 0);
+  startGantry.add(pL);
+  const pR = new THREE.Mesh(pillarGeom, metalMat);
+  pR.position.set(22, 5.25, 0);
+  startGantry.add(pR);
+  const bridgeBeam = new THREE.Mesh(new THREE.BoxGeometry(46, 1.5, 1.5), metalMat);
+  bridgeBeam.position.set(0, 9.6, 0);
+  startGantry.add(bridgeBeam);
+
+  for (let i = 0; i < 5; i++) {
+    const lMesh = new THREE.Mesh(
+      new THREE.SphereGeometry(0.32, 12, 12),
+      new THREE.MeshBasicMaterial({ color: 0x10b981 })
+    );
+    lMesh.position.set(-3.2 + i * 1.6, 8.3, 0.8);
+    startLights.push(lMesh);
+    startGantry.add(lMesh);
+  }
+  startGantry.position.set(dragStripX, 0.25, dragStartZ);
+  group.add(startGantry);
+
+  // 4. High-Speed Weaving Slalom Cones on East Side of Proving Hub (x = +195, z = +240 to -240)
+  const coneOrangeMat = new THREE.MeshStandardMaterial({ color: 0xff5500, roughness: 0.4 });
+  const coneWhiteMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.3 });
+  for (let c = -6; c <= 6; c++) {
+    const coneGroup = new THREE.Group();
+    const base = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.14, 1.4), coneOrangeMat);
+    base.position.y = 0.07;
+    coneGroup.add(base);
+    const body = new THREE.Mesh(new THREE.ConeGeometry(0.55, 1.65, 14), coneOrangeMat);
+    body.position.y = 0.88;
+    coneGroup.add(body);
+    const stripe = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.38, 0.42, 14), coneWhiteMat);
+    stripe.position.y = 1.02;
+    coneGroup.add(stripe);
+    coneGroup.position.set(195, 0.25, c * 38);
+    group.add(coneGroup);
+  }
+
+  // 5. 300–0 KM/H High-Speed Braking Calibration Strip (x = +340, z = +320 to -320)
+  const brakeZoneX = 340;
+  const brakeStripMesh = new THREE.Mesh(new THREE.PlaneGeometry(32, 700), asphaltMat);
+  brakeStripMesh.rotation.x = -Math.PI / 2;
+  brakeStripMesh.position.set(brakeZoneX, 0.245, 0);
+  group.add(brakeStripMesh);
+
+  // Braking calibration meter lines every 25m from z = +100 (Brake Trigger Line) to z = -150
+  for (let dist = 0; dist <= 200; dist += 25) {
+    const bz = 100 - dist;
+    const isTrigger = dist === 0;
+    const barColor = isTrigger ? 0xef4444 : dist % 50 === 0 ? 0xf59e0b : 0xffffff;
+    const barMesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(28, isTrigger ? 2.4 : 0.9),
+      new THREE.MeshBasicMaterial({ color: barColor, side: THREE.DoubleSide })
+    );
+    barMesh.rotation.x = -Math.PI / 2;
+    barMesh.position.set(brakeZoneX, 0.265, bz);
+    group.add(barMesh);
+  }
+
+  const setStartLights = (_lightsLitCount: number, _lightsOut: boolean) => {
+    for (let i = 0; i < startLights.length; i++) {
+      const mat = startLights[i].material as THREE.MeshBasicMaterial;
+      mat.color.setHex(0x10b981);
+    }
+  };
+
+  const getTrackPointAtProgress = (t: number) => {
+    const clampedT = ((t % 1) + 1) % 1;
+    const position = curve.getPointAt(clampedT);
+    position.y = 0.25;
+    const tangent = curve.getTangentAt(clampedT).normalize();
+    const normal = new THREE.Vector3().crossVectors(tangent, up).normalize();
+    return { position, tangent, normal };
+  };
+
+  const getTargetCornerSpeedKmh = (_t: number): number => 460;
+
+  // Seamlessly repositions the 8,000m × 8,000m tiled road plane in 50m steps and the endless highway in 200m steps
+  // so the road surface and highway extend infinitely in all directions around the player forever!
+  const updateInfiniteRoadOrigin = (playerX: number, playerZ: number) => {
+    const snappedX = Math.round(playerX / 50) * 50;
+    const snappedZ = Math.round(playerZ / 50) * 50;
+    if (openFieldMesh.position.x !== snappedX || openFieldMesh.position.z !== snappedZ) {
+      openFieldMesh.position.x = snappedX;
+      openFieldMesh.position.z = snappedZ;
+    }
+
+    const snappedHighwayZ = Math.round(playerZ / 1000) * 1000;
+    if (infiniteHighwayGroup.position.z !== snappedHighwayZ) {
+      infiniteHighwayGroup.position.z = snappedHighwayZ;
+    }
+  };
+
+  // Truly Infinite Full-Road Surface Detection:
+  // Never sets offTrack = true and NEVER triggers wall collisions anywhere—drive forever in any direction!
+  const checkSurfaceType = (pos: THREE.Vector3): SurfaceInfo => {
+    const distToSkidCenter = Math.hypot(pos.x, pos.z);
+    const onSkidRing =
+      Math.abs(distToSkidCenter - 45) < 1.3 ||
+      Math.abs(distToSkidCenter - 95) < 1.3 ||
+      Math.abs(distToSkidCenter - 155) < 1.3 ||
+      Math.abs(distToSkidCenter - 215) < 1.3;
+
+    return {
+      offTrack: false,
+      onCurb: onSkidRing,
+      distanceToCenterline: 0,
+      lateralOffset: 0,
+      progress: 0,
+      trackPoint: new THREE.Vector3(pos.x, 0.25, pos.z),
+      tangent: new THREE.Vector3(0, 0, -1),
+      normal: new THREE.Vector3(1, 0, 0),
+      isCollidingWall: false,
+      wallNormal: new THREE.Vector3(0, 0, 1),
+      penetration: 0,
+      barrierLimit: 9999999,
+    };
+  };
+
+  const setReflectionTexture = (tex: THREE.Texture | null, intensity = 0.72) => {
+    reflectionUniforms.uPlanarReflectionMap.value = tex;
+    reflectionUniforms.uReflectionIntensity.value = tex ? intensity : 0.0;
+  };
+  const setReflectionPassMode = (active: boolean) => {
+    openFieldMesh.visible = !active;
+    centralPadMesh.visible = !active;
+    dragStripMesh.visible = !active;
+  };
+
+  return {
+    group,
+    sceneryGroup,
+    curve,
+    trackLength,
+    barrierLimit: 9999999,
+    isOpenField: true,
+    startGantry,
+    startLights,
+    setStartLights,
+    setReflectionTexture,
+    setReflectionPassMode,
+    getTrackPointAtProgress,
+    getTargetCornerSpeedKmh,
+    checkSurfaceType,
+    updateInfiniteRoadOrigin,
+  };
+}
+
+/**
+ * Generates the Metro City Downtown & Police Pursuit Grid:
+ * - 7 North–South Avenues and 7 East–West Boulevards (28m wide each, 49 signalized intersections)
+ * - Zebra crosswalks, double-yellow centerlines, and dashed lane dividers
+ * - 36 City Blocks with raised sidewalks and illuminated 3D skyscrapers (with AABB collision boxes)
+ * - 49 Dynamic 3D Traffic Signal Gantries with cycling Red / Yellow / Green bulbs
+ */
+function generateCityDrivingTrack(circuit: CircuitInfo, quality?: GraphicsQuality): GeneratedTrack {
+  const group = new THREE.Group();
+  const sceneryGroup = new THREE.Group();
+  group.add(sceneryGroup);
+  const preset = getGraphicsPresetConfig(quality);
+  const isUltra = preset.id === 'ultra';
+  const isRetroPixel = preset.id === 'retro_pixel';
+  const up = new THREE.Vector3(0, 1, 0);
+
+  // Fast Lambert material builder for Retro Pixel '92 mode (avoids expensive PBR per-fragment math)
+  const makeCityMat = (opts: { color?: number; map?: THREE.Texture; roughness?: number; metalness?: number }): THREE.Material =>
+    isRetroPixel
+      ? new THREE.MeshLambertMaterial({ color: opts.color ?? 0xffffff, map: opts.map })
+      : new THREE.MeshStandardMaterial({
+          color: opts.color ?? 0xffffff,
+          map: opts.map,
+          roughness: opts.roughness ?? 0.8,
+          metalness: opts.metalness ?? 0.05,
+        });
+
+  const reflectionUniforms = {
+    uPlanarReflectionMap: { value: null as THREE.Texture | null },
+    uReflectionIntensity: { value: 0.0 },
+  };
+
+  const points = circuit.trackPoints.map((p) => new THREE.Vector3(p.x, 0.25, p.z));
+  const curve = new THREE.CatmullRomCurve3(points, true, 'catmullrom', 0.25);
+  const trackLength = curve.getLength();
+
+  // 1. Natural Maryland Countryside Terrain (Lush Meadow, Wooded Piedmont & Earth)
+  const texDim = isRetroPixel ? 128 : 512;
+  const texScale = texDim / 512;
+  const grassCanvas = document.createElement('canvas');
+  grassCanvas.width = texDim;
+  grassCanvas.height = texDim;
+  const gCtx = grassCanvas.getContext('2d');
+  if (gCtx) {
+    gCtx.fillStyle = '#2d4f28';
+    gCtx.fillRect(0, 0, texDim, texDim);
+    const grassCount = isRetroPixel ? 320 : 1800;
+    for (let i = 0; i < grassCount; i++) {
+      const shade = i % 3 === 0 ? '#365f30' : i % 3 === 1 ? '#244120' : '#3d6634';
+      gCtx.fillStyle = shade;
+      gCtx.globalAlpha = 0.28;
+      const gx = (i * 73) % texDim;
+      const gy = (i * 139) % texDim;
+      const gw = Math.max(2, Math.round((10 + (i % 14)) * texScale));
+      gCtx.fillRect(gx, gy, gw, gw);
+    }
+    gCtx.globalAlpha = 1;
+  }
+  const baseGrassTex = new THREE.CanvasTexture(grassCanvas);
+  baseGrassTex.colorSpace = THREE.SRGBColorSpace;
+  baseGrassTex.wrapS = THREE.RepeatWrapping;
+  baseGrassTex.wrapT = THREE.RepeatWrapping;
+  baseGrassTex.repeat.set(90, 90);
+  baseGrassTex.anisotropy = preset.anisotropy;
+  if (isRetroPixel) {
+    baseGrassTex.minFilter = THREE.NearestFilter;
+    baseGrassTex.magFilter = THREE.NearestFilter;
+  }
+  reflectionUniforms.uPlanarReflectionMap.value = baseGrassTex;
+
+  const baseAsphaltMat = makeCityMat({
+    map: baseGrassTex,
+    roughness: 0.92,
+    metalness: 0.0,
+  });
+  const baseRoadMesh = new THREE.Mesh(new THREE.PlaneGeometry(8000, 8000), baseAsphaltMat);
+  baseRoadMesh.rotation.x = -Math.PI / 2;
+  baseRoadMesh.position.y = 0.22;
+  baseRoadMesh.receiveShadow = !isUltra && !isRetroPixel;
+  group.add(baseRoadMesh);
+
+  // 2. Authentic American Charcoal Asphalt Texture (Matte Aggregate, Tire-Worn Sheen)
+  const roadCanvas = document.createElement('canvas');
+  roadCanvas.width = texDim;
+  roadCanvas.height = texDim;
+  const rCtx = roadCanvas.getContext('2d');
+  if (rCtx) {
+    rCtx.fillStyle = '#2a2e35';
+    rCtx.fillRect(0, 0, texDim, texDim);
+    const speckCount = isRetroPixel ? 450 : 3600;
+    for (let i = 0; i < speckCount; i++) {
+      const rx = (i * 97 + (i % 13) * 19) % texDim;
+      const ry = (i * 151 + (i % 7) * 29) % texDim;
+      rCtx.fillStyle = i % 2 === 0 ? 'rgba(255,255,255,0.035)' : 'rgba(0,0,0,0.075)';
+      rCtx.fillRect(rx, ry, 2, 2);
+    }
+    // Subtle dark tire tracks in lanes
+    rCtx.fillStyle = 'rgba(15, 18, 24, 0.22)';
+    rCtx.fillRect(Math.round(108 * texScale), 0, Math.max(8, Math.round(44 * texScale)), texDim);
+    rCtx.fillRect(Math.round(360 * texScale), 0, Math.max(8, Math.round(44 * texScale)), texDim);
+  }
+  const streetAsphaltTex = new THREE.CanvasTexture(roadCanvas);
+  streetAsphaltTex.colorSpace = THREE.SRGBColorSpace;
+  streetAsphaltTex.wrapS = THREE.RepeatWrapping;
+  streetAsphaltTex.wrapT = THREE.RepeatWrapping;
+  streetAsphaltTex.repeat.set(4, 48);
+  streetAsphaltTex.anisotropy = preset.anisotropy;
+  if (isRetroPixel) {
+    streetAsphaltTex.minFilter = THREE.NearestFilter;
+    streetAsphaltTex.magFilter = THREE.NearestFilter;
+  }
+
+  const streetAsphaltMat = makeCityMat({
+    map: streetAsphaltTex,
+    roughness: 0.80,
+    metalness: 0.06,
+  });
+  const yellowLineMat = new THREE.MeshBasicMaterial({ color: 0xfacc15, side: THREE.DoubleSide });
+  const whiteLineMat = new THREE.MeshBasicMaterial({ color: 0xf8fafc, side: THREE.DoubleSide });
+  const stopBarMat = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide });
+
+  const cityStreetRoadMeshes: THREE.Mesh[] = [];
+  const cityBuildings: CityBuildingBox[] = [];
+  const suburbanHouses: BuiltSuburbanHouse[] = [];
+
+  const sidewalkMat = makeCityMat({
+    color: 0x94a3b8,
+    roughness: 0.86,
+    metalness: 0.04,
+  });
+  const treeTrunkMat = makeCityMat({ color: 0x5c3a21, roughness: 0.92 });
+  const treeFoliageMat = makeCityMat({ color: 0x2d6a2e, roughness: 0.8 });
+  const goldMat = makeCityMat({ color: 0xf59e0b, roughness: 0.2, metalness: 0.85 });
+
+  // =========================================================================================
+  // Procedural Texture Helpers for Authentic Maryland Brick, Windows, Street Signs & Neon
+  // =========================================================================================
+  const makeTextSignMat = (
+    lines: string[],
+    bgHex: string,
+    fgHex: string,
+    borderHex?: string,
+    emissiveHex?: string
+  ) => {
+    const c = document.createElement('canvas');
+    c.width = 512;
+    c.height = 128;
+    const ctx = c.getContext('2d');
+    if (ctx) {
+      ctx.fillStyle = bgHex;
+      ctx.fillRect(0, 0, 512, 128);
+      if (borderHex) {
+        ctx.strokeStyle = borderHex;
+        ctx.lineWidth = 6;
+        ctx.strokeRect(5, 5, 502, 118);
+      }
+      ctx.fillStyle = fgHex;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      if (lines.length === 1) {
+        ctx.font = 'bold 42px system-ui, -apple-system, sans-serif';
+        ctx.fillText(lines[0], 256, 64, 480);
+      } else {
+        ctx.font = 'bold 34px system-ui, -apple-system, sans-serif';
+        ctx.fillText(lines[0], 256, 42, 480);
+        ctx.font = 'bold 24px system-ui, -apple-system, sans-serif';
+        ctx.fillText(lines[1], 256, 88, 480);
+      }
+    }
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.anisotropy = preset.anisotropy;
+    if (isRetroPixel) {
+      tex.minFilter = THREE.NearestFilter;
+      tex.magFilter = THREE.NearestFilter;
+    }
+    if (emissiveHex) {
+      return new THREE.MeshStandardMaterial({
+        map: tex,
+        emissive: new THREE.Color(emissiveHex),
+        emissiveMap: tex,
+        emissiveIntensity: 0.95,
+        roughness: 0.35,
+      });
+    }
+    return new THREE.MeshStandardMaterial({ map: tex, roughness: 0.55, metalness: 0.1 });
+  };
+
+  const makeBrickFacadeMat = (
+    brickHex: string,
+    mortarHex: string,
+    windowColorHex: string,
+    cols: number,
+    rows: number,
+    archedWindows = false
+  ) => {
+    const dim = isRetroPixel ? 128 : 256;
+    const sc = dim / 256;
+    const c = document.createElement('canvas');
+    c.width = dim;
+    c.height = dim;
+    const ctx = c.getContext('2d');
+    if (ctx) {
+      ctx.fillStyle = brickHex;
+      ctx.fillRect(0, 0, dim, dim);
+      // Subtle horizontal brick courses
+      ctx.fillStyle = mortarHex;
+      const stepY = Math.max(4, Math.round(8 * sc));
+      for (let y = 0; y < dim; y += stepY) {
+        ctx.fillRect(0, y, dim, Math.max(1, 1.2 * sc));
+      }
+      if (!isRetroPixel) {
+        for (let y = 0; y < dim; y += 16) {
+          for (let x = (y % 32 === 0 ? 0 : 10); x < dim; x += 20) {
+            ctx.fillRect(x, y, 1.2, 8);
+          }
+        }
+      }
+      // Architectural windows with limestone lintels, sills & reflective mullions
+      const cellW = dim / cols;
+      const cellH = dim / rows;
+      const winW = cellW * 0.50;
+      const winH = cellH * 0.56;
+      for (let r = 0; r < rows; r++) {
+        for (let col = 0; col < cols; col++) {
+          const wx = col * cellW + (cellW - winW) * 0.5;
+          const wy = r * cellH + (cellH - winH) * 0.5;
+          // Stone lintel & sill
+          ctx.fillStyle = '#cbd5e1';
+          ctx.fillRect(wx - 2 * sc, wy - 3 * sc, winW + 4 * sc, Math.max(1, 2.6 * sc));
+          ctx.fillStyle = '#e2e8f0';
+          ctx.fillRect(wx - 2 * sc, wy + winH, winW + 4 * sc, Math.max(1, 3 * sc));
+          ctx.fillStyle = windowColorHex;
+          if (archedWindows && !isRetroPixel) {
+            ctx.beginPath();
+            ctx.arc(wx + winW * 0.5, wy + winW * 0.45, winW * 0.5, Math.PI, 0);
+            ctx.lineTo(wx + winW, wy + winH);
+            ctx.lineTo(wx, wy + winH);
+            ctx.closePath();
+            ctx.fill();
+          } else {
+            ctx.fillRect(wx, wy, winW, winH);
+          }
+          // Glass diagonal highlight + cross mullions
+          ctx.fillStyle = 'rgba(255,255,255,0.16)';
+          ctx.fillRect(wx + 2 * sc, wy + 2 * sc, winW * 0.35, winH * 0.42);
+          ctx.fillStyle = '#94a3b8';
+          ctx.fillRect(wx + winW * 0.48, wy + 2 * sc, Math.max(1, 1.5 * sc), winH - 2 * sc);
+          ctx.fillRect(wx + 2 * sc, wy + winH * 0.48, winW - 4 * sc, Math.max(1, 1.2 * sc));
+        }
+      }
+    }
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.wrapT = THREE.RepeatWrapping;
+    tex.anisotropy = preset.anisotropy;
+    if (isRetroPixel) {
+      tex.minFilter = THREE.NearestFilter;
+      tex.magFilter = THREE.NearestFilter;
+    }
+    return makeCityMat({ map: tex, roughness: 0.72, metalness: 0.08 });
+  };
+
+  const getNearestRoadClearance = (px: number, pz: number) => {
+    let minEdge = Infinity;
+    let nearestPtX = px;
+    let nearestPtZ = pz;
+    let nearestHalfW = 12;
+    for (let rIdx = 0; rIdx < ALL_MARYLAND_ROADS.length; rIdx++) {
+      const r = ALL_MARYLAND_ROADS[rIdx];
+      const hw = r.width * 0.5;
+      for (let i = 0; i < r.points.length - 1; i++) {
+        const a = r.points[i];
+        const b = r.points[i + 1];
+        const dx = b.x - a.x;
+        const dz = b.z - a.z;
+        const lSq = dx * dx + dz * dz;
+        const t = lSq > 0 ? Math.max(0, Math.min(1, ((px - a.x) * dx + (pz - a.z) * dz) / lSq)) : 0;
+        const cx = a.x + t * dx;
+        const cz = a.z + t * dz;
+        const d = Math.hypot(px - cx, pz - cz) - hw;
+        if (d < minEdge) {
+          minEdge = d;
+          nearestPtX = cx;
+          nearestPtZ = cz;
+          nearestHalfW = hw;
+        }
+      }
+      if (r.culDeSacEndRadius && r.points.length > 0) {
+        const endPt = r.points[r.points.length - 1];
+        const d = Math.hypot(px - endPt.x, pz - endPt.z) - r.culDeSacEndRadius;
+        if (d < minEdge) {
+          minEdge = d;
+          nearestPtX = endPt.x;
+          nearestPtZ = endPt.z;
+          nearestHalfW = r.culDeSacEndRadius;
+        }
+      }
+    }
+    return { minEdge, nearestPtX, nearestPtZ, nearestHalfW };
+  };
+
+  const addStreetNamePost = (x: number, z: number, label: string, rotY = 0) => {
+    let px = x;
+    let pz = z;
+    // Automatically nudge any street post out onto the roadside shoulder (>= 3.2m outside any asphalt)
+    for (let pass = 0; pass < 3; pass++) {
+      const clr = getNearestRoadClearance(px, pz);
+      if (clr.minEdge >= 2.8) break;
+      const vx = px - clr.nearestPtX;
+      const vz = pz - clr.nearestPtZ;
+      const vLen = Math.hypot(vx, vz);
+      const pushDist = clr.nearestHalfW + 3.8;
+      if (vLen > 0.05) {
+        px = clr.nearestPtX + (vx / vLen) * pushDist;
+        pz = clr.nearestPtZ + (vz / vLen) * pushDist;
+      } else {
+        px += pushDist;
+      }
+    }
+    const postGroup = new THREE.Group();
+    postGroup.position.set(px, 0.25, pz);
+    postGroup.rotation.y = rotY;
+    const steelMat = makeCityMat({ color: 0x334155, metalness: 0.7, roughness: 0.35 });
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.08, 3.1, isRetroPixel ? 5 : 8), steelMat);
+    pole.position.y = 1.55;
+    postGroup.add(pole);
+    const bladeMat = makeTextSignMat([label], '#065f46', '#ffffff', '#e2e8f0');
+    const blade = new THREE.Mesh(new THREE.BoxGeometry(2.3, 0.55, 0.1), bladeMat);
+    blade.position.y = 3.05;
+    postGroup.add(blade);
+    sceneryGroup.add(postGroup);
+  };
+
+  const addLandscapedTree = (tx: number, tz: number, scale = 1.0) => {
+    // Safety guard: never allow a landscaped tree to spawn inside or brushing a road corridor
+    const clr = getNearestRoadClearance(tx, tz);
+    if (clr.minEdge < 3.2 * scale) return;
+    const trunk = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.26 * scale, 0.36 * scale, 3.2 * scale, isRetroPixel ? 5 : 7),
+      treeTrunkMat
+    );
+    trunk.position.set(tx, 0.24 + 1.6 * scale, tz);
+    sceneryGroup.add(trunk);
+    const crown = new THREE.Mesh(
+      new THREE.DodecahedronGeometry(2.3 * scale, isRetroPixel ? 0 : 1),
+      treeFoliageMat
+    );
+    crown.position.set(tx, 0.24 + 4.1 * scale, tz);
+    sceneryGroup.add(crown);
+  };
+
+  const drawParkingLotBay = (cx: number, cz: number, width: number, depth: number, rotY = 0) => {
+    const lotGroup = new THREE.Group();
+    lotGroup.position.set(cx, 0.26, cz);
+    lotGroup.rotation.y = rotY;
+    const lotMat = new THREE.MeshStandardMaterial({ color: 0x1e2430, roughness: 0.85, metalness: 0.08 });
+    const lotPlane = new THREE.Mesh(new THREE.PlaneGeometry(width, depth), lotMat);
+    lotPlane.rotation.x = -Math.PI / 2;
+    lotPlane.receiveShadow = !isUltra;
+    lotGroup.add(lotPlane);
+
+    const stripeCount = Math.max(4, Math.floor(width / 5.5));
+    for (let i = 0; i <= stripeCount; i++) {
+      const sx = -width * 0.45 + (i / stripeCount) * width * 0.9;
+      const stripe = new THREE.Mesh(new THREE.PlaneGeometry(0.18, depth * 0.36), whiteLineMat);
+      stripe.rotation.x = -Math.PI / 2;
+      stripe.position.set(sx, 0.015, -depth * 0.22);
+      lotGroup.add(stripe);
+      const stripeB = new THREE.Mesh(new THREE.PlaneGeometry(0.18, depth * 0.36), whiteLineMat);
+      stripeB.rotation.x = -Math.PI / 2;
+      stripeB.position.set(sx, 0.015, depth * 0.22);
+      lotGroup.add(stripeB);
+    }
+    sceneryGroup.add(lotGroup);
+  };
+
+  // =========================================================================================
+  // 3a. UNIFIED STATEWIDE MARYLAND ROAD NETWORK (Google Maps Geography — No Fake Grid)
+  // =========================================================================================
+  renderMarylandRoadSpecs(ALL_MARYLAND_ROADS, {
+    group,
+    sceneryGroup,
+    cityStreetRoadMeshes,
+    streetAsphaltMat,
+    whiteLineMat,
+    yellowLineMat,
+    sidewalkMat,
+    isUltra,
+    isRetroPixel,
+    makeCityMat,
+    makeTextSignMat,
+  });
+
+  // =========================================================================================
+  // 3b. BALTIMORE HARBOR, DOWNTOWN, CAMDEN YARDS, ROWHOMES & ISB (WOODLAWN)
+  // =========================================================================================
+  const baltimoreInfo = buildBaltimoreDistrict({
+    group,
+    sceneryGroup,
+    cityBuildings,
+    suburbanHouses,
+    streetAsphaltMat,
+    whiteLineMat,
+    sidewalkMat,
+    treeTrunkMat,
+    treeFoliageMat,
+    goldMat,
+    isUltra,
+    isRetroPixel,
+    makeCityMat,
+    makeTextSignMat,
+    makeBrickFacadeMat,
+    addStreetNamePost,
+    addLandscapedTree,
+    drawParkingLotBay,
+  });
+  const bankPosition = baltimoreInfo.bankPosition;
+  const policeStationPosition = baltimoreInfo.policeStationPosition;
+
+  // =========================================================================================
+  // 3c. GAITHERSBURG, ICM (19411 WOODFIELD RD), EDINBURGH VILLAGE & HADLEY FARMS
+  // =========================================================================================
+  buildGaithersburgDistrict({
+    group,
+    sceneryGroup,
+    cityStreetRoadMeshes,
+    cityBuildings,
+    suburbanHouses,
+    streetAsphaltMat,
+    whiteLineMat,
+    yellowLineMat,
+    sidewalkMat,
+    treeTrunkMat,
+    treeFoliageMat,
+    goldMat,
+    isUltra,
+    isRetroPixel,
+    makeCityMat,
+    makeTextSignMat,
+    makeBrickFacadeMat,
+    addStreetNamePost,
+    addLandscapedTree,
+  });
+
+  // =========================================================================================
+  // 3d. ENTIRE STATE OF MARYLAND: WESTERN MOUNTAINS TO CHESAPEAKE BAY & OCEAN CITY
+  // =========================================================================================
+  buildMarylandStateDistrict({
+    group,
+    sceneryGroup,
+    cityBuildings,
+    suburbanHouses,
+    streetAsphaltMat,
+    whiteLineMat,
+    treeTrunkMat,
+    treeFoliageMat,
+    goldMat,
+    isUltra,
+    isRetroPixel,
+    makeCityMat,
+    makeTextSignMat,
+    makeBrickFacadeMat,
+    addStreetNamePost,
+    addLandscapedTree,
+    drawParkingLotBay,
+  });
+
+  // 4. Statewide Maryland Signalized Intersections (Cantilever Traffic Light Gantries)
+  const trafficLightGantries: CityTrafficLightGantry[] = [];
+  const poleMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.75, roughness: 0.3 });
+  const housingMat = new THREE.MeshStandardMaterial({ color: 0x090d16, metalness: 0.5, roughness: 0.4 });
+  const bulbGeom = new THREE.SphereGeometry(0.46, 10, 10);
+  const poleGeom = new THREE.CylinderGeometry(0.28, 0.34, 8.2, 10);
+  const armGeom = new THREE.CylinderGeometry(0.18, 0.22, 12.5, 8);
+  const boxGeom = new THREE.BoxGeometry(1.15, 3.1, 0.9);
+
+  for (const jct of MARYLAND_SIGNAL_JUNCTIONS) {
+    const ix = jct.x;
+    const iz = jct.z;
+
+    // Collect actual incoming road directions & widths at this junction so stop bars & poles align cleanly
+    let maxHalfW = 12;
+    const incomingAngles: { angle: number; width: number }[] = [];
+    for (const r of ALL_MARYLAND_ROADS) {
+      for (let i = 0; i < r.points.length; i++) {
+        const pt = r.points[i];
+        if (Math.hypot(pt.x - ix, pt.z - iz) < 6) {
+          if (r.width * 0.5 > maxHalfW) maxHalfW = r.width * 0.5;
+          if (i > 0) {
+            const prev = r.points[i - 1];
+            incomingAngles.push({ angle: Math.atan2(prev.x - ix, prev.z - iz), width: r.width });
+          }
+          if (i < r.points.length - 1) {
+            const next = r.points[i + 1];
+            incomingAngles.push({ angle: Math.atan2(next.x - ix, next.z - iz), width: r.width });
+          }
+        }
+      }
+      // Also check junctions where a road passes straight through without sharing a node
+      for (let i = 0; i < r.points.length - 1; i++) {
+        const a = r.points[i];
+        const b = r.points[i + 1];
+        if (distSqPointToSeg(ix, iz, a.x, a.z, b.x, b.z) < 9) {
+          if (r.width * 0.5 > maxHalfW) maxHalfW = r.width * 0.5;
+        }
+      }
+    }
+
+    const stopDist = maxHalfW + 1.8;
+    for (const leg of incomingAngles.slice(0, 4)) {
+      const bar = new THREE.Mesh(new THREE.PlaneGeometry(leg.width * 0.7, 0.65), stopBarMat);
+      bar.rotation.order = 'YXZ';
+      bar.rotation.y = leg.angle;
+      bar.rotation.x = -Math.PI / 2;
+      bar.position.set(ix + Math.sin(leg.angle) * stopDist, 0.258, iz + Math.cos(leg.angle) * stopDist);
+      group.add(bar);
+    }
+
+    const nsBulbs = {
+      red: new THREE.MeshBasicMaterial({ color: 0xef4444 }),
+      yellow: new THREE.MeshBasicMaterial({ color: 0x332800 }),
+      green: new THREE.MeshBasicMaterial({ color: 0x052e16 }),
+    };
+    const ewBulbs = {
+      red: new THREE.MeshBasicMaterial({ color: 0x3b0808 }),
+      yellow: new THREE.MeshBasicMaterial({ color: 0x332800 }),
+      green: new THREE.MeshBasicMaterial({ color: 0x22c55e }),
+    };
+
+    // Search 16 radial directions at increasing radius to find 2 valid OFF-ROAD corners for mast poles
+    const chosenCorners: { px: number; pz: number }[] = [];
+    const baseRadius = maxHalfW + 5.2;
+    for (const radStep of [baseRadius, baseRadius + 4.5, baseRadius + 9.0]) {
+      for (let s = 0; s < 16; s++) {
+        const ang = (s / 16) * Math.PI * 2 + Math.PI / 8;
+        const px = ix + Math.cos(ang) * radStep;
+        const pz = iz + Math.sin(ang) * radStep;
+        const clr = getNearestRoadClearance(px, pz);
+        if (clr.minEdge < 2.2) continue;
+        // Pick opposite/well-separated corners
+        if (chosenCorners.length === 0) {
+          chosenCorners.push({ px, pz });
+        } else if (
+          chosenCorners.length === 1 &&
+          Math.hypot(px - chosenCorners[0].px, pz - chosenCorners[0].pz) > radStep * 1.45
+        ) {
+          chosenCorners.push({ px, pz });
+          break;
+        }
+      }
+      if (chosenCorners.length >= 2) break;
+    }
+
+    if (chosenCorners.length > 0) {
+      const c1 = chosenCorners[0];
+      const nsMastGroup = new THREE.Group();
+      nsMastGroup.position.set(c1.px, 0.25, c1.pz);
+      nsMastGroup.rotation.y = Math.atan2(ix - c1.px, iz - c1.pz);
+      const pole1 = new THREE.Mesh(poleGeom, poleMat);
+      pole1.position.y = 4.1;
+      nsMastGroup.add(pole1);
+      const arm1 = new THREE.Mesh(armGeom, poleMat);
+      arm1.rotation.x = Math.PI / 2;
+      arm1.position.set(0, 7.6, 6.0);
+      nsMastGroup.add(arm1);
+      const headNS = new THREE.Group();
+      headNS.position.set(0, 6.9, 8.2);
+      headNS.rotation.y = Math.PI / 2;
+      headNS.add(new THREE.Mesh(boxGeom, housingMat));
+      for (const zSide of [-0.46, 0.46]) {
+        const rBulb = new THREE.Mesh(bulbGeom, nsBulbs.red);
+        rBulb.position.set(0, 0.92, zSide);
+        headNS.add(rBulb);
+        const yBulb = new THREE.Mesh(bulbGeom, nsBulbs.yellow);
+        yBulb.position.set(0, 0, zSide);
+        headNS.add(yBulb);
+        const gBulb = new THREE.Mesh(bulbGeom, nsBulbs.green);
+        gBulb.position.set(0, -0.92, zSide);
+        headNS.add(gBulb);
+      }
+      nsMastGroup.add(headNS);
+      group.add(nsMastGroup);
+    }
+
+    if (chosenCorners.length > 1) {
+      const c2 = chosenCorners[1];
+      const ewMastGroup = new THREE.Group();
+      ewMastGroup.position.set(c2.px, 0.25, c2.pz);
+      ewMastGroup.rotation.y = Math.atan2(ix - c2.px, iz - c2.pz);
+      const pole2 = new THREE.Mesh(poleGeom, poleMat);
+      pole2.position.y = 4.1;
+      ewMastGroup.add(pole2);
+      const arm2 = new THREE.Mesh(armGeom, poleMat);
+      arm2.rotation.x = Math.PI / 2;
+      arm2.position.set(0, 7.6, 6.0);
+      ewMastGroup.add(arm2);
+      const headEW = new THREE.Group();
+      headEW.position.set(0, 6.9, 8.2);
+      headEW.rotation.y = Math.PI / 2;
+      headEW.add(new THREE.Mesh(boxGeom, housingMat));
+      for (const zSide of [-0.46, 0.46]) {
+        const rBulb = new THREE.Mesh(bulbGeom, ewBulbs.red);
+        rBulb.position.set(0, 0.92, zSide);
+        headEW.add(rBulb);
+        const yBulb = new THREE.Mesh(bulbGeom, ewBulbs.yellow);
+        yBulb.position.set(0, 0, zSide);
+        headEW.add(yBulb);
+        const gBulb = new THREE.Mesh(bulbGeom, ewBulbs.green);
+        gBulb.position.set(0, -0.92, zSide);
+        headEW.add(gBulb);
+      }
+      ewMastGroup.add(headEW);
+      group.add(ewMastGroup);
+    }
+
+    trafficLightGantries.push({
+      ix,
+      iz,
+      nsBulbs,
+      ewBulbs,
+    });
+  }
+
+  // Dummy startGantry for interface compatibility
+  const startGantry = new THREE.Group();
+  const startLights: THREE.Mesh[] = [];
+  for (let i = 0; i < 5; i++) {
+    const m = new THREE.Mesh(
+      new THREE.SphereGeometry(0.2, 6, 6),
+      new THREE.MeshBasicMaterial({ color: 0x10b981 })
+    );
+    startLights.push(m);
+  }
+
+  // Updates all 49 intersection Red/Yellow/Green traffic signal bulbs in real time
+  const updateCityTrafficLights = (timeSec: number, _playerX: number, _playerZ: number) => {
+    for (let i = 0; i < trafficLightGantries.length; i++) {
+      const g = trafficLightGantries[i];
+      const state = getIntersectionSignalState(g.ix, g.iz, timeSec);
+
+      g.nsBulbs.red.color.setHex(state.ns === 'RED' ? 0xff1e1e : 0x2a0808);
+      g.nsBulbs.yellow.color.setHex(state.ns === 'YELLOW' ? 0xfacc15 : 0x282004);
+      g.nsBulbs.green.color.setHex(state.ns === 'GREEN' ? 0x10b981 : 0x052814);
+
+      g.ewBulbs.red.color.setHex(state.ew === 'RED' ? 0xff1e1e : 0x2a0808);
+      g.ewBulbs.yellow.color.setHex(state.ew === 'YELLOW' ? 0xfacc15 : 0x282004);
+      g.ewBulbs.green.color.setHex(state.ew === 'GREEN' ? 0x10b981 : 0x052814);
+    }
+  };
+
+  const updateInfiniteRoadOrigin = (playerX: number, playerZ: number) => {
+    const snappedX = Math.round(playerX / 50) * 50;
+    const snappedZ = Math.round(playerZ / 50) * 50;
+    if (baseRoadMesh.position.x !== snappedX || baseRoadMesh.position.z !== snappedZ) {
+      baseRoadMesh.position.x = snappedX;
+      baseRoadMesh.position.z = snappedZ;
+    }
+  };
+
+  const setStartLights = (_lightsLitCount: number, _lightsOut: boolean) => {};
+  const getTrackPointAtProgress = (t: number) => {
+    const clampedT = ((t % 1) + 1) % 1;
+    const position = curve.getPointAt(clampedT);
+    position.y = 0.25;
+    const tangent = curve.getTangentAt(clampedT).normalize();
+    const normal = new THREE.Vector3().crossVectors(tangent, up).normalize();
+    return { position, tangent, normal };
+  };
+  const getTargetCornerSpeedKmh = (_t: number): number => 320;
+
+  const checkSurfaceType = (pos: THREE.Vector3): SurfaceInfo => {
+    const onStreet = isOnMarylandPavedSurface(pos.x, pos.z);
+
+    return {
+      offTrack: false,
+      onCurb: !onStreet,
+      distanceToCenterline: 0,
+      lateralOffset: 0,
+      progress: 0,
+      trackPoint: new THREE.Vector3(pos.x, 0.25, pos.z),
+      tangent: new THREE.Vector3(0, 0, -1),
+      normal: new THREE.Vector3(1, 0, 0),
+      isCollidingWall: false,
+      wallNormal: new THREE.Vector3(0, 0, 1),
+      penetration: 0,
+      barrierLimit: 9999999,
+    };
+  };
+
+  const setReflectionTexture = (tex: THREE.Texture | null, intensity = 0.72) => {
+    reflectionUniforms.uPlanarReflectionMap.value = tex;
+    reflectionUniforms.uReflectionIntensity.value = tex ? intensity : 0.0;
+  };
+  const setReflectionPassMode = (active: boolean) => {
+    baseRoadMesh.visible = !active;
+    for (let i = 0; i < cityStreetRoadMeshes.length; i++) {
+      cityStreetRoadMeshes[i].visible = !active;
+    }
+  };
+
+  return {
+    group,
+    sceneryGroup,
+    curve,
+    trackLength,
+    barrierLimit: 9999999,
+    isOpenField: true,
+    isCityDriving: true,
+    cityBuildings,
+    suburbanHouses,
+    bankPosition,
+    policeStationPosition,
+    startGantry,
+    startLights,
+    setStartLights,
+    setReflectionTexture,
+    setReflectionPassMode,
+    getTrackPointAtProgress,
+    getTargetCornerSpeedKmh,
+    checkSurfaceType,
+    updateInfiniteRoadOrigin,
+    updateCityTrafficLights,
+  };
+}
+
+
+

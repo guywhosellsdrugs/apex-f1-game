@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { TrackMiniMap } from './TrackMiniMap';
 import { PracticeLineCoachData } from '../game/racingLineBuilder';
+import { soundEngine } from '../services/soundEngine';
 import {
   UnitSystem,
   getStoredUnitSystem,
@@ -70,6 +71,11 @@ interface BroadcastHUDProps {
   practiceBotCount?: number;
   onSetPracticeBotCount?: (count: number) => void;
   onPitStop?: (compound?: 'SOFT' | 'MEDIUM' | 'HARD') => void;
+  bestReactionTimeMs?: number;
+  onToggleManualGear?: () => void;
+  onForceShiftUp?: () => void;
+  onForceShiftDown?: () => void;
+  onRequestEngineerReport?: (topic: 'gap' | 'tires' | 'incident') => void;
 }
 
 export const BroadcastHUD: React.FC<BroadcastHUDProps> = ({
@@ -96,10 +102,16 @@ export const BroadcastHUD: React.FC<BroadcastHUDProps> = ({
   practiceBotCount = 19,
   onSetPracticeBotCount,
   onPitStop,
+  bestReactionTimeMs,
+  onToggleManualGear,
+  onForceShiftUp,
+  onForceShiftDown,
+  onRequestEngineerReport,
 }) => {
   const [unitSystem, setUnitSystem] = useState<UnitSystem>(getStoredUnitSystem());
   const [theme, setTheme] = useState<AppThemeId>(getStoredTheme());
   const [dockSide, setDockSide] = useState<SpeedometerDockSide>(getStoredSpeedometerDock());
+  const [engineerVoiceOn, setEngineerVoiceOn] = useState<boolean>(() => soundEngine.isEngineerVoiceEnabled());
 
   useEffect(() => {
     const unsubUnits = onUnitSystemChange((newUnit) => setUnitSystem(newUnit));
@@ -131,6 +143,9 @@ export const BroadcastHUD: React.FC<BroadcastHUDProps> = ({
   };
 
   const isLight = theme === 'light';
+  const isCityDrivingMode = circuit.id === 'city_driving_metro';
+  const isOpenFieldProvingGround =
+    circuit.id === 'open_field_proving_ground' || isCityDrivingMode;
 
   // Theme-adaptive surface classes so the HUD looks rich and distinct in every theme
   const panelSurface = isLight
@@ -161,7 +176,8 @@ export const BroadcastHUD: React.FC<BroadcastHUDProps> = ({
   const primaryText = isLight ? 'text-slate-900' : 'text-white';
   const dividerColor = isLight ? 'bg-slate-300' : 'bg-white/10';
 
-  const displaySpeed = Math.round(convertSpeed(telemetry.speedKmh, unitSystem));
+  const rawSpeed = convertSpeed(telemetry?.speedKmh ?? 0, unitSystem);
+  const displaySpeed = Number.isFinite(rawSpeed) ? Math.round(rawSpeed) : 0;
   const speedUnitLabel = getSpeedUnitLabel(unitSystem);
 
   const formatTime = (seconds: number | null) => {
@@ -214,6 +230,7 @@ export const BroadcastHUD: React.FC<BroadcastHUDProps> = ({
           tireCompound: (r.tireCompound || 'SOFT') as TireCompound,
           tireLife: r.tireLife ?? 100,
           pitStopsCount: r.pitStopsCount || 0,
+          inPit: Boolean(r.inPit),
         };
       });
     }
@@ -240,6 +257,7 @@ export const BroadcastHUD: React.FC<BroadcastHUDProps> = ({
       tireCompound: (idx % 3 === 0 ? 'SOFT' : idx % 3 === 1 ? 'MEDIUM' : 'HARD') as TireCompound,
       tireLife: 100,
       pitStopsCount: 0,
+      inPit: false,
     }));
   }, [telemetry.carsRadar, telemetry.position, playerDriver, telemetry.teammateShortName]);
 
@@ -258,125 +276,127 @@ export const BroadcastHUD: React.FC<BroadcastHUDProps> = ({
 
   const renderTelemetryCluster = () => (
     <div className="flex flex-col gap-2 w-[295px] sm:w-[325px] pointer-events-auto">
-      {/* Interactive Tire Health, Compound Composition, Thermal Window & Pit Box Strategy Strip */}
-      <div className={`flex flex-col gap-2 px-3.5 py-2.5 rounded-xl border ${panelSurface}`}>
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2.5">
-            <div className={`w-7 h-7 rounded-full border-2 bg-zinc-900 flex items-center justify-center font-black text-xs shrink-0 ${compoundRingClass}`}>
-              {telemetry.tireCompound[0]}
-            </div>
-            <div className="flex flex-col leading-tight">
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <span className={`text-[9px] uppercase tracking-wider font-black ${primaryText}`}>
-                  {activeCompoundSpec.label}
-                </span>
-                <span
-                  className={`text-[8px] font-mono font-black px-1.5 py-0.2 rounded ${
-                    tireStatus === 'OPTIMAL'
-                      ? 'bg-emerald-500/20 text-emerald-400'
-                      : tireStatus === 'GRAINING'
-                      ? 'bg-amber-500/20 text-amber-400'
-                      : 'bg-red-500/25 text-red-400 animate-pulse'
-                  }`}
-                >
-                  {tireGripPct}% GRIP · {tireStatus}
-                </span>
+      {/* Interactive Tire Health, Compound Composition, Thermal Window & Pit Box Strategy Strip (Hidden in City Driving Mode) */}
+      {!isCityDrivingMode && (
+        <div className={`flex flex-col gap-2 px-3.5 py-2.5 rounded-xl border ${panelSurface}`}>
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2.5">
+              <div className={`w-7 h-7 rounded-full border-2 bg-zinc-900 flex items-center justify-center font-black text-xs shrink-0 ${compoundRingClass}`}>
+                {telemetry.tireCompound[0]}
               </div>
-              <div className="flex items-center gap-1.5 mt-0.5">
-                <span className={`text-xs font-mono font-bold tabular-nums ${primaryText}`}>
-                  {tireLifePct}% HEALTH · {formatTemp(telemetry.tireTemp, unitSystem)}
-                </span>
-                <span
-                  className={`text-[8px] font-mono font-bold px-1 rounded ${
-                    thermalState === 'OPTIMAL_WINDOW'
-                      ? 'bg-emerald-500/15 text-emerald-400'
-                      : thermalState === 'COLD'
-                      ? 'bg-sky-500/20 text-sky-300'
-                      : 'bg-orange-500/25 text-orange-400'
-                  }`}
-                >
-                  {thermalState === 'OPTIMAL_WINDOW' ? 'OPT TEMP' : thermalState}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex flex-col items-end gap-1 shrink-0">
-            <div className="w-20 bg-zinc-800/80 h-2 rounded-full overflow-hidden border border-white/10">
-              <div
-                className={`h-full transition-all duration-300 ${
-                  tireLifePct < 25
-                    ? 'bg-red-500'
-                    : tireLifePct < 55
-                    ? 'bg-amber-400'
-                    : 'bg-emerald-400'
-                }`}
-                style={{ width: `${Math.max(4, tireLifePct)}%` }}
-              />
-            </div>
-            {telemetry.tireCorners && (
-              <span className={`text-[8px] font-mono tabular-nums ${mutedText}`}>
-                FL {telemetry.tireCorners.fl}% · FR {telemetry.tireCorners.fr}%
-              </span>
-            )}
-          </div>
-        </div>
-
-        {/* Active Compound Composition Characteristics Summary */}
-        <div className={`flex items-center justify-between text-[9px] font-mono px-2 py-1 rounded border ${subSurface}`}>
-          <span className="truncate">{activeCompoundSpec.summary}</span>
-          <span className={mutedText}>Stint: {activeCompoundSpec.idealStintLaps}</span>
-        </div>
-
-        {/* Compound Switcher + [P] Pit Box Service Controls */}
-        {!isQualifyingMode && onPitStop && (
-          <div className="flex items-center justify-between gap-1 pt-0.5">
-            <div className="flex items-center gap-1">
-              {(['SOFT', 'MEDIUM', 'HARD'] as const).map((comp) => {
-                const isSelected = telemetry.tireCompound === comp;
-                return (
-                  <button
-                    key={comp}
-                    type="button"
-                    onClick={() => onPitStop(comp)}
-                    className={`px-2 py-0.5 rounded text-[9px] font-mono font-bold transition-all cursor-pointer border ${
-                      isSelected
-                        ? comp === 'SOFT'
-                          ? 'bg-red-600 text-white border-red-400 shadow-sm'
-                          : comp === 'MEDIUM'
-                          ? 'bg-amber-500 text-black border-amber-300 shadow-sm'
-                          : 'bg-slate-200 text-black border-white shadow-sm'
-                        : `${subSurface} opacity-75 hover:opacity-100`
+              <div className="flex flex-col leading-tight">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className={`text-[9px] uppercase tracking-wider font-black ${primaryText}`}>
+                    {activeCompoundSpec.label}
+                  </span>
+                  <span
+                    className={`text-[8px] font-mono font-black px-1.5 py-0.2 rounded ${
+                      tireStatus === 'OPTIMAL'
+                        ? 'bg-emerald-500/20 text-emerald-400'
+                        : tireStatus === 'GRAINING'
+                        ? 'bg-amber-500/20 text-amber-400'
+                        : 'bg-red-500/25 text-red-400 animate-pulse'
                     }`}
-                    title={`${raceState === 'countdown' ? 'Start race on' : 'Pit & fit fresh 100%'} ${TIRE_COMPOUND_SPECS[comp].label} (${TIRE_COMPOUND_SPECS[comp].summary})`}
                   >
-                    {comp[0]} · {comp === 'SOFT' ? '+8% Grip' : comp === 'MEDIUM' ? '1.0x Bal' : '0.52x Wear'}
-                  </button>
-                );
-              })}
+                    {tireGripPct}% GRIP · {tireStatus}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5 mt-0.5">
+                  <span className={`text-xs font-mono font-bold tabular-nums ${primaryText}`}>
+                    {tireLifePct}% HEALTH · {formatTemp(telemetry.tireTemp, unitSystem)}
+                  </span>
+                  <span
+                    className={`text-[8px] font-mono font-bold px-1 rounded ${
+                      thermalState === 'OPTIMAL_WINDOW'
+                        ? 'bg-emerald-500/15 text-emerald-400'
+                        : thermalState === 'COLD'
+                        ? 'bg-sky-500/20 text-sky-300'
+                        : 'bg-orange-500/25 text-orange-400'
+                    }`}
+                  >
+                    {thermalState === 'OPTIMAL_WINDOW' ? 'OPT TEMP' : thermalState}
+                  </span>
+                </div>
+              </div>
             </div>
-            <button
-              type="button"
-              onClick={() => onPitStop(telemetry.tireCompound)}
-              className={`px-2 py-0.5 rounded text-[9px] font-mono font-black uppercase tracking-wider transition-all cursor-pointer border ${
-                tireLifePct < 45
-                  ? 'bg-emerald-500 hover:bg-emerald-400 text-black border-emerald-300 animate-pulse'
-                  : 'bg-emerald-500/20 hover:bg-emerald-500/35 text-emerald-300 border-emerald-500/40'
-              }`}
-              title="Press [P] or click to Pit for fresh 100% Tires (2.2s stop)"
-            >
-              {telemetry.pitStopActive ? `PIT ${telemetry.pitStopTimer}s` : '[P] BOX 100%'}
-            </button>
-          </div>
-        )}
-      </div>
 
-      {/* Main Side Speedometer, Gear, RPM Shift Lights & ERS/DRS Pod */}
+            <div className="flex flex-col items-end gap-1 shrink-0">
+              <div className="w-20 bg-zinc-800/80 h-2 rounded-full overflow-hidden border border-white/10">
+                <div
+                  className={`h-full transition-all duration-300 ${
+                    tireLifePct < 25
+                      ? 'bg-red-500'
+                      : tireLifePct < 55
+                      ? 'bg-amber-400'
+                      : 'bg-emerald-400'
+                  }`}
+                  style={{ width: `${Math.max(4, tireLifePct)}%` }}
+                />
+              </div>
+              {telemetry.tireCorners && (
+                <span className={`text-[8px] font-mono tabular-nums ${mutedText}`}>
+                  FL {telemetry.tireCorners.fl}% · FR {telemetry.tireCorners.fr}%
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Active Compound Composition Characteristics Summary */}
+          <div className={`flex items-center justify-between text-[9px] font-mono px-2 py-1 rounded border ${subSurface}`}>
+            <span className="truncate">{activeCompoundSpec.summary}</span>
+            <span className={mutedText}>Stint: {activeCompoundSpec.idealStintLaps}</span>
+          </div>
+
+          {/* Compound Switcher + [P] Pit Box Service Controls */}
+          {!isQualifyingMode && onPitStop && (
+            <div className="flex items-center justify-between gap-1 pt-0.5">
+              <div className="flex items-center gap-1">
+                {(['SOFT', 'MEDIUM', 'HARD'] as const).map((comp) => {
+                  const isSelected = telemetry.tireCompound === comp;
+                  return (
+                    <button
+                      key={comp}
+                      type="button"
+                      onClick={() => onPitStop(comp)}
+                      className={`px-2 py-0.5 rounded text-[9px] font-mono font-bold transition-all cursor-pointer border ${
+                        isSelected
+                          ? comp === 'SOFT'
+                            ? 'bg-red-600 text-white border-red-400 shadow-sm'
+                            : comp === 'MEDIUM'
+                            ? 'bg-amber-500 text-black border-amber-300 shadow-sm'
+                            : 'bg-slate-200 text-black border-white shadow-sm'
+                          : `${subSurface} opacity-75 hover:opacity-100`
+                      }`}
+                      title={`${raceState === 'countdown' ? 'Start race on' : 'Pit & fit fresh 100%'} ${TIRE_COMPOUND_SPECS[comp].label} (${TIRE_COMPOUND_SPECS[comp].summary})`}
+                    >
+                      {comp[0]} · {comp === 'SOFT' ? '+8% Grip' : comp === 'MEDIUM' ? '1.0x Bal' : '0.52x Wear'}
+                    </button>
+                  );
+                })}
+              </div>
+              <button
+                type="button"
+                onClick={() => onPitStop(telemetry.tireCompound)}
+                className={`px-2 py-0.5 rounded text-[9px] font-mono font-black uppercase tracking-wider transition-all cursor-pointer border ${
+                  tireLifePct < 45
+                    ? 'bg-emerald-500 hover:bg-emerald-400 text-black border-emerald-300 animate-pulse'
+                    : 'bg-emerald-500/20 hover:bg-emerald-500/35 text-emerald-300 border-emerald-500/40'
+                }`}
+                title="Press [P] or click to Pit for fresh 100% Tires (2.2s stop)"
+              >
+                {telemetry.pitStopActive ? `PIT ${telemetry.pitStopTimer}s` : '[P] BOX 100%'}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Main Side Speedometer, Gear, RPM Shift Lights & Pod */}
       <div className={`flex flex-col px-4 py-3 rounded-2xl border ${panelSurface}`}>
         {/* Pod Header with Left/Right Dock Switcher */}
         <div className="flex items-center justify-between mb-2">
           <span className={`text-[9px] uppercase tracking-widest font-bold ${mutedText}`}>
-            FIA TELEMETRY POD
+            {isCityDrivingMode ? 'STREET DASHBOARD' : 'FIA TELEMETRY POD'}
           </span>
           <button
             onClick={toggleDockSide}
@@ -406,16 +426,71 @@ export const BroadcastHUD: React.FC<BroadcastHUDProps> = ({
           })}
         </div>
 
-        {/* Core Telemetry Row: Gear, Digital Speed, Pedal Pressure Bars */}
+        {/* Core Telemetry Row: Gear + Force-Shift Controls, Digital Speed, Pedal Pressure Bars */}
         <div className="flex items-center justify-between gap-3 w-full">
-          {/* Gear Readout */}
-          <div className={`flex flex-col items-center border rounded-xl px-3.5 py-1.5 min-w-[60px] ${subSurface}`}>
-            <span className={`text-[9px] uppercase tracking-wider font-bold ${mutedText}`}>
-              GEAR
-            </span>
-            <span className="text-3xl font-black text-amber-500 font-mono tabular-nums leading-none mt-0.5">
-              {telemetry.gear === 0 ? 'N' : telemetry.gear === -1 ? 'R' : telemetry.gear}
-            </span>
+          {/* Gear Readout + [F] Shift Up / [V] Shift Down + Explicit AUTO / MANUAL Selector */}
+          <div className={`flex flex-col items-center border rounded-xl px-2.5 py-1.5 min-w-[88px] ${subSurface}`}>
+            <div className="flex items-center justify-between w-full gap-1 mb-0.5">
+              <span className={`text-[8px] uppercase tracking-wider font-bold ${mutedText}`}>
+                GEAR
+              </span>
+              <div className="flex items-center bg-zinc-900/90 rounded p-0.5 border border-white/10">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (telemetry.manualGearMode && onToggleManualGear) {
+                      onToggleManualGear();
+                    }
+                  }}
+                  className={`px-1.5 py-0.2 rounded text-[7px] font-mono font-black uppercase cursor-pointer transition-colors ${
+                    !telemetry.manualGearMode
+                      ? 'bg-emerald-500 text-black'
+                      : 'text-zinc-400 hover:text-white'
+                  }`}
+                  title="Automatic Mode: Shifts automatically AND lets you force-shift up/down anytime with [F] / [V]"
+                >
+                  AUTO
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!telemetry.manualGearMode && onToggleManualGear) {
+                      onToggleManualGear();
+                    }
+                  }}
+                  className={`px-1.5 py-0.2 rounded text-[7px] font-mono font-black uppercase cursor-pointer transition-colors ${
+                    telemetry.manualGearMode
+                      ? 'bg-amber-500 text-black'
+                      : 'text-zinc-400 hover:text-white'
+                  }`}
+                  title="Manual Mode: Only shifts when you press [F] (Shift Up) or [V] (Shift Down)"
+                >
+                  MAN
+                </button>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5 mt-0.5">
+              <button
+                type="button"
+                onClick={onForceShiftDown}
+                className="px-1.5 py-0.5 rounded bg-zinc-800/90 hover:bg-amber-500 hover:text-black text-zinc-300 text-[9px] font-mono font-black cursor-pointer transition-colors border border-white/10"
+                title="Force Shift Gear Down (Default Key: [V] — works in both AUTO and MANUAL)"
+              >
+                V-
+              </button>
+              <span className="text-3xl font-black text-amber-500 font-mono tabular-nums leading-none min-w-[24px] text-center">
+                {telemetry.gear === 0 ? 'R' : telemetry.gear === -1 ? 'R' : telemetry.gear}
+              </span>
+              <button
+                type="button"
+                onClick={onForceShiftUp}
+                className="px-1.5 py-0.5 rounded bg-zinc-800/90 hover:bg-amber-500 hover:text-black text-zinc-300 text-[9px] font-mono font-black cursor-pointer transition-colors border border-white/10"
+                title="Force Shift Gear Up (Default Key: [F] — works in both AUTO and MANUAL)"
+              >
+                F+
+              </button>
+            </div>
           </div>
 
           {/* Authoritative Digital Speed Readout */}
@@ -429,7 +504,7 @@ export const BroadcastHUD: React.FC<BroadcastHUDProps> = ({
               </span>
             </div>
             <span className={`text-[10px] font-mono tabular-nums mt-1 ${mutedText}`}>
-              {Math.round(telemetry.rpm).toLocaleString()} RPM
+              {Math.round(Number.isFinite(telemetry?.rpm) ? telemetry.rpm : 0).toLocaleString()} RPM
             </span>
           </div>
 
@@ -462,11 +537,11 @@ export const BroadcastHUD: React.FC<BroadcastHUDProps> = ({
           </div>
         </div>
 
-        {/* ERS Battery & DRS Status Bar */}
+        {/* ERS Battery & DRS Status Bar (or Street Nitrous Boost in City Mode) */}
         <div className={`flex items-center gap-2.5 w-full mt-2.5 pt-2 border-t ${isLight ? 'border-slate-200' : 'border-white/10'}`}>
           <div className="flex-1 flex flex-col gap-1">
             <div className={`flex justify-between text-[9px] font-bold tracking-wider ${mutedText}`}>
-              <span>ERS BATTERY</span>
+              <span>{isCityDrivingMode ? 'TURBO / NITROUS [E]' : 'ERS BATTERY'}</span>
               <span className="text-sky-500 font-mono tabular-nums font-black">
                 {telemetry.ersBattery}%
               </span>
@@ -479,21 +554,23 @@ export const BroadcastHUD: React.FC<BroadcastHUDProps> = ({
             </div>
           </div>
 
-          <span
-            className={`px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-wider transition-colors shrink-0 ${
-              telemetry.drsActive
-                ? 'bg-emerald-500 text-black shadow-[0_0_12px_rgba(16,185,129,0.5)]'
+          {!isCityDrivingMode && (
+            <span
+              className={`px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-wider transition-colors shrink-0 ${
+                telemetry.drsActive
+                  ? 'bg-emerald-500 text-black shadow-[0_0_12px_rgba(16,185,129,0.5)]'
+                  : telemetry.drsAvailable
+                  ? 'bg-amber-400 text-black'
+                  : `${subSurface} opacity-75`
+              }`}
+            >
+              {telemetry.drsActive
+                ? 'DRS OPEN'
                 : telemetry.drsAvailable
-                ? 'bg-amber-400 text-black'
-                : `${subSurface} opacity-75`
-            }`}
-          >
-            {telemetry.drsActive
-              ? 'DRS OPEN'
-              : telemetry.drsAvailable
-              ? 'DRS READY'
-              : 'DRS OFF'}
-          </span>
+                ? 'DRS READY'
+                : 'DRS OFF'}
+            </span>
+          )}
         </div>
       </div>
     </div>
@@ -502,25 +579,87 @@ export const BroadcastHUD: React.FC<BroadcastHUDProps> = ({
   // Track Radar Mini-Map + Input Status Pod (placed on the opposite bottom corner)
   const renderMiniMapCorner = () => (
     <div className={`flex flex-col ${dockSide === 'right' ? 'items-start' : 'items-end'} gap-2`}>
-      <TrackMiniMap circuit={circuit} carsRadar={telemetry.carsRadar || []} />
+      {!isOpenFieldProvingGround && (
+        <TrackMiniMap circuit={circuit} carsRadar={telemetry.carsRadar || []} />
+      )}
 
-      <div className={`hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[10px] font-mono ${panelSurface}`}>
-        {isGamepadConnected ? (
-          <span className="flex items-center gap-1.5 text-emerald-500 font-bold">
-            <Gamepad className="w-3.5 h-3.5" />
-            <span>Gamepad</span>
+      {!isCityDrivingMode && (
+        <div className={`hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[10px] font-mono ${panelSurface}`}>
+          {isGamepadConnected ? (
+            <span className="flex items-center gap-1.5 text-emerald-500 font-bold">
+              <Gamepad className="w-3.5 h-3.5" />
+              <span>Gamepad</span>
+            </span>
+          ) : (
+            <span className={`flex items-center gap-1.5 font-semibold ${primaryText}`}>
+              <Keyboard className="w-3.5 h-3.5 text-sky-500" />
+              <span>WASD / Arrows</span>
+            </span>
+          )}
+          <span className={mutedText}>·</span>
+          <span className="text-amber-400 font-bold">[F/V] Shift ±</span>
+          <span className={mutedText}>·</span>
+          <span className={mutedText}>[E] DRS/ERS</span>
+          {isOpenFieldProvingGround && (
+            <>
+              <span className={mutedText}>·</span>
+              <span className="text-emerald-400 font-bold">[B] 300 KM/H Roll</span>
+            </>
+          )}
+          <span className={mutedText}>·</span>
+          <span className={mutedText}>[C] Cam</span>
+        </div>
+      )}
+
+      {/* Pit-Wall Race Engineer On-Demand Radio Query Bar (F1 Circuits ONLY) */}
+      {!isOpenFieldProvingGround && !isCityDrivingMode && onRequestEngineerReport && (
+        <div className={`pointer-events-auto flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-[10px] font-mono ${panelSurface}`}>
+          <Radio className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+          <span className={`text-[9px] font-black uppercase tracking-wider ${mutedText}`}>
+            ENGINEER:
           </span>
-        ) : (
-          <span className={`flex items-center gap-1.5 font-semibold ${primaryText}`}>
-            <Keyboard className="w-3.5 h-3.5 text-sky-500" />
-            <span>WASD / Arrows</span>
-          </span>
-        )}
-        <span className={mutedText}>·</span>
-        <span className={mutedText}>[E] DRS/ERS</span>
-        <span className={mutedText}>·</span>
-        <span className={mutedText}>[C] Cam</span>
-      </div>
+          <button
+            type="button"
+            onClick={() => onRequestEngineerReport('gap')}
+            className={`px-2 py-0.5 rounded text-[9px] font-bold transition-colors cursor-pointer border ${subSurface} hover:border-cyan-400 hover:text-cyan-300`}
+            title="Ask Race Engineer for live gap to car ahead & behind"
+          >
+            Gap Report
+          </button>
+          <button
+            type="button"
+            onClick={() => onRequestEngineerReport('tires')}
+            className={`px-2 py-0.5 rounded text-[9px] font-bold transition-colors cursor-pointer border ${subSurface} hover:border-amber-400 hover:text-amber-300`}
+            title="Ask Race Engineer for tire wear & temperature status"
+          >
+            Tire Status
+          </button>
+          <button
+            type="button"
+            onClick={() => onRequestEngineerReport('incident')}
+            className={`px-2 py-0.5 rounded text-[9px] font-bold transition-colors cursor-pointer border ${subSurface} hover:border-emerald-400 hover:text-emerald-300`}
+            title="Ask Race Engineer for sector flags & incident report"
+          >
+            Track Status
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              const next = !engineerVoiceOn;
+              setEngineerVoiceOn(next);
+              soundEngine.setEngineerVoiceEnabled(next);
+            }}
+            className={`px-2 py-0.5 rounded text-[9px] font-black uppercase transition-colors cursor-pointer border ${
+              engineerVoiceOn
+                ? 'bg-cyan-500/20 border-cyan-400/50 text-cyan-300'
+                : `${subSurface} opacity-65`
+            }`}
+            title="Toggle Race Engineer spoken voice synthesis on/off"
+          >
+            {engineerVoiceOn ? '🔊 Voice ON' : '🔇 Text Only'}
+          </button>
+        </div>
+      )}
     </div>
   );
 
@@ -529,11 +668,13 @@ export const BroadcastHUD: React.FC<BroadcastHUDProps> = ({
       {/* 1. TOP BROADCAST BAR */}
       <div className="flex items-start justify-between w-full gap-3">
         {/* Top-Left: Session Header, FIA Live Timing Tower & Pit Radio Console */}
-        <div className="flex flex-col gap-2 max-w-[240px] w-full">
+        <div className="flex flex-col gap-2 max-w-[260px] w-full">
           <div className={`flex items-center gap-3 px-3.5 py-2 rounded-xl border ${panelSurface}`}>
             <div
               className={`w-1.5 h-8 rounded-full shrink-0 ${
-                isQualifyingMode
+                isOpenFieldProvingGround
+                  ? 'bg-emerald-500'
+                  : isQualifyingMode
                   ? 'bg-purple-500'
                   : isPracticeMode
                   ? 'bg-amber-400'
@@ -544,7 +685,9 @@ export const BroadcastHUD: React.FC<BroadcastHUDProps> = ({
               <div className={`flex items-center gap-1.5 text-[10px] uppercase tracking-wider font-semibold ${mutedText}`}>
                 <Flag
                   className={`w-3 h-3 shrink-0 ${
-                    isQualifyingMode
+                    isOpenFieldProvingGround
+                      ? 'text-emerald-400'
+                      : isQualifyingMode
                       ? 'text-purple-500'
                       : isPracticeMode
                       ? 'text-amber-500'
@@ -555,14 +698,26 @@ export const BroadcastHUD: React.FC<BroadcastHUDProps> = ({
                 <span>·</span>
                 <span
                   className={
-                    isQualifyingMode
+                    isCityDrivingMode
+                      ? 'text-sky-400 font-bold'
+                      : isOpenFieldProvingGround
+                      ? 'text-emerald-400 font-bold'
+                      : isQualifyingMode
                       ? 'text-purple-500 font-bold'
                       : isPracticeMode
                       ? 'text-amber-500 font-bold'
                       : 'text-red-500 font-bold'
                   }
                 >
-                  {isQualifyingMode ? 'QUALIFYING' : isPracticeMode ? 'PRACTICE' : 'GRAND PRIX'}
+                  {isCityDrivingMode
+                    ? 'CITY & PURSUIT'
+                    : isOpenFieldProvingGround
+                    ? 'INFINITE ROAD'
+                    : isQualifyingMode
+                    ? 'QUALIFYING'
+                    : isPracticeMode
+                    ? 'PRACTICE'
+                    : 'GRAND PRIX'}
                 </span>
               </div>
               <span className={`text-sm font-bold tracking-tight truncate ${primaryText}`}>
@@ -571,7 +726,8 @@ export const BroadcastHUD: React.FC<BroadcastHUDProps> = ({
             </div>
           </div>
 
-          {/* FIA Leaderboard Tower */}
+          {/* FIA Leaderboard Tower (Hidden in Open-Field Infinite Road Mode so the Dyno Deck has a clean left dock) */}
+          {!isOpenFieldProvingGround && (
           <div className={`hidden sm:flex flex-col gap-0.5 p-2.5 rounded-xl border w-full ${panelSurface}`}>
             <div className={`px-1.5 pb-1.5 mb-1 text-[10px] uppercase font-bold tracking-wider flex items-center justify-between border-b ${isLight ? 'border-slate-200 text-slate-500' : 'border-white/10 text-zinc-400'}`}>
               <span>POS · DRIVER · TIRE</span>
@@ -587,6 +743,8 @@ export const BroadcastHUD: React.FC<BroadcastHUDProps> = ({
                 gapToPlayerSeconds,
                 tireCompound,
                 tireLife,
+                pitStopsCount,
+                inPit,
               } = item;
               const team = TEAMS.find((t) => t.id === driver.teamId);
               const teamColor = team?.primaryColor || '#e11d48';
@@ -667,6 +825,15 @@ export const BroadcastHUD: React.FC<BroadcastHUDProps> = ({
                     >
                       {tireLife}%
                     </span>
+                    {inPit ? (
+                      <span className="px-1 py-0.2 rounded bg-amber-400 text-black text-[7px] font-mono font-black uppercase animate-pulse">
+                        PIT
+                      </span>
+                    ) : pitStopsCount > 0 ? (
+                      <span className="text-[7px] font-mono text-sky-400 font-bold">
+                        {pitStopsCount}P
+                      </span>
+                    ) : null}
                   </div>
 
                   <div className="text-[10px] font-mono tabular-nums text-right shrink-0">
@@ -707,11 +874,13 @@ export const BroadcastHUD: React.FC<BroadcastHUDProps> = ({
               );
             })}
           </div>
+          )}
 
           {/* Docked Left-Side Pit Radio Strategy Console (Out of the center view!) */}
-          {(telemetry.teammatePosition ||
-            telemetry.teammateShortName ||
-            telemetry.teammateDriverName) &&
+          {!isOpenFieldProvingGround &&
+            (telemetry.teammatePosition ||
+              telemetry.teammateShortName ||
+              telemetry.teammateDriverName) &&
             onIssueTeamOrder && (
               <div className={`hidden sm:flex flex-col gap-1.5 p-2.5 rounded-xl border pointer-events-auto ${panelSurface}`}>
                 <div className="flex items-center justify-between text-[10px] font-bold uppercase text-emerald-500">
@@ -774,6 +943,55 @@ export const BroadcastHUD: React.FC<BroadcastHUDProps> = ({
 
         {/* Top-Center: Ultra-Slim Flush Telemetry Strip (Hugs the very top edge so the windshield & car are 100% clear) */}
         <div className="flex flex-col items-center gap-1.5 mx-auto">
+          {isOpenFieldProvingGround ? (
+            <div className={`flex items-center gap-3.5 px-4 py-1.5 rounded-xl border ${panelSurface}`}>
+              <div className="flex flex-col items-center">
+                <span className={`text-[8px] uppercase tracking-wider font-bold ${mutedText}`}>
+                  {isCityDrivingMode ? 'MARYLAND' : 'ARENA'}
+                </span>
+                <span className={`text-xs md:text-sm font-black font-mono leading-tight whitespace-nowrap ${isCityDrivingMode ? 'text-sky-400' : 'text-emerald-400'}`}>
+                  {isCityDrivingMode ? 'BALTIMORE ↔ GAITHERSBURG' : 'INFINITE 360° ROAD'}
+                </span>
+              </div>
+
+              <div className={`w-px h-6 ${dividerColor}`} />
+
+              <div className="flex flex-col items-center">
+                <span className={`text-[8px] uppercase tracking-wider font-bold ${mutedText}`}>
+                  {isCityDrivingMode ? 'ENFORCEMENT' : 'SURFACE'}
+                </span>
+                <span className={`text-xs md:text-sm font-bold font-mono leading-tight whitespace-nowrap ${primaryText}`}>
+                  {isCityDrivingMode ? 'SIGNALS · MSP & MCPD' : 'FULL ASPHALT'}
+                </span>
+              </div>
+
+              {!isCityDrivingMode && (
+                <>
+                  <div className={`w-px h-6 hidden sm:block ${dividerColor}`} />
+
+                  <div className="hidden sm:flex flex-col items-center">
+                    <span className={`text-[8px] uppercase tracking-wider font-bold ${mutedText}`}>
+                      TIRE GRIP
+                    </span>
+                    <span className="text-xs md:text-sm font-mono font-bold text-cyan-400 tabular-nums leading-tight">
+                      {tireGripPct}% ({telemetry.tireCompound})
+                    </span>
+                  </div>
+
+                  <div className={`w-px h-6 hidden md:block ${dividerColor}`} />
+
+                  <div className="hidden md:flex flex-col items-center">
+                    <span className={`text-[8px] uppercase tracking-wider font-bold ${mutedText}`}>
+                      ERS / DRS
+                    </span>
+                    <span className="text-xs md:text-sm font-mono font-bold text-amber-400 tabular-nums leading-tight">
+                      {telemetry.ersBattery}% {telemetry.drsActive ? '· DRS OPEN' : ''}
+                    </span>
+                  </div>
+                </>
+              )}
+            </div>
+          ) : (
           <div className={`flex items-center gap-3.5 px-4 py-1.5 rounded-xl border ${panelSurface}`}>
             {/* Lap Counter */}
             <div className="flex flex-col items-center">
@@ -787,8 +1005,8 @@ export const BroadcastHUD: React.FC<BroadcastHUDProps> = ({
                   </span>
                 ) : (
                   <>
-                    {telemetry.currentLap}{' '}
-                    <span className={`text-xs ${mutedText}`}>/ {telemetry.totalLaps}</span>
+                    {Number.isFinite(telemetry?.currentLap) ? telemetry.currentLap : 1}{' '}
+                    <span className={`text-xs ${mutedText}`}>/ {Number.isFinite(telemetry?.totalLaps) ? telemetry.totalLaps : 1}</span>
                   </>
                 )}
               </span>
@@ -859,6 +1077,7 @@ export const BroadcastHUD: React.FC<BroadcastHUDProps> = ({
               </>
             )}
           </div>
+          )}
 
           {/* Practice Mode Only: Top-of-Screen Live Braking / Throttle & Optimal Line Coach */}
           {isPracticeMode &&
@@ -943,6 +1162,13 @@ export const BroadcastHUD: React.FC<BroadcastHUDProps> = ({
                 <span>ANTI-STALL RESET: {telemetry.crashWaitTimer.toFixed(1)}s</span>
               </div>
             )}
+
+            {telemetry.falseStartPenaltyTimer !== undefined && telemetry.falseStartPenaltyTimer > 0 && (
+              <div className="bg-red-600 border-2 border-white text-white px-3.5 py-1 rounded-lg font-black text-[10px] font-mono tabular-nums flex items-center gap-1.5 shadow-lg animate-pulse">
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-300" />
+                <span>⚠️ FALSE START — ENGINE STALLED: {telemetry.falseStartPenaltyTimer.toFixed(1)}s</span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -1025,8 +1251,8 @@ export const BroadcastHUD: React.FC<BroadcastHUDProps> = ({
             </button>
           </div>
 
-          {/* Practice Mode Controls Row */}
-          {isPracticeMode && !isQualifyingMode && (
+          {/* Practice Mode Controls Row (Hidden in Open-Field & City Driving modes) */}
+          {isPracticeMode && !isQualifyingMode && !isOpenFieldProvingGround && (
             <div className="flex items-center gap-1.5">
               {onSetPracticeBotCount && (
                 <div className={`flex items-center gap-1 px-2 py-1 rounded-lg border ${panelSurface}`}>
@@ -1089,13 +1315,20 @@ export const BroadcastHUD: React.FC<BroadcastHUDProps> = ({
         </div>
       )}
 
-      {/* 2. OFFICIAL FIA START LIGHTS SEQUENCE */}
+      {/* 2. OFFICIAL FIA START LIGHTS SEQUENCE & REACTION TIME LAUNCH MONITOR */}
       {raceState === 'countdown' && (
         <div className="absolute inset-x-0 top-24 flex flex-col items-center justify-center pointer-events-none z-50">
           <div className={`px-6 py-4 rounded-2xl border flex flex-col items-center gap-3 ${panelSurface}`}>
-            <span className={`text-[11px] uppercase tracking-widest font-bold ${mutedText}`}>
-              FIA Starting Grid Sequence
-            </span>
+            <div className="flex items-center gap-3">
+              <span className={`text-[11px] uppercase tracking-widest font-bold ${mutedText}`}>
+                FIA Starting Grid Sequence
+              </span>
+              {!isQualifyingMode && (
+                <span className="px-2 py-0.5 rounded bg-amber-500/20 border border-amber-400/40 text-amber-300 text-[10px] font-mono font-bold">
+                  ⚡ BEST REACTION: {bestReactionTimeMs ? `${(bestReactionTimeMs / 1000).toFixed(3)}s (${bestReactionTimeMs} ms)` : 'UNSET'}
+                </span>
+              )}
+            </div>
             <div className="flex gap-3.5 p-3 bg-black rounded-xl border border-white/10">
               {[0, 1, 2, 3, 4].map((i) => (
                 <div
@@ -1110,12 +1343,90 @@ export const BroadcastHUD: React.FC<BroadcastHUDProps> = ({
                 />
               ))}
             </div>
-            <span className={`text-xs font-mono font-bold ${primaryText}`}>
-              {lightsExtinguished
+            <span
+              className={`text-xs font-mono font-bold ${
+                telemetry.falseStartTriggered
+                  ? 'text-red-400 animate-pulse'
+                  : lightsExtinguished
+                  ? 'text-emerald-400'
+                  : primaryText
+              }`}
+            >
+              {telemetry.falseStartTriggered
+                ? `⚠️ FALSE START — ENGINE STALLED! (Pressed throttle ${((telemetry.falseStartEarlyMs || 0) / 1000).toFixed(2)}s before lights out — 3.2s Car Stall Penalty)`
+                : lightsExtinguished
                 ? 'LIGHTS OUT AND AWAY WE GO!'
-                : 'HOLD THROTTLE FOR OPTIMAL LAUNCH'}
+                : 'WAIT FOR ALL 5 RED LIGHTS TO GO OUT BEFORE PRESSING THROTTLE!'}
             </span>
           </div>
+        </div>
+      )}
+
+      {/* 2B. POST-LAUNCH REACTION TIME TELEMETRY & ENGINE STALL OVERLAY */}
+      {raceState === 'racing' && !isQualifyingMode && ((telemetry.launchBannerTimer || 0) > 0 || (telemetry.falseStartPenaltyTimer || 0) > 0) && (
+        <div className="absolute inset-x-0 top-24 flex flex-col items-center justify-center pointer-events-none z-40">
+          {telemetry.falseStartTriggered ? (
+            <div className="px-5 py-3 rounded-2xl bg-red-950/95 border-2 border-red-500 text-white shadow-2xl flex flex-col items-center gap-1.5 backdrop-blur-md">
+              <div className="flex items-center gap-2 text-red-300 text-xs font-mono font-black uppercase tracking-wider">
+                <AlertTriangle className="w-4 h-4 text-amber-400 animate-bounce" />
+                <span>FALSE START PENALTY — ENGINE STALLED ON GRID</span>
+              </div>
+              <div className="text-sm font-black font-mono tabular-nums text-white">
+                {(telemetry.falseStartPenaltyTimer || 0) > 0
+                  ? `CAR STALLED — RESTARTING ENGINE IN ${(telemetry.falseStartPenaltyTimer || 0).toFixed(1)}s`
+                  : 'ENGINE RESTARTED — GO GO GO!'}
+              </div>
+              <span className="text-[10px] font-mono text-red-200">
+                Throttle pressed {telemetry.falseStartEarlyMs || 0} ms ({((telemetry.falseStartEarlyMs || 0) / 1000).toFixed(3)}s) before the 5 red lights went out
+              </span>
+            </div>
+          ) : telemetry.startReactionTimeMs != null ? (
+            <div className={`px-5 py-2.5 rounded-2xl border shadow-2xl flex flex-col items-center gap-1 backdrop-blur-md ${panelSurface} border-emerald-500/60`}>
+              <div className="flex items-center gap-2">
+                <Zap className="w-4 h-4 text-amber-400" />
+                <span className="text-[10px] font-mono font-black uppercase tracking-wider text-emerald-400">
+                  FIA LAUNCH REACTION TELEMETRY
+                </span>
+                {(!bestReactionTimeMs || telemetry.startReactionTimeMs <= bestReactionTimeMs) && (
+                  <span className="px-2 py-0.5 rounded bg-amber-400 text-black text-[9px] font-mono font-black uppercase">
+                    🏆 NEW PERSONAL RECORD!
+                  </span>
+                )}
+              </div>
+              <div className="flex items-baseline gap-2.5">
+                <span className={`text-xl font-black font-mono tabular-nums ${primaryText}`}>
+                  {(telemetry.startReactionTimeMs / 1000).toFixed(3)}s
+                </span>
+                <span className="text-xs font-mono font-bold text-amber-400 tabular-nums">
+                  ({telemetry.startReactionTimeMs} ms)
+                </span>
+                <span
+                  className={`px-2 py-0.5 rounded text-[10px] font-mono font-black uppercase ${
+                    telemetry.startReactionTimeMs <= 165
+                      ? 'bg-purple-500 text-white'
+                      : telemetry.startReactionTimeMs <= 225
+                      ? 'bg-emerald-500 text-black'
+                      : telemetry.startReactionTimeMs <= 310
+                      ? 'bg-sky-500 text-black'
+                      : 'bg-zinc-700 text-zinc-200'
+                  }`}
+                >
+                  {telemetry.startReactionTimeMs <= 165
+                    ? '⚡ LIGHTNING F1 REFLEX'
+                    : telemetry.startReactionTimeMs <= 225
+                    ? '🔥 ELITE PRO LAUNCH'
+                    : telemetry.startReactionTimeMs <= 310
+                    ? '✅ SOLID LAUNCH'
+                    : '⏱️ LATE LAUNCH'}
+                </span>
+              </div>
+              {bestReactionTimeMs && (
+                <span className={`text-[10px] font-mono ${mutedText}`}>
+                  Personal Best Record: {(Math.min(bestReactionTimeMs, telemetry.startReactionTimeMs) / 1000).toFixed(3)}s ({Math.min(bestReactionTimeMs, telemetry.startReactionTimeMs)} ms)
+                </span>
+              )}
+            </div>
+          ) : null}
         </div>
       )}
 
@@ -1164,49 +1475,103 @@ export const BroadcastHUD: React.FC<BroadcastHUDProps> = ({
         </div>
       )}
 
-      {/* 4. LIVE TEAM RADIO TRANSMISSION BANNER (Docked to top-left/side so it doesn't block center view) */}
-      {telemetry.teammateRadioMessage && (
-        <div className="absolute top-20 inset-x-0 flex justify-center pointer-events-none z-50">
-          <div
-            className={`px-4 py-2 rounded-xl shadow-2xl flex items-center gap-3 border ${panelSurface} ${
-              telemetry.teammateRadioStatus === 'refused'
-                ? 'border-red-500'
-                : 'border-emerald-500'
-            }`}
-          >
-            <Radio
-              className={`w-4 h-4 shrink-0 ${
-                telemetry.teammateRadioStatus === 'refused'
-                  ? 'text-red-500'
-                  : 'text-emerald-500'
+      {/* 4. LIVE TEAMMATE & RACE ENGINEER RADIO TRANSMISSION BANNERS (F1 Circuits ONLY) */}
+      {!isCityDrivingMode && (telemetry.teammateRadioMessage || telemetry.raceEngineerRadio) && (
+        <div className="absolute top-20 inset-x-0 flex flex-col items-center justify-center gap-2 pointer-events-none z-50 px-4">
+          {telemetry.raceEngineerRadio && (
+            <div
+              className={`max-w-xl w-full px-4 py-2.5 rounded-xl shadow-2xl flex items-center gap-3 border backdrop-blur-md ${panelSurface} ${
+                telemetry.raceEngineerRadio.priority === 'critical'
+                  ? 'border-red-500 ring-1 ring-red-500/50'
+                  : telemetry.raceEngineerRadio.priority === 'warning'
+                  ? 'border-amber-400 ring-1 ring-amber-400/40'
+                  : 'border-cyan-400/80'
               }`}
-            />
-            <div className="flex flex-col text-left">
-              <div className="flex items-center gap-2 text-[9px] font-bold uppercase tracking-wider">
-                <span className={mutedText}>
-                  TEAM RADIO ·{' '}
-                  {telemetry.teammateRadioSpeaker ||
-                    telemetry.teammateShortName ||
-                    'TEAMMATE'}
-                </span>
-                <span>·</span>
-                <span
-                  className={
-                    telemetry.teammateRadioStatus === 'refused'
-                      ? 'text-red-500'
-                      : 'text-emerald-500'
-                  }
-                >
-                  {telemetry.teammateRadioStatus === 'refused'
-                    ? 'ORDER DECLINED'
-                    : 'COPY THAT'}
-                </span>
+            >
+              <div className="flex items-center gap-1 shrink-0">
+                <Radio
+                  className={`w-4 h-4 ${
+                    telemetry.raceEngineerRadio.priority === 'critical'
+                      ? 'text-red-500 animate-bounce'
+                      : telemetry.raceEngineerRadio.priority === 'warning'
+                      ? 'text-amber-400 animate-pulse'
+                      : 'text-cyan-400 animate-pulse'
+                  }`}
+                />
+                {/* Animated Audio Waveform Bars */}
+                <div className="flex items-end gap-0.5 h-3.5 px-1">
+                  <span className="w-0.5 h-2 bg-cyan-400 animate-pulse rounded-full" />
+                  <span className="w-0.5 h-3.5 bg-cyan-300 animate-bounce rounded-full" />
+                  <span className="w-0.5 h-2.5 bg-cyan-400 animate-pulse rounded-full" />
+                  <span className="w-0.5 h-1.5 bg-cyan-500 animate-bounce rounded-full" />
+                </div>
               </div>
-              <p className={`text-xs font-bold mt-0.5 ${primaryText}`}>
-                {telemetry.teammateRadioMessage}
-              </p>
+              <div className="flex flex-col text-left min-w-0 flex-1">
+                <div className="flex items-center justify-between gap-2 text-[9px] font-mono font-black uppercase tracking-wider">
+                  <span className="text-cyan-400">
+                    {telemetry.raceEngineerRadio.speaker}
+                  </span>
+                  <span
+                    className={`px-1.5 py-0.2 rounded text-[8px] ${
+                      telemetry.raceEngineerRadio.priority === 'critical'
+                        ? 'bg-red-500 text-white'
+                        : telemetry.raceEngineerRadio.priority === 'warning'
+                        ? 'bg-amber-400 text-black'
+                        : 'bg-cyan-500/20 text-cyan-300'
+                    }`}
+                  >
+                    {telemetry.raceEngineerRadio.category.toUpperCase()} TELEMETRY
+                  </span>
+                </div>
+                <p className={`text-xs font-bold mt-0.5 leading-snug ${primaryText}`}>
+                  "{telemetry.raceEngineerRadio.message}"
+                </p>
+              </div>
             </div>
-          </div>
+          )}
+
+          {telemetry.teammateRadioMessage && (
+            <div
+              className={`px-4 py-2 rounded-xl shadow-2xl flex items-center gap-3 border ${panelSurface} ${
+                telemetry.teammateRadioStatus === 'refused'
+                  ? 'border-red-500'
+                  : 'border-emerald-500'
+              }`}
+            >
+              <Radio
+                className={`w-4 h-4 shrink-0 ${
+                  telemetry.teammateRadioStatus === 'refused'
+                    ? 'text-red-500'
+                    : 'text-emerald-500'
+                }`}
+              />
+              <div className="flex flex-col text-left">
+                <div className="flex items-center gap-2 text-[9px] font-bold uppercase tracking-wider">
+                  <span className={mutedText}>
+                    TEAM RADIO ·{' '}
+                    {telemetry.teammateRadioSpeaker ||
+                      telemetry.teammateShortName ||
+                      'TEAMMATE'}
+                  </span>
+                  <span>·</span>
+                  <span
+                    className={
+                      telemetry.teammateRadioStatus === 'refused'
+                        ? 'text-red-500'
+                        : 'text-emerald-500'
+                    }
+                  >
+                    {telemetry.teammateRadioStatus === 'refused'
+                      ? 'ORDER DECLINED'
+                      : 'COPY THAT'}
+                  </span>
+                </div>
+                <p className={`text-xs font-bold mt-0.5 ${primaryText}`}>
+                  {telemetry.teammateRadioMessage}
+                </p>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

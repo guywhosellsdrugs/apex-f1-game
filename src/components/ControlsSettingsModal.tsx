@@ -18,6 +18,8 @@ const ACTION_LABELS: Record<keyof CustomControlBindings, { label: string; desc: 
   brake: { label: 'Brakes & Reverse', desc: 'Braking deceleration & reverse gear' },
   steerLeft: { label: 'Steer Left', desc: 'Turn vehicle wheel left' },
   steerRight: { label: 'Steer Right', desc: 'Turn vehicle wheel right' },
+  shiftUp: { label: 'Shift Gear Up (+)', desc: 'Force shift up to next gear (1–8, default: F)' },
+  shiftDown: { label: 'Shift Gear Down (-)', desc: 'Force shift down to lower gear / Reverse (default: V)' },
   boost: { label: 'ERS Battery Boost', desc: 'Deploy hybrid electric overtake power' },
   drs: { label: 'DRS Wing Flap', desc: 'Open rear wing flap in DRS zones' },
   switchCamera: { label: 'Cycle Camera View', desc: 'Toggle chase, close, cockpit, nose cameras' },
@@ -27,6 +29,17 @@ const ACTION_LABELS: Record<keyof CustomControlBindings, { label: string; desc: 
   orderYield: { label: 'Teammate: Yield Position', desc: 'Hotkey [2]: Tell teammate to yield line and let you pass' },
   orderPush: { label: 'Teammate: Push', desc: 'Hotkey [3]: Tell teammate to attack and push to overtake' },
   orderNeutral: { label: 'Teammate: Free Racing', desc: 'Hotkey [4]: Free racing mode for teammate' },
+  // City & Police Keybinds
+  policePullOver: { label: 'Police: Order Pull Over [R]', desc: 'Direct vehicle ahead to pull over with hazards on' },
+  policeArrest: { label: 'Police: Issue Ticket / Arrest [F]', desc: 'Issue citation or arrest lawful suspect within range' },
+  policeSiren: { label: 'Police: Emergency Siren [P]', desc: 'Toggle Code 3 siren & roof lights during active pursuit' },
+  horn: { label: 'Vehicle Horn [H]', desc: 'Honk horn to alert traffic or pedestrians' },
+  signalLeft: { label: 'Turn Signal Left [Q]', desc: 'Activate left blinker indicator lights' },
+  signalRight: { label: 'Turn Signal Right [E]', desc: 'Activate right blinker indicator lights' },
+  hazards: { label: 'Hazard Warning Flashers [X]', desc: 'Toggle four-way flashing emergency hazard lights' },
+  cityTablet: { label: 'Open City Tablet [TAB/M]', desc: 'Open Police Station HQ, Jobs, Real Estate, Dealership & Garage' },
+  toggleMinimap: { label: 'Toggle Minimap [N]', desc: 'Switch minimap view or minimize/maximize map' },
+  toggleHud: { label: 'Cinematic HUD Toggle [U]', desc: 'Hide or show entire screen HUD overlays for cinematic driving' },
 };
 
 const GAMEPAD_BUTTON_NAMES: Record<number, string> = {
@@ -251,8 +264,10 @@ export const ControlsSettingsModal: React.FC<ControlsSettingsModalProps> = ({ is
               {[
                 { action: 'throttleButton' as const, label: 'Throttle (Accelerate)', defaultBtn: 7 },
                 { action: 'brakeButton' as const, label: 'Brakes & Reverse', defaultBtn: 6 },
+                { action: 'shiftUpButton' as const, label: 'Shift Gear Up (+)', defaultBtn: 5 },
+                { action: 'shiftDownButton' as const, label: 'Shift Gear Down (-)', defaultBtn: 4 },
                 { action: 'boostButton' as const, label: 'ERS Battery Boost', defaultBtn: 0 },
-                { action: 'drsButton' as const, label: 'DRS Wing Flap', defaultBtn: 5 },
+                { action: 'drsButton' as const, label: 'DRS Wing Flap', defaultBtn: 2 },
                 { action: 'switchCameraButton' as const, label: 'Cycle Camera View', defaultBtn: 3 },
                 { action: 'resetButton' as const, label: 'Reset Vehicle', defaultBtn: 1 },
                 { action: 'pauseButton' as const, label: 'Pause Menu', defaultBtn: 9 },

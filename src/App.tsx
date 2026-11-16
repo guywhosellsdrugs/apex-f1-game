@@ -12,6 +12,7 @@ import {
   CircuitInfo,
   NewsCompanyConfig,
   PublishedNewsReport,
+  IncomingTeamOffer,
 } from './types/racing';
 import {
   CIRCUITS,
@@ -28,12 +29,13 @@ import { RaceView } from './components/RaceView';
 import { MultiplayerModal } from './components/MultiplayerModal';
 import { ButtonMappingModal } from './components/ButtonMappingModal';
 import { FirebaseCloudModal } from './components/FirebaseCloudModal';
+import { CareerSlotsModal, CareerSaveSlot } from './components/CareerSlotsModal';
 import { TutorialModal, TutorialPracticeDrillConfig } from './components/TutorialModal';
 import { multiplayerService, RoomPublicState } from './services/multiplayerService';
 import { inputManager } from './services/inputManager';
 import { auth, signInWithGoogle, saveCareerToCloud, loadCareerFromCloud } from './services/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
-import { Trophy, ArrowRight, DollarSign, Award, CheckCircle2, Shield, Flame, Gauge, Zap, Cloud, Timer, Palette, Sun, Moon } from 'lucide-react';
+import { Trophy, ArrowRight, DollarSign, Award, CheckCircle2, Shield, Flame, Gauge, Zap, Cloud, Timer, Palette, Sun, Moon, FolderKanban } from 'lucide-react';
 import {
   AppThemeId,
   APP_THEMES,
@@ -45,6 +47,56 @@ import {
 } from './utils/themeSettings';
 
 const STORAGE_KEY = 'apex26_f1_career_v6';
+const CAREER_SLOTS_KEY = 'apex26_career_slots_v1';
+const ACTIVE_CAREER_SLOT_KEY = 'apex26_active_career_slot_v1';
+
+function buildSlotFromSeason(
+  id: string,
+  slotName: string,
+  s: SeasonState,
+  hasChosenDiff: boolean,
+  createdAt?: number
+): CareerSaveSlot {
+  const now = Date.now();
+  return {
+    id,
+    slotName,
+    driverName: s.career?.driverName || 'Rookie Driver',
+    driverNumber: s.career?.driverNumber || 87,
+    selectedTeamId: s.selectedTeamId || 'haas',
+    customTeamName: s.career?.customTeam?.name,
+    difficulty: s.difficulty || 'rookie',
+    hasChosenDifficulty: hasChosenDiff,
+    seasonNumber: s.career?.seasonNumber || 1,
+    currentRound: s.currentRound || 0,
+    careerEarnings: s.career?.careerEarnings ?? 500000,
+    wins: s.career?.wins || 0,
+    podiums: s.career?.podiums || 0,
+    championships: s.career?.championships || 0,
+    racesDriven: s.career?.racesDriven || 0,
+    seasonState: s,
+    createdAt: createdAt || now,
+    updatedAt: now,
+  };
+}
+
+function mergeCareerSlotLists(
+  primary: CareerSaveSlot[],
+  secondary: CareerSaveSlot[]
+): CareerSaveSlot[] {
+  const byId = new Map<string, CareerSaveSlot>();
+  for (const list of [secondary, primary]) {
+    if (!Array.isArray(list)) continue;
+    for (const item of list) {
+      if (!item || !item.id || !item.seasonState) continue;
+      const existing = byId.get(item.id);
+      if (!existing || (item.updatedAt || 0) >= (existing.updatedAt || 0)) {
+        byId.set(item.id, item);
+      }
+    }
+  }
+  return Array.from(byId.values()).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+}
 
 const defaultSeasonState: SeasonState = {
   currentRound: 0,
@@ -74,6 +126,8 @@ const defaultSeasonState: SeasonState = {
     doohan: 0,
     tsunoda: 0,
     hadjar: 0,
+    perez: 0,
+    herta: 0,
   },
   constructorPoints: {
     haas: 0,
@@ -83,6 +137,7 @@ const defaultSeasonState: SeasonState = {
     mercedes: 0,
     astonmartin: 0,
     williams: 0,
+    cadillac: 0,
     audi: 0,
     alpine: 0,
     rb: 0,
@@ -109,6 +164,14 @@ const defaultSeasonState: SeasonState = {
     seasonNumber: 1,
     seasonHistory: [],
     difficultyLocked: undefined,
+    cpuDriversLookingForTeam: ['perez', 'sainz', 'tsunoda', 'hulkenberg', 'gasly', 'lawson'],
+    contractYearsRemaining: 1,
+    contractTotalYears: 1,
+    contractTypeLabel: '1-Season Rookie Prove-It Deal',
+    contractSignedAtCups: 0,
+    contractSignedAtWins: 0,
+    contractSignedAtRating: 76,
+    isOnProveItContract: true,
   },
 };
 
@@ -122,6 +185,16 @@ export default function App() {
           // Ensure season history & season number fields exist
           if (!parsed.career.seasonNumber) parsed.career.seasonNumber = 1;
           if (!parsed.career.seasonHistory) parsed.career.seasonHistory = [];
+          if (!parsed.career.cpuDriversLookingForTeam || parsed.career.cpuDriversLookingForTeam.length === 0) {
+            parsed.career.cpuDriversLookingForTeam = ['perez', 'sainz', 'tsunoda', 'hulkenberg', 'gasly', 'lawson'];
+          }
+          if (parsed.driverPoints && parsed.driverPoints.perez === undefined) {
+            parsed.driverPoints.perez = 0;
+            parsed.driverPoints.herta = 0;
+          }
+          if (parsed.constructorPoints && parsed.constructorPoints.cadillac === undefined) {
+            parsed.constructorPoints.cadillac = 0;
+          }
           return parsed;
         }
       }
@@ -134,6 +207,37 @@ export default function App() {
   const [hasChosenDifficulty, setHasChosenDifficulty] = useState(() => {
     return localStorage.getItem('apex26_diff_chosen') === 'true';
   });
+
+  // Multi-Career Save Slots State (Allows creating & switching between multiple careers under 1 account without quitting)
+  const [careerSlots, setCareerSlots] = useState<CareerSaveSlot[]>(() => {
+    try {
+      const raw = localStorage.getItem(CAREER_SLOTS_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
+      }
+    } catch {}
+    const initialDiffChosen = localStorage.getItem('apex26_diff_chosen') === 'true';
+    const initialSlot = buildSlotFromSeason(
+      'career_slot_1',
+      'Career #1',
+      season,
+      initialDiffChosen
+    );
+    return [initialSlot];
+  });
+
+  const [activeCareerSlotId, setActiveCareerSlotId] = useState<string>(() => {
+    try {
+      const savedActive = localStorage.getItem(ACTIVE_CAREER_SLOT_KEY);
+      if (savedActive) return savedActive;
+    } catch {}
+    return 'career_slot_1';
+  });
+
+  const [showCareerSlotsModal, setShowCareerSlotsModal] = useState(false);
 
   const [inRace, setInRace] = useState(false);
   const [raceLaps, setRaceLaps] = useState(5);
@@ -209,6 +313,21 @@ export default function App() {
         try {
           const cloudData = await loadCareerFromCloud();
           if (cloudData) {
+            if (cloudData.careerSlotsJson) {
+              try {
+                const parsedCloudSlots = JSON.parse(cloudData.careerSlotsJson);
+                if (Array.isArray(parsedCloudSlots) && parsedCloudSlots.length > 0) {
+                  setCareerSlots((prevSlots) => {
+                    const merged = mergeCareerSlotLists(parsedCloudSlots, prevSlots);
+                    try {
+                      localStorage.setItem(CAREER_SLOTS_KEY, JSON.stringify(merged));
+                    } catch {}
+                    return merged;
+                  });
+                }
+              } catch {}
+            }
+
             // Restore entire full SeasonState if available
             if (cloudData.seasonStateJson) {
               try {
@@ -217,6 +336,10 @@ export default function App() {
                   setSeason(restoredSeason);
                   setHasChosenDifficulty(true);
                   localStorage.setItem('apex26_diff_chosen', 'true');
+                  if (cloudData.activeCareerSlotId) {
+                    setActiveCareerSlotId(cloudData.activeCareerSlotId);
+                    localStorage.setItem(ACTIVE_CAREER_SLOT_KEY, cloudData.activeCareerSlotId);
+                  }
                   return;
                 }
               } catch {}
@@ -264,6 +387,21 @@ export default function App() {
       }
       const cloudData = await loadCareerFromCloud();
       if (cloudData) {
+        if (cloudData.careerSlotsJson) {
+          try {
+            const parsedCloudSlots = JSON.parse(cloudData.careerSlotsJson);
+            if (Array.isArray(parsedCloudSlots) && parsedCloudSlots.length > 0) {
+              setCareerSlots((prevSlots) => {
+                const merged = mergeCareerSlotLists(parsedCloudSlots, prevSlots);
+                try {
+                  localStorage.setItem(CAREER_SLOTS_KEY, JSON.stringify(merged));
+                } catch {}
+                return merged;
+              });
+            }
+          } catch {}
+        }
+
         if (cloudData.seasonStateJson) {
           try {
             const restored = JSON.parse(cloudData.seasonStateJson);
@@ -271,6 +409,10 @@ export default function App() {
               setSeason(restored);
               setHasChosenDifficulty(true);
               localStorage.setItem('apex26_diff_chosen', 'true');
+              if (cloudData.activeCareerSlotId) {
+                setActiveCareerSlotId(cloudData.activeCareerSlotId);
+                localStorage.setItem(ACTIVE_CAREER_SLOT_KEY, cloudData.activeCareerSlotId);
+              }
               setIsSigningIn(false);
               return;
             }
@@ -321,6 +463,39 @@ export default function App() {
       // Storage error
     }
 
+    // Automatically keep active career slot synchronized inside careerSlots
+    let latestSlotsSnapshot: CareerSaveSlot[] = [];
+    setCareerSlots((prevSlots) => {
+      const existingIdx = prevSlots.findIndex((s) => s.id === activeCareerSlotId);
+      let nextSlots: CareerSaveSlot[];
+      if (existingIdx >= 0) {
+        const existing = prevSlots[existingIdx];
+        const updatedSlot = buildSlotFromSeason(
+          existing.id,
+          existing.slotName,
+          season,
+          hasChosenDifficulty,
+          existing.createdAt
+        );
+        nextSlots = [...prevSlots];
+        nextSlots[existingIdx] = updatedSlot;
+      } else {
+        const newSlot = buildSlotFromSeason(
+          activeCareerSlotId,
+          `Career #${prevSlots.length + 1}`,
+          season,
+          hasChosenDifficulty
+        );
+        nextSlots = [...prevSlots, newSlot];
+      }
+      latestSlotsSnapshot = nextSlots;
+      try {
+        localStorage.setItem(CAREER_SLOTS_KEY, JSON.stringify(nextSlots));
+        localStorage.setItem(ACTIVE_CAREER_SLOT_KEY, activeCareerSlotId);
+      } catch {}
+      return nextSlots;
+    });
+
     // Debounced automatic cloud synchronization if user is authenticated
     if (auth.currentUser) {
       const timer = setTimeout(() => {
@@ -336,12 +511,14 @@ export default function App() {
           championshipPoints: season.career.championships,
           customTeamName: season.career.customTeam?.name || '',
           fullSeason: season,
+          activeCareerSlotId,
+          careerSlots: latestSlotsSnapshot.length > 0 ? latestSlotsSnapshot : undefined,
         }).catch(() => {});
       }, 2500);
 
       return () => clearTimeout(timer);
     }
-  }, [season]);
+  }, [season, activeCareerSlotId, hasChosenDifficulty]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -358,6 +535,7 @@ export default function App() {
   // Optional Qualifying Session (1 Flying Lap shootout)
   const handleStartQualifying = (ghostDelay3s?: boolean) => {
     if (season.seasonFinished) return;
+    if (season.career.isUnsignedFreeAgent && !season.career.customTeam) return;
     if (typeof ghostDelay3s === 'boolean') {
       handleSetQualifyingGhostDelay3s(ghostDelay3s);
     }
@@ -388,6 +566,7 @@ export default function App() {
 
   const handleStartRace = (laps: number) => {
     if (season.seasonFinished) return;
+    if (season.career.isUnsignedFreeAgent && !season.career.customTeam) return;
     // When playing a regular race, ensure any multiplayer room is cleanly closed and disbanded
     multiplayerService.closeRoom('Room closed because host started Grand Prix.');
     setIsMultiplayerRace(false);
@@ -470,6 +649,126 @@ export default function App() {
     setHasChosenDifficulty(false);
   };
 
+  // Multi-Career Slot Handlers (Create, Switch, Rename, Delete without quitting existing careers)
+  const handleCreateNewCareerSlot = (params: {
+    slotName: string;
+    driverName: string;
+    driverNumber: number;
+    country: string;
+    difficulty: 'rookie' | 'pro' | 'legend';
+  }) => {
+    const newSlotId = 'career_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
+    const freshSeason: SeasonState = {
+      ...defaultSeasonState,
+      difficulty: params.difficulty,
+      driverPoints: { ...defaultSeasonState.driverPoints },
+      constructorPoints: { ...defaultSeasonState.constructorPoints },
+      completedRounds: [],
+      career: {
+        ...defaultSeasonState.career,
+        driverName: params.driverName,
+        driverNumber: params.driverNumber,
+        country: params.country,
+        difficultyLocked: params.difficulty,
+        seasonHistory: [],
+        cpuDriversLookingForTeam: ['perez', 'sainz', 'tsunoda', 'hulkenberg', 'gasly', 'lawson'],
+      },
+    };
+
+    const newSlot = buildSlotFromSeason(newSlotId, params.slotName, freshSeason, true);
+
+    setCareerSlots((prevSlots) => {
+      // Save current active slot state before switching
+      const updatedPrev = prevSlots.map((s) =>
+        s.id === activeCareerSlotId
+          ? buildSlotFromSeason(s.id, s.slotName, season, hasChosenDifficulty, s.createdAt)
+          : s
+      );
+      const next = [...updatedPrev, newSlot];
+      try {
+        localStorage.setItem(CAREER_SLOTS_KEY, JSON.stringify(next));
+        localStorage.setItem(ACTIVE_CAREER_SLOT_KEY, newSlotId);
+      } catch {}
+      return next;
+    });
+
+    setActiveCareerSlotId(newSlotId);
+    setSeason(freshSeason);
+    setHasChosenDifficulty(true);
+    localStorage.setItem('apex26_diff_chosen', 'true');
+    setQualifyingGridSlot(null);
+    setQualifyingResults(null);
+    setLastRaceResult(null);
+    setShowPodiumModal(false);
+  };
+
+  const handleSwitchCareerSlot = (targetSlotId: string) => {
+    const target = careerSlots.find((s) => s.id === targetSlotId);
+    if (!target) return;
+
+    // First persist current active career into careerSlots
+    setCareerSlots((prevSlots) => {
+      const next = prevSlots.map((s) =>
+        s.id === activeCareerSlotId
+          ? buildSlotFromSeason(s.id, s.slotName, season, hasChosenDifficulty, s.createdAt)
+          : s
+      );
+      try {
+        localStorage.setItem(CAREER_SLOTS_KEY, JSON.stringify(next));
+        localStorage.setItem(ACTIVE_CAREER_SLOT_KEY, targetSlotId);
+      } catch {}
+      return next;
+    });
+
+    const targetDiffChosen =
+      target.hasChosenDifficulty ||
+      Boolean(target.seasonState?.career?.difficultyLocked) ||
+      (target.seasonState?.career?.racesDriven || 0) > 0;
+
+    setActiveCareerSlotId(targetSlotId);
+    setSeason(target.seasonState);
+    setHasChosenDifficulty(targetDiffChosen);
+    if (targetDiffChosen) {
+      localStorage.setItem('apex26_diff_chosen', 'true');
+    } else {
+      localStorage.removeItem('apex26_diff_chosen');
+    }
+    setQualifyingGridSlot(null);
+    setQualifyingResults(null);
+    setLastRaceResult(null);
+    setShowPodiumModal(false);
+  };
+
+  const handleRenameCareerSlot = (slotId: string, newSlotName: string) => {
+    setCareerSlots((prevSlots) => {
+      const next = prevSlots.map((s) =>
+        s.id === slotId ? { ...s, slotName: newSlotName, updatedAt: Date.now() } : s
+      );
+      try {
+        localStorage.setItem(CAREER_SLOTS_KEY, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  };
+
+  const handleDeleteCareerSlot = (slotId: string) => {
+    if (careerSlots.length <= 1) return;
+    const remaining = careerSlots.filter((s) => s.id !== slotId);
+    try {
+      localStorage.setItem(CAREER_SLOTS_KEY, JSON.stringify(remaining));
+    } catch {}
+    setCareerSlots(remaining);
+
+    if (slotId === activeCareerSlotId && remaining.length > 0) {
+      const fallback = remaining[0];
+      setActiveCareerSlotId(fallback.id);
+      setSeason(fallback.seasonState);
+      setHasChosenDifficulty(true);
+      localStorage.setItem(ACTIVE_CAREER_SLOT_KEY, fallback.id);
+      localStorage.setItem('apex26_diff_chosen', 'true');
+    }
+  };
+
   const handleCompleteOffSeasonTask = (
     taskId: string,
     rewards?: {
@@ -532,7 +831,7 @@ export default function App() {
 
     const historyEntry = {
       seasonNumber: season.career.seasonNumber || 1,
-      year: 2026 + (season.career.seasonNumber || 1) - 1,
+      year: season.career.seasonNumber || 1,
       teamName: currentTeam.name,
       teamId: season.selectedTeamId,
       finalDriverRank: playerRank,
@@ -552,6 +851,21 @@ export default function App() {
       completedRoundsSnapshot: [...season.completedRounds],
     };
 
+    const nextSeasonNum = (season.career.seasonNumber || 1) + 1;
+    const cpuPool = DRIVERS.filter(
+      (d) =>
+        d.id !== 'rookie_teammate' &&
+        d.id !== season.selectedDriverId &&
+        d.id !== season.career.customTeam?.teammateDriverId
+    );
+    const nextCpuLooking: string[] = [];
+    for (let i = 0; i < 6 && i < cpuPool.length; i++) {
+      const idx = (nextSeasonNum * 3 + i * 2) % cpuPool.length;
+      if (!nextCpuLooking.includes(cpuPool[idx].id)) {
+        nextCpuLooking.push(cpuPool[idx].id);
+      }
+    }
+
     setSeason((prev) => ({
       ...prev,
       currentRound: 0,
@@ -562,22 +876,30 @@ export default function App() {
         hamilton: 0, piastri: 0, russell: 0, alonso: 0, sainz: 0,
         lawson: 0, antonelli: 0, stroll: 0, hulkenberg: 0, bortoleto: 0,
         albon: 0, gasly: 0, doohan: 0, tsunoda: 0, hadjar: 0,
+        perez: 0, herta: 0,
         [prev.selectedDriverId]: 0,
       },
       constructorPoints: {
         haas: 0, mclaren: 0, redbull: 0, ferrari: 0, mercedes: 0,
-        astonmartin: 0, williams: 0, audi: 0, alpine: 0, rb: 0,
+        astonmartin: 0, williams: 0, cadillac: 0, audi: 0, alpine: 0, rb: 0,
         ...(prev.career.customTeam ? { [prev.career.customTeam.id]: 0 } : {}),
       },
       career: {
         ...prev.career,
-        seasonNumber: (prev.career.seasonNumber || 1) + 1,
+        seasonNumber: nextSeasonNum,
         seasonHistory: [...(prev.career.seasonHistory || []), historyEntry],
         offSeasonActionsUsed: [],
-        championships: isWorldChamp ? prev.career.championships + 1 : prev.career.championships,
-        constructorsChampionships: isConstructorsChamp
-          ? (prev.career.constructorsChampionships || 0) + 1
-          : (prev.career.constructorsChampionships || 0),
+        cpuDriversLookingForTeam: nextCpuLooking,
+        contractYearsRemaining: Math.max(0, (prev.career.contractYearsRemaining ?? 1) - 1),
+        customTeam: prev.career.customTeam
+          ? {
+              ...prev.career.customTeam,
+              teammateContractYearsRemaining: Math.max(
+                0,
+                (prev.career.customTeam.teammateContractYearsRemaining ?? 1) - 1
+              ),
+            }
+          : null,
       },
     }));
 
@@ -585,19 +907,576 @@ export default function App() {
     setChampionNotice(null);
   };
 
+  const buildDriverMarketOffers = (params: {
+    selectedTeamId: string;
+    currentRound: number;
+    driverRating: number;
+    reputation: number;
+    wins: number;
+    podiums: number;
+    racesDriven: number;
+    championships: number;
+    isLookingForTeam: boolean;
+    justScoredTopFinish?: boolean;
+    proveItCutCount?: number;
+    isUnsignedFreeAgent?: boolean;
+    lastProveItCutOutcome?: 'low_offers_only' | 'nobody_signed';
+    cutFromTeamsHistory?: string[];
+  }): IncomingTeamOffer[] => {
+    const {
+      selectedTeamId,
+      currentRound,
+      driverRating,
+      reputation,
+      wins,
+      podiums,
+      racesDriven,
+      championships,
+      isLookingForTeam,
+      justScoredTopFinish = false,
+      proveItCutCount = 0,
+      isUnsignedFreeAgent = false,
+      lastProveItCutOutcome,
+      cutFromTeamsHistory = [],
+    } = params;
+
+    const rivalTeams = TEAMS.filter((t) => t.id !== selectedTeamId);
+    if (rivalTeams.length === 0) return [];
+
+    const fmtUsd = (v: number) =>
+      new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(v);
+
+    // 0. If the player was recently CUT from a Prove-It contract:
+    //Prove-It contracts are HIGH RISK: if you do bad even for 1 race, you get cut and either NOBODY signs you
+    // or you only get rock-bottom prove-it offers from really bad backmarker teams (forcing you to keep swapping teams on terrible deals)!
+    if (isUnsignedFreeAgent || (proveItCutCount > 0 && !justScoredTopFinish && championships === 0)) {
+      if (lastProveItCutOutcome === 'nobody_signed') {
+        // Nobody signed you!
+        return [];
+      }
+
+      const badBackmarkers = rivalTeams.filter((t) => t.performanceTier >= 3);
+      const unburnedBackmarkers = badBackmarkers.filter((t) => !cutFromTeamsHistory.includes(t.id));
+      const candidateBadTeams = unburnedBackmarkers.length > 0 ? unburnedBackmarkers : badBackmarkers;
+
+      if (candidateBadTeams.length === 0) return [];
+
+      // The more times you get cut from a prove-it deal, the worse the pay gets (and fewer teams want you)!
+      const cutPenaltyTier = Math.max(1, proveItCutCount);
+      const baseLowSal =
+        cutPenaltyTier === 1
+          ? 50000 // $50,000/race ($500,000 for 1 Year)
+          : cutPenaltyTier === 2
+          ? 25000 // $25,000/race ($250,000 for 1 Year)
+          : 10000; // $10,000/race ($100,000 for 1 Year)
+
+      const primaryBad = candidateBadTeams[(currentRound + cutPenaltyTier) % candidateBadTeams.length];
+      const lowOffers: IncomingTeamOffer[] = [];
+
+      if (primaryBad) {
+        const annualCash = baseLowSal * 10;
+        lowOffers.push({
+          id: `cut_lifeline_${primaryBad.id}_${currentRound}_${cutPenaltyTier}`,
+          teamId: primaryBad.id,
+          teamName: primaryBad.name,
+          offerTier: 'backmarker_lowball',
+          offerTitle:
+            cutPenaltyTier >= 2
+              ? `DESPERATION ${cutPenaltyTier}x-CUT PROVE-IT LIFELINE (${fmtUsd(annualCash)} / 1 YR)`
+              : `LOW-BALL BACKMARKER PROVE-IT LIFELINE (${fmtUsd(annualCash)} / 1 YR)`,
+          annualSalary: annualCash,
+          salaryPerRace: baseLowSal,
+          signingBonus: 0,
+          buyoutCovered: true,
+          waivesRequirements: true,
+          teamTier: primaryBad.performanceTier,
+          isDesperateOverpay: false,
+          contractYears: 1,
+          isProveItDeal: true,
+          pitchMessage: `After getting cut ${cutPenaltyTier} time${cutPenaltyTier > 1 ? 's' : ''} on a prove-it contract, almost every team in the paddock passed on you. ${primaryBad.name} (Tier ${primaryBad.performanceTier} backmarker) is offering a rock-bottom ${fmtUsd(annualCash)} for 1 Season (${fmtUsd(baseLowSal)}/race, $0 bonus) prove-it deal. Warning: if you do bad even for one race here, we will cut you too and nobody might sign you!`,
+          roundOffered: currentRound + 1,
+        });
+      }
+
+      // On first cut only, a second bottom-tier team might also throw a slightly lower prove-it offer so you can swap between bad teams
+      if (cutPenaltyTier === 1 && candidateBadTeams.length > 1) {
+        const secondaryBad = candidateBadTeams[(currentRound + cutPenaltyTier + 1) % candidateBadTeams.length];
+        if (secondaryBad && secondaryBad.id !== primaryBad?.id) {
+          const secSal = 35000; // $350,000 for 1 Year
+          const secAnnual = secSal * 10;
+          lowOffers.push({
+            id: `cut_lifeline2_${secondaryBad.id}_${currentRound}`,
+            teamId: secondaryBad.id,
+            teamName: secondaryBad.name,
+            offerTier: 'backmarker_lowball',
+            offerTitle: `BACKMARKER MINIMUM PROVE-IT DEAL (${fmtUsd(secAnnual)} / 1 YR)`,
+            annualSalary: secAnnual,
+            salaryPerRace: secSal,
+            signingBonus: 0,
+            buyoutCovered: true,
+            waivesRequirements: true,
+            teamTier: secondaryBad.performanceTier,
+            isDesperateOverpay: false,
+            contractYears: 1,
+            isProveItDeal: true,
+            pitchMessage: `${secondaryBad.name} will give you a 1-Season Prove-It seat at ${fmtUsd(secAnnual)} for 1 Year (${fmtUsd(secSal)}/race, $0 bonus) after your recent release—but one bad race and you're out!`,
+            roundOffered: currentRound + 1,
+          });
+        }
+      }
+
+      return lowOffers;
+    }
+
+    const winRate = racesDriven > 0 ? wins / racesDriven : 0;
+    const isLowCaliber =
+      driverRating < 80 &&
+      wins === 0 &&
+      winRate < 0.12 &&
+      reputation < 32 &&
+      championships === 0;
+    const isGoodDriver =
+      driverRating >= 80 ||
+      wins >= 1 ||
+      podiums >= 2 ||
+      winRate >= 0.15 ||
+      reputation >= 35 ||
+      championships >= 1;
+    const isEliteStar =
+      driverRating >= 85 ||
+      wins >= 3 ||
+      winRate >= 0.30 ||
+      reputation >= 65 ||
+      championships >= 1;
+
+    // 1. If the player is already on a team and has NOT announced they are looking for a team:
+    // They get NO offers if they aren't good, and even if they are good, they rarely get at most 1 discrete poaching offer!
+    if (!isLookingForTeam) {
+      if (!isGoodDriver) return [];
+      if (!justScoredTopFinish && !isEliteStar) return [];
+
+      // Worse/midfield teams (Tier 3-4) are more likely to send a massive cash offer to poach a star driver away!
+      const worseRivals = rivalTeams.filter((t) => t.performanceTier >= 3);
+      const midOrTopRivals = rivalTeams.filter((t) => t.performanceTier <= 2);
+      const useWorseTeamBigCash = worseRivals.length > 0 && (Math.random() < 0.68 || !isEliteStar);
+
+      if (useWorseTeamBigCash) {
+        const target = worseRivals[(currentRound + wins) % worseRivals.length];
+        // Worse team throws massive marquee cash per year to lure a good driver into their slower car
+        const perRace = Math.round(((1650000 + (driverRating - 78) * 140000 + championships * 650000)) / 50000) * 50000;
+        const annualCash = perRace * 10;
+        const bonus = Math.round(((4200000 + championships * 2000000)) / 100000) * 100000;
+        const years = isEliteStar ? 2 : 1;
+        return [
+          {
+            id: `unsolicited_warchest_${target.id}_${currentRound}`,
+            teamId: target.id,
+            teamName: target.name,
+            offerTier: 'underdog_warchest',
+            offerTitle: `UNDERDOG MEGA-CASH OFFER (${years}-YEAR TERM)`,
+            annualSalary: annualCash,
+            salaryPerRace: perRace,
+            signingBonus: bonus,
+            buyoutCovered: true,
+            waivesRequirements: true,
+            teamTier: target.performanceTier,
+            isDesperateOverpay: true,
+            contractYears: years,
+            isProveItDeal: false,
+            pitchMessage: `Even though you haven't announced you're looking for a team, our board at ${target.name} is offering a massive ${fmtUsd(annualCash * years)} for ${years} Year${years > 1 ? 's' : ''} (${fmtUsd(annualCash)}/yr · ${fmtUsd(perRace)}/race) war-chest deal to convince you to carry our car!`,
+            roundOffered: currentRound + 1,
+          },
+        ];
+      } else if (midOrTopRivals.length > 0) {
+        const target = midOrTopRivals[(currentRound + wins) % midOrTopRivals.length];
+        const baseC = TEAM_CONTRACTS.find((c) => c.teamId === target.id) || TEAM_CONTRACTS[0];
+        const isSuper = isEliteStar && championships >= 1;
+        const mult = isSuper ? 1.85 : 0.85;
+        const perRace = Math.round((baseC.salaryPerRace * mult) / 25000) * 25000;
+        const annualCash = perRace * 10;
+        const years = isSuper ? 3 : 1;
+        return [
+          {
+            id: `unsolicited_top_${target.id}_${currentRound}`,
+            teamId: target.id,
+            teamName: target.name,
+            offerTier: isSuper ? 'super_max' : 'regular_poach',
+            offerTitle: isSuper ? `CHAMPIONSHIP SUPER-MAX (${years}-YEAR DEAL)` : `1-YEAR HEADHUNTER CONTRACT (${fmtUsd(annualCash)} FOR 1 YEAR)`,
+            annualSalary: annualCash,
+            salaryPerRace: perRace,
+            signingBonus: baseC.signingBonus,
+            buyoutCovered: true,
+            waivesRequirements: true,
+            teamTier: target.performanceTier,
+            isDesperateOverpay: false,
+            contractYears: years,
+            isProveItDeal: !isSuper,
+            pitchMessage: `You haven't publicly entered the driver market, but ${target.name} quietly reached out with a ${fmtUsd(annualCash * years)} for ${years} Year${years > 1 ? 's' : ''} (${fmtUsd(perRace)}/race) offer to bring your ${driverRating} OVR pace to our garage.`,
+            roundOffered: currentRound + 1,
+          },
+        ];
+      }
+      return [];
+    }
+
+    // 2. Player HAS announced they are looking for a team (isLookingForTeam === true):
+    const offers: IncomingTeamOffer[] = [];
+    const worseTeams = rivalTeams.filter((t) => t.performanceTier >= 3);
+    const midfieldTeams = rivalTeams.filter((t) => t.performanceTier === 2);
+    const topTeams = rivalTeams.filter((t) => t.performanceTier === 1);
+
+    // Case 2A: Low Driver Rating, low Win Rate, low Paddock Reputation -> 1-season low prove-it offer!
+    if (isLowCaliber) {
+      if (driverRating < 76.5 && wins === 0 && reputation < 18) {
+        // Truly unproven -> 1 rock-bottom 1-Season Prove-It offer from a backmarker team
+        const lowTeam = worseTeams[currentRound % Math.max(1, worseTeams.length)] || rivalTeams[rivalTeams.length - 1];
+        if (lowTeam) {
+          const perRace = 95000;
+          const annualCash = perRace * 10;
+          offers.push({
+            id: `mkt_lowball_${lowTeam.id}_${currentRound}`,
+            teamId: lowTeam.id,
+            teamName: lowTeam.name,
+            offerTier: 'backmarker_lowball',
+            offerTitle: '1-SEASON LOW PROVE-IT OFFER (HIGH RISK: DO BAD & GET CUT)',
+            annualSalary: annualCash,
+            salaryPerRace: perRace,
+            signingBonus: 120000,
+            buyoutCovered: false,
+            waivesRequirements: true,
+            teamTier: lowTeam.performanceTier,
+            isDesperateOverpay: false,
+            contractYears: 1,
+            isProveItDeal: true,
+            pitchMessage: `Because your Driver Rating (${driverRating}) and reputation (${reputation}%) are still unproven, ${lowTeam.name} is offering a low ${fmtUsd(annualCash)} for 1 Season (${fmtUsd(perRace)}/race) prove-it deal. Win races to renegotiate big money—but if you do bad even for one race, you could get cut immediately!`,
+            roundOffered: currentRound + 1,
+          });
+        }
+        return offers;
+      }
+
+      // Slightly higher but still unproven stats -> 1-Season Prove-It offer + 1-Year $3M Midfield Prove-It offer if close to 78+ OVR
+      const targetWorse = worseTeams[(currentRound + 1) % Math.max(1, worseTeams.length)] || rivalTeams[0];
+      if (targetWorse) {
+        const perRace = 135000;
+        const annualCash = perRace * 10;
+        offers.push({
+          id: `mkt_low_${targetWorse.id}_${currentRound}`,
+          teamId: targetWorse.id,
+          teamName: targetWorse.name,
+          offerTier: 'backmarker_lowball',
+          offerTitle: '1-SEASON BUDGET PROVE-IT DEAL (1 YEAR · HIGH RISK)',
+          annualSalary: annualCash,
+          salaryPerRace: perRace,
+          signingBonus: 200000,
+          buyoutCovered: true,
+          waivesRequirements: true,
+          teamTier: targetWorse.performanceTier,
+          isDesperateOverpay: false,
+          contractYears: 1,
+          isProveItDeal: true,
+          pitchMessage: `With ${wins} wins, ${targetWorse.name} is tabling a 1-Season Prove-It Contract at ${fmtUsd(annualCash)} for 1 Year (${fmtUsd(perRace)}/race). Win the Drivers' Cup to renegotiate a massive raise—but do bad even in 1 race and you risk getting cut!`,
+          roundOffered: currentRound + 1,
+        });
+      }
+
+      if (midfieldTeams.length > 0 && driverRating >= 77) {
+        const proveMid = midfieldTeams[currentRound % midfieldTeams.length];
+        const perRace3M = 300000; // $3,000,000 for 1 Year!
+        const annual3M = 3000000;
+        offers.push({
+          id: `mkt_3m_1yr_${proveMid.id}_${currentRound}`,
+          teamId: proveMid.id,
+          teamName: proveMid.name,
+          offerTier: 'rookie_prove_it',
+          offerTitle: '$3,000,000 FOR 1 YEAR PROVE-IT CONTRACT',
+          annualSalary: annual3M,
+          salaryPerRace: perRace3M,
+          signingBonus: 350000,
+          buyoutCovered: true,
+          waivesRequirements: true,
+          teamTier: proveMid.performanceTier,
+          isDesperateOverpay: false,
+          contractYears: 1,
+          isProveItDeal: true,
+          pitchMessage: `${proveMid.name} is willing to give you a shot on a 1-Year Prove-It Contract: $3,000,000 for 1 Season ($300,000/race). Prove yourself or win the Drivers' Cup with us to renegotiate superstar cash—but finish P14 or worse and you could be cut!`,
+          roundOffered: currentRound + 1,
+        });
+      }
+      return offers;
+    }
+
+    // Case 2B: Good or Elite Driver who announced they are looking for a team!
+    // Crucial Rule: Worse teams (Tier 3 & Tier 4) have a MUCH higher chance of offering massive cash per year to lure a star driver to their team!
+    if (worseTeams.length > 0) {
+      const wTeam1 = worseTeams[(currentRound + wins) % worseTeams.length];
+      const starBonusMultiplier = 1.0 + Math.max(0, driverRating - 80) * 0.14 + championships * 0.55 + winRate * 1.4;
+      const perRace1 = Math.round((1550000 * starBonusMultiplier) / 50000) * 50000;
+      const annual1 = perRace1 * 10;
+      const bonus1 = Math.round((3800000 * starBonusMultiplier) / 100000) * 100000;
+      const years1 = isEliteStar ? 2 : 1;
+
+      offers.push({
+        id: `mkt_warchest1_${wTeam1.id}_${currentRound}`,
+        teamId: wTeam1.id,
+        teamName: wTeam1.name,
+        offerTier: 'underdog_warchest',
+        offerTitle: `UNDERDOG MEGA-CASH OVERPAY (${years1}-YEAR CONTRACT)`,
+        annualSalary: annual1,
+        salaryPerRace: perRace1,
+        signingBonus: bonus1,
+        buyoutCovered: true,
+        waivesRequirements: true,
+        teamTier: wTeam1.performanceTier,
+        isDesperateOverpay: true,
+        contractYears: years1,
+        isProveItDeal: false,
+        pitchMessage: `We know our car isn't a Tier-1 frontrunner yet, so ${wTeam1.name}'s billionaire backers are offering you ${fmtUsd(annual1 * years1)} over ${years1} Year${years1 > 1 ? 's' : ''} (${fmtUsd(annual1)}/year · ${fmtUsd(perRace1)}/race) + ${fmtUsd(bonus1)} bonus to join us as #1 team leader!`,
+        roundOffered: currentRound + 1,
+      });
+
+      if (worseTeams.length > 1 && (isEliteStar || driverRating >= 82)) {
+        const wTeam2 = worseTeams[(currentRound + wins + 1) % worseTeams.length];
+        if (wTeam2.id !== wTeam1.id) {
+          const perRace2 = Math.round((1350000 * starBonusMultiplier) / 50000) * 50000;
+          const annual2 = perRace2 * 10;
+          const bonus2 = Math.round((3200000 * starBonusMultiplier) / 100000) * 100000;
+          offers.push({
+            id: `mkt_warchest2_${wTeam2.id}_${currentRound}`,
+            teamId: wTeam2.id,
+            teamName: wTeam2.name,
+            offerTier: 'underdog_warchest',
+            offerTitle: 'CHALLENGER 1-YEAR MARQUEE DEAL (BIG MONEY TO SWITCH)',
+            annualSalary: annual2,
+            salaryPerRace: perRace2,
+            signingBonus: bonus2,
+            buyoutCovered: true,
+            waivesRequirements: true,
+            teamTier: wTeam2.performanceTier,
+            isDesperateOverpay: true,
+            contractYears: 1,
+            isProveItDeal: false,
+            pitchMessage: `Since you announced you're looking for a team, ${wTeam2.name} is throwing ${fmtUsd(annual2)} for 1 Year (${fmtUsd(perRace2)}/race) at you so you choose our project over the frontrunners!`,
+            roundOffered: currentRound + 1,
+          });
+        }
+      }
+    }
+
+    // Midfield / Contender Team Offer (Tier 2: e.g. Mercedes, Aston Martin, Williams)
+    if (midfieldTeams.length > 0) {
+      const mTeam = midfieldTeams[(currentRound + podiums) % midfieldTeams.length];
+      const baseC = TEAM_CONTRACTS.find((c) => c.teamId === mTeam.id) || TEAM_CONTRACTS[0];
+      // Midfield teams offer solid money or a high-cash offer if you have Drivers Cups
+      const midMult = isEliteStar ? 1.65 + championships * 0.35 : 0.95;
+      const perRace = isEliteStar
+        ? Math.round((baseC.salaryPerRace * midMult) / 25000) * 25000
+        : 300000; // $3,000,000 for 1 year prove-it/contender deal!
+      const annual = perRace * 10;
+      const bonus = Math.round((baseC.signingBonus * (isEliteStar ? 1.4 : 0.85)) / 50000) * 50000;
+      const midYears = isEliteStar ? 2 : 1;
+
+      offers.push({
+        id: `mkt_mid_${mTeam.id}_${currentRound}`,
+        teamId: mTeam.id,
+        teamName: mTeam.name,
+        offerTier: isEliteStar ? 'super_max' : 'regular_poach',
+        offerTitle: isEliteStar
+          ? `CONTENDER MARQUEE OFFER (${midYears}-YEAR TERM)`
+          : `${fmtUsd(annual)} FOR 1 YEAR CONTENDER CONTRACT`,
+        annualSalary: annual,
+        salaryPerRace: perRace,
+        signingBonus: bonus,
+        buyoutCovered: true,
+        waivesRequirements: true,
+        teamTier: mTeam.performanceTier,
+        isDesperateOverpay: isEliteStar,
+        contractYears: midYears,
+        isProveItDeal: !isEliteStar,
+        pitchMessage: `After your driver market announcement, ${mTeam.name} is offering ${fmtUsd(annual * midYears)} for ${midYears} Year${midYears > 1 ? 's' : ''} (${fmtUsd(annual)}/yr · ${fmtUsd(perRace)}/race) with all entry locks waived.`,
+        roundOffered: currentRound + 1,
+      });
+    }
+
+    // Top Championship Teams (Tier 1: Ferrari, Red Bull, McLaren):
+    // Better teams don't automatically offer more cash unless you are truly elite (high rating + Drivers Cups/high win rate);
+    // otherwise they offer a lower 1-Season "Prove-It" / prestige discount deal because everyone wants their fast car!
+    if (topTeams.length > 0 && (driverRating >= 81 || wins >= 1 || championships >= 1)) {
+      const tTeam = topTeams[(currentRound + wins + championships) % topTeams.length];
+      const baseC = TEAM_CONTRACTS.find((c) => c.teamId === tTeam.id) || TEAM_CONTRACTS[0];
+      const isSuperstarChamp = (driverRating >= 88 && wins >= 3) || championships >= 1;
+
+      if (isSuperstarChamp) {
+        const topMult = 1.9 + Math.min(1.2, championships * 0.4 + (driverRating - 86) * 0.08);
+        const perRace = Math.round((baseC.salaryPerRace * topMult) / 50000) * 50000;
+        const annual = perRace * 10;
+        const bonus = Math.round((baseC.signingBonus * 1.75) / 100000) * 100000;
+        const topYears = 3;
+        offers.push({
+          id: `mkt_top_super_${tTeam.id}_${currentRound}`,
+          teamId: tTeam.id,
+          teamName: tTeam.name,
+          offerTier: 'super_max',
+          offerTitle: `TOP CONSTRUCTOR SUPER-MAX (${topYears}-YEAR WORLD CHAMPION DEAL)`,
+          annualSalary: annual,
+          salaryPerRace: perRace,
+          signingBonus: bonus,
+          buyoutCovered: true,
+          waivesRequirements: true,
+          teamTier: tTeam.performanceTier,
+          isDesperateOverpay: false,
+          contractYears: topYears,
+          isProveItDeal: false,
+          pitchMessage: `With ${championships} Drivers Cup(s) and a ${driverRating} Rating, ${tTeam.name} is pulling out all the stops with a ${fmtUsd(annual * topYears)} (${topYears}-Year, ${fmtUsd(annual)}/yr) championship contract!`,
+          roundOffered: currentRound + 1,
+        });
+      } else {
+        // Top team offers a 1-Season "Prove-It" deal at lower cash! Once you win races or the Drivers Cup with them, you can renegotiate for massive cash!
+        const discountPerRace = 300000; // $3,000,000 for 1 Year Prove-It Deal on a Top Team!
+        const discountAnnual = discountPerRace * 10;
+        const discountBonus = Math.round((baseC.signingBonus * 0.45) / 50000) * 50000;
+        offers.push({
+          id: `mkt_top_proveit_${tTeam.id}_${currentRound}`,
+          teamId: tTeam.id,
+          teamName: tTeam.name,
+          offerTier: 'rookie_prove_it',
+          offerTitle: '1-SEASON TOP TEAM PROVE-IT OFFER ($3M FOR 1 YEAR)',
+          annualSalary: discountAnnual,
+          salaryPerRace: discountPerRace,
+          signingBonus: discountBonus,
+          buyoutCovered: true,
+          waivesRequirements: true,
+          teamTier: tTeam.performanceTier,
+          isDesperateOverpay: false,
+          contractYears: 1,
+          isProveItDeal: true,
+          pitchMessage: `${tTeam.name} has a championship-winning car so we're offering a 1-Season Prove-It Deal: ${fmtUsd(discountAnnual)} for 1 Year (${fmtUsd(discountPerRace)}/race). Win races or the Drivers' Cup with us to renegotiate a massive raise—but finish outside the top 10 even once and you could get cut!`,
+          roundOffered: currentRound + 1,
+        });
+      }
+    }
+
+    return offers;
+  };
+
+  const handleToggleLookingForTeam = (looking: boolean) => {
+    setSeason((prev) => {
+      const freshOffers = looking
+        ? buildDriverMarketOffers({
+            selectedTeamId: prev.selectedTeamId,
+            currentRound: prev.currentRound,
+            driverRating: prev.career.driverRating,
+            reputation: prev.career.reputation,
+            wins: prev.career.wins,
+            podiums: prev.career.podiums,
+            racesDriven: prev.career.racesDriven,
+            championships: prev.career.championships || 0,
+            isLookingForTeam: true,
+            justScoredTopFinish: false,
+            proveItCutCount: prev.career.proveItCutCount || 0,
+            isUnsignedFreeAgent: Boolean(prev.career.isUnsignedFreeAgent),
+            lastProveItCutOutcome: prev.career.lastProveItCutNotice?.outcome,
+            cutFromTeamsHistory: prev.career.cutFromTeamsHistory || [],
+          })
+        : [];
+
+      return {
+        ...prev,
+        career: {
+          ...prev.career,
+          isLookingForTeam: looking,
+          lookingForTeamAnnouncedRound: looking ? prev.currentRound : undefined,
+          incomingOffers: freshOffers,
+        },
+      };
+    });
+  };
+
+  // Emergency Paddock Walk-On Pitch when a player was cut from a Prove-It contract and NOBODY signed them:
+  // Has a real risk that teams reject the call again, or a desperate Tier-4 backmarker throws a bare-minimum $10K-$20K/race prove-it deal!
+  const handleAttemptUnsignedWalkOn = (): { foundOffer: boolean; message: string } => {
+    const cutCount = season.career.proveItCutCount || 1;
+    const cutHistory = season.career.cutFromTeamsHistory || [];
+    const lastTeamId = season.career.lastCutByTeamId || season.selectedTeamId;
+    const backmarkers = TEAMS.filter((t) => t.performanceTier >= 3 && t.id !== lastTeamId);
+    const freshBackmarkers = backmarkers.filter((t) => !cutHistory.includes(t.id));
+    const pool = freshBackmarkers.length > 0 ? freshBackmarkers : backmarkers.length > 0 ? backmarkers : TEAMS.filter((t) => t.id !== lastTeamId);
+
+    // 45% chance that every team still refuses to sign you!
+    if (Math.random() < 0.45) {
+      return {
+        foundOffer: false,
+        message: `❌ PADDOCK REJECTION: Your agent called every Team Principal on the grid, but after ${cutCount} Prove-It contract cut${cutCount > 1 ? 's' : ''}, nobody agreed to sign you today! Keep knocking on garage doors or pay for a Pay-Driver Seat Buy-In.`,
+      };
+    }
+
+    const pickedTeam = pool[Math.floor(Math.random() * pool.length)] || TEAMS[0];
+    const emergencyPerRace = cutCount >= 3 ? 8000 : cutCount === 2 ? 12000 : 20000;
+    const emergencyAnnual = emergencyPerRace * 10;
+    const emergencyOffer: IncomingTeamOffer = {
+      id: `walkon_lifeline_${pickedTeam.id}_${Date.now()}`,
+      teamId: pickedTeam.id,
+      teamName: pickedTeam.name,
+      offerTier: 'backmarker_lowball',
+      offerTitle: `EMERGENCY WALK-ON PROVE-IT CONTRACT ($${emergencyAnnual.toLocaleString()} / 1 YR)`,
+      annualSalary: emergencyAnnual,
+      salaryPerRace: emergencyPerRace,
+      signingBonus: 0,
+      buyoutCovered: true,
+      waivesRequirements: true,
+      teamTier: pickedTeam.performanceTier,
+      isDesperateOverpay: false,
+      contractYears: 1,
+      isProveItDeal: true,
+      pitchMessage: `${pickedTeam.name} agreed to give you one last lifeline: $${emergencyAnnual.toLocaleString()} for 1 Year ($${emergencyPerRace.toLocaleString()}/race, $0 bonus) on a strict Prove-It contract. Do NOT finish in the bottom of the field or you will be cut again!`,
+      roundOffered: season.currentRound + 1,
+    };
+
+    setSeason((prev) => ({
+      ...prev,
+      career: {
+        ...prev.career,
+        incomingOffers: [emergencyOffer],
+        lastProveItCutNotice: prev.career.lastProveItCutNotice
+          ? {
+              ...prev.career.lastProveItCutNotice,
+              outcome: 'low_offers_only',
+            }
+          : null,
+      },
+    }));
+
+    return {
+      foundOffer: true,
+      message: `✅ LIFELINE OFFER FOUND: ${pickedTeam.name} reluctantly tabled an emergency $${emergencyAnnual.toLocaleString()} for 1 Year ($${emergencyPerRace.toLocaleString()}/race) Prove-It contract! Review and sign it in Incoming Offers below.`,
+    };
+  };
+
   const handleSelectTeam = (
     teamId: string,
     targetDriverId: string,
     buyoutFee: number = 0,
     signingBonus: number = 0,
-    newSalary: number = 180000
+    newSalary: number = 180000,
+    contractYears: number = 1,
+    contractTypeLabel?: string,
+    isProveItDeal?: boolean
   ) => {
-    // "once i create my team i earn points for the team i made and i cant switch teams unless i sell my team"
-    if (season.career.customTeam) {
-      return;
-    }
     setSeason((prev) => {
-      const netCashChange = signingBonus - buyoutFee;
+      // "once i create my team i earn points for the team i made and i cant switch teams unless i sell my team"
+      if (prev.career.customTeam) {
+        return prev;
+      }
+      const isSameTeamRenegotiation =
+        teamId === prev.selectedTeamId && !prev.career.isUnsignedFreeAgent;
+      const actualBuyout = isSameTeamRenegotiation ? 0 : buyoutFee;
+      const netCashChange = signingBonus - actualBuyout;
+      const resolvedYears = Math.max(1, Math.min(5, contractYears || 1));
+      const resolvedLabel =
+        contractTypeLabel ||
+        (isProveItDeal
+          ? '1-Season Prove-It Deal'
+          : `${resolvedYears}-Year ${isSameTeamRenegotiation ? 'Extension' : 'Contract'}`);
       // In real F1: driver championship points stay with the driver throughout mid-season team swaps.
       // Points never transfer to the displaced driver.
       return {
@@ -609,7 +1488,21 @@ export default function App() {
           ...prev.career,
           currentSalary: newSalary,
           careerEarnings: Math.max(0, prev.career.careerEarnings + netCashChange),
-          seasonTransfersCount: prev.career.seasonTransfersCount + 1,
+          seasonTransfersCount: isSameTeamRenegotiation
+            ? prev.career.seasonTransfersCount
+            : prev.career.seasonTransfersCount + 1,
+          isLookingForTeam: false,
+          lookingForTeamAnnouncedRound: undefined,
+          incomingOffers: (prev.career.incomingOffers || []).filter((o) => o.teamId !== teamId),
+          contractYearsRemaining: resolvedYears,
+          contractTotalYears: resolvedYears,
+          contractTypeLabel: resolvedLabel,
+          contractSignedAtCups: prev.career.championships || 0,
+          contractSignedAtWins: prev.career.wins || 0,
+          contractSignedAtRating: prev.career.driverRating || 76,
+          isOnProveItContract: Boolean(isProveItDeal),
+          isUnsignedFreeAgent: false,
+          lastProveItCutNotice: null,
         },
       };
     });
@@ -644,19 +1537,49 @@ export default function App() {
         careerEarnings: Math.max(0, prev.career.careerEarnings - actualFeePaid),
         currentSalary: 1200000,
         customTeam: config,
+        cpuDriversLookingForTeam: (
+          prev.career.cpuDriversLookingForTeam || [
+            'perez',
+            'sainz',
+            'tsunoda',
+            'hulkenberg',
+            'gasly',
+            'lawson',
+          ]
+        ).filter((id) => id !== config.teammateDriverId),
       },
     }));
   };
 
   const handleUpdateCustomTeam = (updated: CustomTeamConfig, costDeduction?: number) => {
-    setSeason((prev) => ({
-      ...prev,
-      career: {
-        ...prev.career,
-        careerEarnings: costDeduction ? Math.max(0, prev.career.careerEarnings - costDeduction) : prev.career.careerEarnings,
-        customTeam: updated,
-      },
-    }));
+    setSeason((prev) => {
+      const baseOwnerSal = 1200000;
+      const baselineMateSal =
+        updated.teammateBaselineSalaryPerRace ??
+        prev.career.customTeam?.teammateBaselineSalaryPerRace ??
+        220000;
+      const actualMateSal = updated.teammateSalaryPerRace ?? 220000;
+      const payCutSavings = Math.max(0, baselineMateSal - actualMateSal);
+      return {
+        ...prev,
+        career: {
+          ...prev.career,
+          currentSalary: baseOwnerSal + payCutSavings,
+          careerEarnings: costDeduction ? Math.max(0, prev.career.careerEarnings - costDeduction) : prev.career.careerEarnings,
+          customTeam: updated,
+          cpuDriversLookingForTeam: (
+            prev.career.cpuDriversLookingForTeam || [
+              'perez',
+              'sainz',
+              'tsunoda',
+              'hulkenberg',
+              'gasly',
+              'lawson',
+            ]
+          ).filter((id) => id !== updated.teammateDriverId),
+        },
+      };
+    });
   };
 
   const handleUpdateDriverProfile = (name: string, number: number, country: string) => {
@@ -736,11 +1659,12 @@ export default function App() {
         hamilton: 0, piastri: 0, russell: 0, alonso: 0, sainz: 0,
         lawson: 0, antonelli: 0, stroll: 0, hulkenberg: 0, bortoleto: 0,
         albon: 0, gasly: 0, doohan: 0, tsunoda: 0, hadjar: 0,
+        perez: 0, herta: 0,
         [prev.selectedDriverId]: 0,
       },
       constructorPoints: {
         haas: 0, mclaren: 0, redbull: 0, ferrari: 0, mercedes: 0,
-        astonmartin: 0, williams: 0, audi: 0, alpine: 0, rb: 0,
+        astonmartin: 0, williams: 0, cadillac: 0, audi: 0, alpine: 0, rb: 0,
         ...(prev.career.customTeam ? { [prev.career.customTeam.id]: 0 } : {}),
       },
     }));
@@ -758,7 +1682,8 @@ export default function App() {
       gapToLeaderSeconds: number;
       gapToPlayerSeconds: number;
       leadOverP2Seconds: number;
-    }[]
+    }[],
+    didQuitMidRace: boolean = false
   ) => {
     // If completed session was Free Practice (or a Tutorial Practice Drill), exit cleanly
     if (isPracticeMode) {
@@ -779,9 +1704,11 @@ export default function App() {
     const accountedDrivers = new Set<string>();
 
     for (const dId of finishedDriversOrder) {
-      if (dId === 'player') {
-        sortedField.push(playerDriver);
-        accountedDrivers.add(playerDriver.id);
+      if (dId === 'player' || (didQuitMidRace && dId === playerDriver.id)) {
+        if (!didQuitMidRace) {
+          sortedField.push(playerDriver);
+          accountedDrivers.add(playerDriver.id);
+        }
       } else {
         const d = DRIVERS.find((drv) => drv.id === dId);
         if (d && !accountedDrivers.has(d.id)) {
@@ -796,13 +1723,23 @@ export default function App() {
     remaining.sort((a, b) => b.rating - a.rating);
     sortedField.push(...remaining);
 
-    // If player somehow was not in finishedDriversOrder, place at finishPos
-    if (!accountedDrivers.has(playerDriver.id)) {
+    // If player quit mid-race, they AUTOMATICALLY LOSE and are placed last (P20) behind all 19 AI cars!
+    if (didQuitMidRace) {
+      const existingIdx = sortedField.findIndex((d) => d.id === playerDriver.id);
+      if (existingIdx !== -1) {
+        sortedField.splice(existingIdx, 1);
+      }
+      sortedField.push(playerDriver);
+      accountedDrivers.add(playerDriver.id);
+    } else if (!accountedDrivers.has(playerDriver.id)) {
+      // If player somehow was not in finishedDriversOrder, place at finishPos
       const insertIdx = Math.max(0, Math.min(sortedField.length, finishPos - 1));
       sortedField.splice(insertIdx, 0, playerDriver);
     }
 
-    const actualPlayerPos = sortedField.findIndex((d) => d.id === playerDriver.id) + 1;
+    const actualPlayerPos = didQuitMidRace
+      ? Math.max(20, sortedField.length)
+      : sortedField.findIndex((d) => d.id === playerDriver.id) + 1;
 
     const pointsAwarded: Record<string, number> = {};
     const updatedDriverPoints = { ...season.driverPoints };
@@ -818,8 +1755,12 @@ export default function App() {
 
       // "also make sure my teammate earns points for my team on the consturtors cup samething when i own a team"
       // 1. If player owns a custom team and this driver is their contracted teammate:
-      if (season.career.customTeam && season.selectedTeamId === season.career.customTeam.id && season.career.customTeam.teammateDriverId === driver.id) {
+      if (season.career.customTeam && season.career.customTeam.teammateDriverId === driver.id) {
         teamId = season.career.customTeam.id;
+      }
+      // 1b. If a cut driver joined another F1 team on the grid via driverTeamOverrides:
+      else if (season.career.customTeam?.driverTeamOverrides?.[driver.id]) {
+        teamId = season.career.customTeam.driverTeamOverrides[driver.id];
       }
       // 2. If player drives for an official F1 team (e.g. Haas, Williams, McLaren) and this driver is the official teammate:
       else if (season.selectedTeamId && driver.id !== playerDriver.id) {
@@ -834,14 +1775,15 @@ export default function App() {
       }
     }
 
-    // Award career prize money & salary
-    const prizeMoney = PRIZE_MONEY[actualPlayerPos - 1] || 150000;
-    const salary = season.career.currentSalary || 180000;
+    // Award career prize money & salary (forfeiting mid-race forfeits your race prize money & race salary!)
+    const prizeMoney = didQuitMidRace ? 0 : PRIZE_MONEY[actualPlayerPos - 1] || 150000;
+    const salary = didQuitMidRace ? 0 : season.career.currentSalary || 180000;
     let totalPayout = prizeMoney + salary;
 
     // Team Principal Comprehensive Financial Balance Sheet if player owns their constructor
     // "if u manage ur team good u make much more money also include every single expense once u own a team"
     const isOwner = Boolean(season.career.customTeam && season.selectedTeamId === season.career.customTeam.id);
+    let teammatePayCutSavingsThisRace = 0;
     if (isOwner && season.career.customTeam) {
       const cTeam = season.career.customTeam;
       // 1. Sponsorship Revenue (Base Sponsor + Performance Milestones)
@@ -857,7 +1799,11 @@ export default function App() {
       const aeroStaffCost = cTeam.aeroStaffSalary || 480000;
       const chassisEngineerCost = cTeam.chassisEngineerSalary || 340000;
       const brakesEngineerCost = cTeam.brakesEngineerSalary || 290000;
-      const teammateSalary = cTeam.teammateSalaryPerRace || 450000;
+      const teammateSalary = cTeam.teammateSalaryPerRace ?? 220000;
+      const baselineTeammateSal =
+        cTeam.teammateBaselineSalaryPerRace ??
+        (DRIVERS.find((d) => d.id === cTeam.teammateDriverId)?.salaryPerRaceDemand || 220000);
+      teammatePayCutSavingsThisRace = Math.max(0, baselineTeammateSal - teammateSalary);
       const facilityMaintenance = cTeam.maintenanceCostPerRace || 450000;
       const logisticsCost = cTeam.logisticsCostPerRace || 350000;
       const hospitalityStaff = cTeam.hospitalityCostPerRace || 180000;
@@ -887,8 +1833,11 @@ export default function App() {
     let teammateFinishPos: number | undefined;
 
     const isOwningCustomTeam = Boolean(season.career.customTeam);
+    let updatedCustomTeamAfterRace: CustomTeamConfig | null = season.career.customTeam || null;
+
     if (isOwningCustomTeam && season.career.customTeam) {
-      const teammateId = season.career.customTeam.teammateDriverId;
+      const cTeam = season.career.customTeam;
+      const teammateId = cTeam.teammateDriverId;
       const teammateDetail = finalStandingsDetails?.find((s) => s.driver.id === teammateId);
       if (teammateDetail) {
         teammateFinishPos = teammateDetail.position;
@@ -897,31 +1846,61 @@ export default function App() {
         if (foundIdx !== -1) teammateFinishPos = foundIdx + 1;
       }
 
-      const teammateName = DRIVERS.find((d) => d.id === teammateId)?.name || 'Teammate';
+      const baseTeammateObj = DRIVERS.find((d) => d.id === teammateId);
+      const teammateName = cTeam.teammateCustomName || baseTeammateObj?.name || 'Academy Rookie';
+      const currentTeammateRating = cTeam.teammateCustomRating ?? baseTeammateObj?.rating ?? 78;
+      const isRookie = teammateId === 'rookie_teammate' || Boolean(cTeam.isAcademyRookieTeammate);
+
+      let nextTeammateRating = currentTeammateRating;
+      let nextTeammateWins = cTeam.teammateWins || 0;
+      let nextTeammatePodiums = cTeam.teammatePodiums || 0;
+      let nextTeammateSalary = cTeam.teammateSalaryPerRace ?? (isRookie ? 120000 : 450000);
 
       if (teammateFinishPos === 1) {
         teammateBonus = 8000000;
-        teammateBonusDesc = `🏆 TEAM OWNER VICTORY BONUS: Your teammate ${teammateName} WON the Grand Prix (P1)! Received +$8,000,000 Constructor Prize!`;
+        nextTeammateRating = Math.round((currentTeammateRating + 2.5) * 10) / 10;
+        nextTeammateWins += 1;
+        nextTeammatePodiums += 1;
+        if (isRookie) {
+          // As the Academy Rookie starts winning races, their rating goes up and they start asking for a bit more pay (which you can renegotiate down or replace with a cheaper rookie!)
+          nextTeammateSalary += 35000;
+        }
+        teammateBonusDesc = `🏆 TEAM OWNER VICTORY BONUS: Your teammate ${teammateName} WON the Grand Prix (P1)! Received +$8,000,000 Constructor Prize & ${teammateName}'s Driver Rating rose from ${currentTeammateRating} → ${nextTeammateRating} OVR!`;
       } else if (teammateFinishPos && teammateFinishPos <= 3) {
         teammateBonus = 4000000;
-        teammateBonusDesc = `🥈 TEAM OWNER PODIUM BONUS: Your teammate ${teammateName} finished P${teammateFinishPos}! Received +$4,000,000 Constructor Prize!`;
+        nextTeammateRating = Math.round((currentTeammateRating + 1.2) * 10) / 10;
+        nextTeammatePodiums += 1;
+        teammateBonusDesc = `🥈 TEAM OWNER PODIUM BONUS: Your teammate ${teammateName} finished P${teammateFinishPos}! Received +$4,000,000 Constructor Prize & ${teammateName}'s Driver Rating rose from ${currentTeammateRating} → ${nextTeammateRating} OVR!`;
       } else if (teammateFinishPos && teammateFinishPos <= 6) {
         teammateBonus = 2000000;
-        teammateBonusDesc = `🏅 TEAM OWNER TOP-6 BONUS: Your teammate ${teammateName} finished P${teammateFinishPos}! Received +$2,000,000 Constructor Prize!`;
+        nextTeammateRating = Math.round((currentTeammateRating + 0.5) * 10) / 10;
+        teammateBonusDesc = `🏅 TEAM OWNER TOP-6 BONUS: Your teammate ${teammateName} finished P${teammateFinishPos}! Received +$2,000,000 Constructor Prize (+0.5 Rating → ${nextTeammateRating} OVR)!`;
       } else if (teammateFinishPos && teammateFinishPos <= 10) {
         teammateBonus = 1000000;
         teammateBonusDesc = `✨ TEAM OWNER POINTS BONUS: Your teammate ${teammateName} scored points (P${teammateFinishPos})! Received +$1,000,000 Constructor Prize!`;
       }
+
+      updatedCustomTeamAfterRace = {
+        ...cTeam,
+        teammateCustomRating: nextTeammateRating,
+        teammateWins: nextTeammateWins,
+        teammatePodiums: nextTeammatePodiums,
+        teammateSalaryPerRace: nextTeammateSalary,
+      };
+
       totalPayout += teammateBonus;
     }
 
     const isWin = actualPlayerPos === 1;
     const isPodium = actualPlayerPos <= 3;
 
-    // Driver rating progression
+    // Driver rating progression (quitting mid-race incurs a forfeit penalty)
     let ratingGain = 0;
     let repGain = 1;
-    if (isWin) {
+    if (didQuitMidRace) {
+      ratingGain = -0.6;
+      repGain = -6;
+    } else if (isWin) {
       ratingGain = 2.0;
       repGain = 12;
     } else if (isPodium) {
@@ -936,8 +1915,8 @@ export default function App() {
     }
 
     // Uncapped Driver Rating progression (can freely exceed 100 with race wins & podiums)
-    const newRating = Math.round((season.career.driverRating + ratingGain) * 10) / 10;
-    const newReputation = Math.min(100, season.career.reputation + repGain);
+    const newRating = Math.max(68, Math.round((season.career.driverRating + ratingGain) * 10) / 10);
+    const newReputation = Math.max(5, Math.min(100, season.career.reputation + repGain));
 
     const winnerDriver = sortedField[0] || playerDriver;
     const podiumDrivers = [
@@ -948,15 +1927,17 @@ export default function App() {
 
     const isSeasonEnd = season.currentRound >= CIRCUITS.length - 1;
 
-    // Championship Grand Prizes
+    // Championship Grand Prizes (Awarded strictly once at Season Finale)
     let champBonus = 0;
     let champMsg = '';
-    if (isSeasonEnd) {
+    let wonDriversCup = false;
+    let wonConstructorsCup = false;
+    if (isSeasonEnd && !season.seasonFinished) {
       const sortedDriverEntries = Object.entries(updatedDriverPoints).sort((a, b) => b[1] - a[1]);
-      const wonDriversCup = sortedDriverEntries[0] && sortedDriverEntries[0][0] === playerDriver.id;
+      wonDriversCup = Boolean(sortedDriverEntries[0] && sortedDriverEntries[0][0] === playerDriver.id);
 
       const sortedConstructorEntries = Object.entries(updatedConstructorPoints).sort((a, b) => b[1] - a[1]);
-      const wonConstructorsCup = sortedConstructorEntries[0] && sortedConstructorEntries[0][0] === season.selectedTeamId;
+      wonConstructorsCup = Boolean(sortedConstructorEntries[0] && sortedConstructorEntries[0][0] === season.selectedTeamId);
 
       if (wonDriversCup) {
         champBonus += DRIVERS_CHAMPIONSHIP_PRIZE;
@@ -1419,6 +2400,123 @@ export default function App() {
       sessionFastestLapSec
     )}, while ${tailDriver.name} lost ground following late-stint tire lockups.`;
 
+    // Generate Incoming Team Headhunter Offers based on whether the player announced they are looking for a team & how good they are!
+    const totalCareerWins = isWin ? season.career.wins + 1 : season.career.wins;
+    const totalCareerPodiums = isPodium ? season.career.podiums + 1 : season.career.podiums;
+    const totalRacesDriven = season.career.racesDriven + 1;
+    const totalChampionships =
+      isSeasonEnd && !season.seasonFinished && wonDriversCup
+        ? season.career.championships + 1
+        : season.career.championships;
+    const totalConstructorsChampionships =
+      isSeasonEnd && !season.seasonFinished && wonConstructorsCup
+        ? (season.career.constructorsChampionships || 0) + 1
+        : (season.career.constructorsChampionships || 0);
+
+    // HIGH-RISK PROVE-IT CONTRACT EVALUATION:
+    // "if u do bad in a prove it contract even for one game u could get cut and possibly not find a team
+    // or get another really low prove it contract from a really bad team and if u do bad again u could either
+    // keep getting bad contracts and keep swapping teams or nobody signs and u might not get signed by anoyone."
+    const activePlayerTeamObj = TEAMS.find((t) => t.id === season.selectedTeamId) || TEAMS[0];
+    const isOnProveItNow =
+      !isOwningCustomTeam &&
+      !season.career.isUnsignedFreeAgent &&
+      season.career.isOnProveItContract !== false;
+    const proveItRequiredPos =
+      activePlayerTeamObj.performanceTier === 1
+        ? 10
+        : activePlayerTeamObj.performanceTier === 2
+        ? 13
+        : 15;
+    const didBadOnProveIt = isOnProveItNow && actualPlayerPos > proveItRequiredPos;
+    const shouldGetCutFromProveIt =
+      didBadOnProveIt &&
+      (actualPlayerPos >= proveItRequiredPos + 2 ||
+        actualPlayerPos >= 15 ||
+        Math.random() < 0.88);
+
+    let wasCutFromProveIt = false;
+    let proveItCutOutcome: 'low_offers_only' | 'nobody_signed' | undefined;
+    let proveItCutMessage: string | undefined;
+    let nextProveItCutCount =
+      isWin || isPodium ? 0 : season.career.proveItCutCount || 0;
+    let nextCutHistory = [...(season.career.cutFromTeamsHistory || [])];
+    let finalRatingAfterCut = newRating;
+    let finalRepAfterCut = newReputation;
+
+    if (shouldGetCutFromProveIt) {
+      wasCutFromProveIt = true;
+      nextProveItCutCount = (season.career.proveItCutCount || 0) + 1;
+      if (!nextCutHistory.includes(season.selectedTeamId)) {
+        nextCutHistory.push(season.selectedTeamId);
+      }
+      finalRatingAfterCut = Math.max(68, Math.round((season.career.driverRating - 0.8) * 10) / 10);
+      finalRepAfterCut = Math.max(5, season.career.reputation - 8);
+
+      const nobodySignsProb =
+        nextProveItCutCount >= 3
+          ? 0.75
+          : nextProveItCutCount === 2
+          ? actualPlayerPos >= 18
+            ? 0.7
+            : 0.55
+          : actualPlayerPos >= 18
+          ? 0.5
+          : 0.32;
+
+      proveItCutOutcome = Math.random() < nobodySignsProb ? 'nobody_signed' : 'low_offers_only';
+    }
+
+    // Update CPU drivers who publicly announce they are looking for a team
+    const eligibleCpuDrivers = DRIVERS.filter(
+      (d) =>
+        d.id !== 'rookie_teammate' &&
+        d.id !== season.selectedDriverId &&
+        d.id !== updatedCustomTeamAfterRace?.teammateDriverId
+    );
+    const nextCpuDriversLooking: string[] = [];
+    for (let i = 0; i < 6 && i < eligibleCpuDrivers.length; i++) {
+      const pickIdx = (season.currentRound * 3 + (season.career.seasonNumber || 1) * 5 + i * 2) % eligibleCpuDrivers.length;
+      const picked = eligibleCpuDrivers[pickIdx];
+      if (picked && !nextCpuDriversLooking.includes(picked.id)) {
+        nextCpuDriversLooking.push(picked.id);
+      }
+    }
+
+    const updatedIncomingOffers = buildDriverMarketOffers({
+      selectedTeamId: season.selectedTeamId,
+      currentRound: season.currentRound,
+      driverRating: finalRatingAfterCut,
+      reputation: finalRepAfterCut,
+      wins: totalCareerWins,
+      podiums: totalCareerPodiums,
+      racesDriven: totalRacesDriven,
+      championships: totalChampionships,
+      isLookingForTeam: wasCutFromProveIt ? true : Boolean(season.career.isLookingForTeam),
+      justScoredTopFinish: isWin || isPodium || actualPlayerPos <= 5,
+      proveItCutCount: nextProveItCutCount,
+      isUnsignedFreeAgent: wasCutFromProveIt || Boolean(season.career.isUnsignedFreeAgent),
+      lastProveItCutOutcome: proveItCutOutcome,
+      cutFromTeamsHistory: nextCutHistory,
+    });
+
+    if (wasCutFromProveIt) {
+      if (proveItCutOutcome === 'nobody_signed' || updatedIncomingOffers.length === 0) {
+        proveItCutOutcome = 'nobody_signed';
+        proveItCutMessage = `🚨 PROVE-IT CONTRACT TERMINATED & UNWANTED: You finished P${actualPlayerPos} (needed P${proveItRequiredPos} or better), so ${activePlayerTeamObj.name} cut you immediately after this race! Worse yet, NO OTHER F1 TEAM signed you (${nextProveItCutCount}x Prove-It cuts). You are now an UNSIGNED FREE AGENT with 0 offers!`;
+      } else {
+        const offerTeamsList = updatedIncomingOffers.map((o) => `${o.teamName} ($${(o.annualSalary / 1000).toFixed(0)}K/yr)`).join(' & ');
+        proveItCutMessage = `⚠️ CUT FROM PROVE-IT CONTRACT: You finished P${actualPlayerPos} (needed P${proveItRequiredPos} or better), so ${activePlayerTeamObj.name} fired you immediately! Almost the entire grid passed on you—only ${offerTeamsList} offered a rock-bottom Prove-It lifeline contract. If you do bad again, you'll keep swapping bad teams or nobody will sign you!`;
+      }
+      incidentsList.unshift(proveItCutMessage);
+    }
+
+    if (didQuitMidRace) {
+      incidentsList.unshift(
+        `🏳️ MID-RACE FORFEIT / DNF LOSS: ${playerDisplayName} quit the Grand Prix mid-race and was officially classified P${actualPlayerPos} (Last Place, 0 PTS, $0 Driver Payout).`
+      );
+    }
+
     const result: RaceResult = {
       round: season.currentRound,
       circuitId: currentCircuit.id,
@@ -1434,12 +2532,17 @@ export default function App() {
       teammateFinishedPosition: teammateFinishPos,
       teammateOwnerBonus: teammateBonus,
       teammateOwnerBonusDesc: teammateBonusDesc,
+      teammatePayCutSavings: teammatePayCutSavingsThisRace,
       fastestLapDriverId: sessionFastestDriver.id,
       fastestLapTime: sessionFastestLapSec,
       driverPointsAwarded: pointsAwarded,
       constructorPointsSnapshot: { ...updatedConstructorPoints },
       prizeMoneyAwarded: totalPayout,
       lapsCompleted: raceLaps,
+      wasCutFromProveIt,
+      proveItCutMessage,
+      proveItCutOutcome,
+      didQuitMidRace,
       highlights: {
         overtakes: overtakesList,
         fastestLaps: fastestLapsList,
@@ -1457,15 +2560,44 @@ export default function App() {
       seasonFinished: isSeasonEnd,
       career: {
         ...prev.career,
-        driverRating: newRating,
-        reputation: newReputation,
+        driverRating: finalRatingAfterCut,
+        reputation: finalRepAfterCut,
         careerEarnings: prev.career.careerEarnings + totalPayout,
+        currentSalary: wasCutFromProveIt ? 0 : prev.career.currentSalary,
         racesDriven: prev.career.racesDriven + 1,
-        wins: isWin ? prev.career.wins + 1 : prev.career.wins,
-        podiums: isPodium ? prev.career.podiums + 1 : prev.career.podiums,
-        championships: isSeasonEnd && champBonus > 0 ? prev.career.championships + 1 : prev.career.championships,
+        wins: totalCareerWins,
+        podiums: totalCareerPodiums,
+        championships: totalChampionships,
+        constructorsChampionships: totalConstructorsChampionships,
+        customTeam: updatedCustomTeamAfterRace,
         newsCompany: updatedNewsCompany,
         offSeasonActionsUsed: isSeasonEnd ? [] : prev.career.offSeasonActionsUsed,
+        incomingOffers: updatedIncomingOffers,
+        cpuDriversLookingForTeam: nextCpuDriversLooking,
+        isLookingForTeam: wasCutFromProveIt ? true : prev.career.isLookingForTeam,
+        isUnsignedFreeAgent: wasCutFromProveIt ? true : prev.career.isUnsignedFreeAgent,
+        isOnProveItContract: wasCutFromProveIt ? false : prev.career.isOnProveItContract,
+        contractYearsRemaining: wasCutFromProveIt ? 0 : prev.career.contractYearsRemaining,
+        contractTypeLabel: wasCutFromProveIt
+          ? 'UNSIGNED FREE AGENT (CUT FROM PROVE-IT DEAL)'
+          : prev.career.contractTypeLabel,
+        proveItCutCount: nextProveItCutCount,
+        lastCutByTeamId: wasCutFromProveIt ? prev.selectedTeamId : prev.career.lastCutByTeamId,
+        lastCutByTeamName: wasCutFromProveIt ? activePlayerTeamObj.name : prev.career.lastCutByTeamName,
+        cutFromTeamsHistory: nextCutHistory,
+        lastProveItCutNotice: wasCutFromProveIt && proveItCutOutcome && proveItCutMessage
+          ? {
+              teamId: prev.selectedTeamId,
+              teamName: activePlayerTeamObj.name,
+              round: prev.currentRound + 1,
+              finishPosition: actualPlayerPos,
+              requiredPosition: proveItRequiredPos,
+              cutCount: nextProveItCutCount,
+              outcome: proveItCutOutcome,
+              message: proveItCutMessage,
+              timestamp: Date.now(),
+            }
+          : prev.career.lastProveItCutNotice,
       },
     }));
 
@@ -1496,6 +2628,58 @@ export default function App() {
     }));
     localStorage.setItem('apex26_diff_chosen', 'true');
     setHasChosenDifficulty(true);
+  };
+
+  const handleRecordLaunchReaction = (data: {
+    reactionTimeMs: number | null;
+    falseStart: boolean;
+    jumpedEarlyByMs?: number | null;
+    circuitName?: string;
+  }) => {
+    const activeCircuit =
+      isMultiplayerRace && multiplayerRoom
+        ? CIRCUITS.find((c) => c.id === multiplayerRoom.circuitId) || CIRCUITS[0]
+        : isPracticeMode && practiceCircuit
+        ? practiceCircuit
+        : currentCircuit;
+
+    setSeason((prev) => {
+      const validMs = !data.falseStart && data.reactionTimeMs != null && data.reactionTimeMs > 0
+        ? Math.round(data.reactionTimeMs)
+        : null;
+      const prevBest = prev.career.bestReactionTimeMs;
+      const nextBest =
+        validMs != null
+          ? prevBest != null
+            ? Math.min(prevBest, validMs)
+            : validMs
+          : prevBest;
+
+      const recordEntry = {
+        id: `rt_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        circuitId: data.circuitName ? 'start_practice' : activeCircuit.id,
+        circuitName: data.circuitName || activeCircuit.name,
+        reactionTimeMs: validMs ?? 0,
+        falseStart: data.falseStart,
+        jumpedEarlyByMs: data.jumpedEarlyByMs ?? undefined,
+        round: prev.currentRound + 1,
+        seasonNumber: prev.career.seasonNumber || 1,
+        timestamp: Date.now(),
+      };
+
+      const existingRecords = prev.career.reactionTimeRecords || [];
+      return {
+        ...prev,
+        career: {
+          ...prev.career,
+          bestReactionTimeMs: nextBest,
+          falseStartsCount: data.falseStart
+            ? (prev.career.falseStartsCount || 0) + 1
+            : prev.career.falseStartsCount || 0,
+          reactionTimeRecords: [recordEntry, ...existingRecords].slice(0, 25),
+        },
+      };
+    });
   };
 
   return (
@@ -1535,6 +2719,7 @@ export default function App() {
           onQualifyingComplete={handleQualifyingComplete}
           tutorialPracticeStage={activeTutorialDrill}
           onCompleteTutorialStage={handleCompleteTutorialDrill}
+          onRecordLaunchReaction={handleRecordLaunchReaction}
         />
       ) : (
         <SeasonHub
@@ -1566,6 +2751,14 @@ export default function App() {
           onFoundNewsCompany={handleFoundNewsCompany}
           onUpdateNewsCompany={handleUpdateNewsCompany}
           onPublishNewsReport={handlePublishNewsReport}
+          onToggleLookingForTeam={handleToggleLookingForTeam}
+          onRecordLaunchReaction={handleRecordLaunchReaction}
+          onOpenCareerSlots={() => setShowCareerSlotsModal(true)}
+          careerSlotsCount={careerSlots.length}
+          activeCareerSlotName={
+            careerSlots.find((s) => s.id === activeCareerSlotId)?.slotName || 'Career #1'
+          }
+          onAttemptUnsignedWalkOn={handleAttemptUnsignedWalkOn}
         />
       )}
 
@@ -1714,8 +2907,42 @@ export default function App() {
 
       {/* Post-Race Podium & Career Earnings Modal */}
       {showPodiumModal && lastRaceResult && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-neutral-900 border border-neutral-700 max-w-lg w-full rounded-2xl p-6 shadow-2xl flex flex-col gap-5 text-center">
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 overflow-hidden">
+          {/* Celebratory Championship Confetti when winning Drivers or Constructors Cup */}
+          {championNotice && (
+            <div className="fixed inset-0 pointer-events-none z-50 overflow-hidden">
+              {Array.from({ length: 75 }).map((_, i) => {
+                const colors = ['#fbbf24', '#ef4444', '#10b981', '#38bdf8', '#a855f7', '#ffffff', '#f97316'];
+                const leftPct = (i * 13.7) % 100;
+                const delaySec = (i % 15) * 0.18;
+                const durationSec = 2.6 + (i % 7) * 0.45;
+                const widthPx = 7 + (i % 5) * 2;
+                const heightPx = 12 + (i % 4) * 3;
+                return (
+                  <div
+                    key={i}
+                    className="absolute -top-6 rounded-sm opacity-95 animate-bounce"
+                    style={{
+                      left: `${leftPct}%`,
+                      width: `${widthPx}px`,
+                      height: `${heightPx}px`,
+                      backgroundColor: colors[i % colors.length],
+                      transform: `rotate(${(i * 47) % 360}deg)`,
+                      animation: `fallConfetti ${durationSec}s linear ${delaySec}s infinite`,
+                    }}
+                  />
+                );
+              })}
+              <style>{`
+                @keyframes fallConfetti {
+                  0% { transform: translateY(-20px) rotate(0deg); opacity: 1; }
+                  80% { opacity: 0.95; }
+                  100% { transform: translateY(105vh) rotate(720deg); opacity: 0; }
+                }
+              `}</style>
+            </div>
+          )}
+          <div className="bg-neutral-900 border border-neutral-700 max-w-lg w-full rounded-2xl p-6 shadow-2xl flex flex-col gap-5 text-center relative z-10">
             <div className="flex justify-center">
               <div
                 className={`w-16 h-16 rounded-2xl flex items-center justify-center border ${
@@ -1741,6 +2968,24 @@ export default function App() {
               {championNotice && (
                 <div className="mt-2 p-3 bg-amber-500/20 border border-amber-400 text-amber-300 rounded-xl text-xs font-black animate-pulse">
                   {championNotice}
+                </div>
+              )}
+              {lastRaceResult.didQuitMidRace && (
+                <div className="mt-2.5 p-3 bg-red-950/90 border-2 border-red-500 text-red-200 rounded-xl text-xs text-left leading-relaxed shadow-lg">
+                  <span className="font-black uppercase tracking-wider text-red-400 block mb-0.5">
+                    🏳️ YOU QUIT MID-RACE — AUTOMATIC LOSS (P{lastRaceResult.playerFinishedPosition} DNF)
+                  </span>
+                  Quitting a Grand Prix mid-race forfeits the session: you were classified Last Place (P{lastRaceResult.playerFinishedPosition}), scored 0 points, and forfeited your driver race payout.
+                </div>
+              )}
+              {lastRaceResult.wasCutFromProveIt && lastRaceResult.proveItCutMessage && (
+                <div className="mt-3 p-3.5 bg-red-950/90 border-2 border-red-500 text-red-200 rounded-xl text-xs text-left leading-relaxed shadow-xl">
+                  <span className="font-black uppercase tracking-wider text-red-400 block mb-1">
+                    {lastRaceResult.proveItCutOutcome === 'nobody_signed'
+                      ? '🚨 CUT FROM PROVE-IT CONTRACT — NOBODY SIGNED YOU!'
+                      : '⚠️ CUT FROM PROVE-IT CONTRACT — FORCED INTO BACKMARKER MARKET!'}
+                  </span>
+                  {lastRaceResult.proveItCutMessage}
                 </div>
               )}
             </div>
@@ -1818,7 +3063,9 @@ export default function App() {
                 <span className="text-xs text-neutral-400">Your Finish</span>
                 <p
                   className={`text-3xl font-black ${
-                    lastRaceResult.playerFinishedPosition === 1
+                    lastRaceResult.didQuitMidRace
+                      ? 'text-red-500'
+                      : lastRaceResult.playerFinishedPosition === 1
                       ? 'text-amber-400'
                       : lastRaceResult.playerFinishedPosition <= 3
                       ? 'text-cyan-400'
@@ -1826,6 +3073,7 @@ export default function App() {
                   }`}
                 >
                   P{lastRaceResult.playerFinishedPosition}
+                  {lastRaceResult.didQuitMidRace ? ' (QUIT / DNF)' : ''}
                 </p>
                 {lastRaceResult.playerFinishedPosition === 1 && lastRaceResult.p1LeadSeconds ? (
                   <span className="text-[10px] font-mono text-amber-400 block font-bold">
@@ -1850,12 +3098,41 @@ export default function App() {
                     <DollarSign className="w-5 h-5 text-emerald-400" />
                     {formatMoney(lastRaceResult.prizeMoneyAwarded)}
                   </p>
+                  {lastRaceResult.teammatePayCutSavings && lastRaceResult.teammatePayCutSavings > 0 ? (
+                    <span className="text-[11px] font-mono text-emerald-300 block mt-0.5">
+                      💰 Includes +{formatMoney(lastRaceResult.teammatePayCutSavings)}/GP earned from Teammate Pay Cut!
+                    </span>
+                  ) : null}
                 </div>
                 <div className="text-right">
                   <span className="text-xs text-neutral-400">Driver Rating</span>
                   <p className="text-lg font-bold text-purple-400">{season.career.driverRating}</p>
                 </div>
               </div>
+              {season.career.reactionTimeRecords && season.career.reactionTimeRecords.length > 0 && (
+                <div className="col-span-2 pt-2 border-t border-neutral-800 flex justify-between items-center text-xs">
+                  <div>
+                    <span className="text-neutral-400 block">Start Reaction Time</span>
+                    {season.career.reactionTimeRecords[0].falseStart ? (
+                      <span className="font-mono font-bold text-red-400">
+                        ⚠️ FALSE START (Car Stalled — Jumped by {((season.career.reactionTimeRecords[0].jumpedEarlyByMs || 0) / 1000).toFixed(2)}s)
+                      </span>
+                    ) : (
+                      <span className="font-mono font-bold text-amber-400">
+                        ⚡ {(season.career.reactionTimeRecords[0].reactionTimeMs / 1000).toFixed(3)}s ({season.career.reactionTimeRecords[0].reactionTimeMs} ms)
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-right">
+                    <span className="text-neutral-400 block">Personal Best Reaction</span>
+                    <span className="font-mono font-bold text-emerald-400">
+                      {season.career.bestReactionTimeMs
+                        ? `${(season.career.bestReactionTimeMs / 1000).toFixed(3)}s (${season.career.bestReactionTimeMs} ms)`
+                        : '—'}
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Race Highlights Button & Expandable Session Summary */}
@@ -1983,6 +3260,23 @@ export default function App() {
         onClose={() => setShowCloudModal(false)}
         season={season}
         onLoadSeason={(loaded) => setSeason(loaded)}
+        onOpenCareerSlots={() => {
+          setShowCloudModal(false);
+          setShowCareerSlotsModal(true);
+        }}
+        careerSlotsCount={careerSlots.length}
+      />
+
+      {/* Multi-Career Save Slots Manager Modal (Multiple careers under one account without quitting) */}
+      <CareerSlotsModal
+        isOpen={showCareerSlotsModal}
+        onClose={() => setShowCareerSlotsModal(false)}
+        slots={careerSlots}
+        activeSlotId={activeCareerSlotId}
+        onSwitchSlot={handleSwitchCareerSlot}
+        onCreateNewSlot={handleCreateNewCareerSlot}
+        onRenameSlot={handleRenameCareerSlot}
+        onDeleteSlot={handleDeleteCareerSlot}
       />
 
       {/* Official FIA Qualifying Shootout Classification Modal */}
@@ -2050,12 +3344,22 @@ export default function App() {
               })}
             </div>
 
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2 border-t border-neutral-800">
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-2.5 pt-2 border-t border-neutral-800">
               <button
                 onClick={() => setShowQualifyingModal(false)}
                 className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-xs font-bold transition-all cursor-pointer"
               >
                 Return to Paddock
+              </button>
+
+              <button
+                onClick={() => {
+                  setShowQualifyingModal(false);
+                  handleStartQualifying(qualifyingGhostDelay3s);
+                }}
+                className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-purple-600/90 hover:bg-purple-500 text-white text-xs font-black uppercase tracking-wider border border-purple-400/50 transition-all cursor-pointer"
+              >
+                🔄 Re-Qualify
               </button>
 
               <button

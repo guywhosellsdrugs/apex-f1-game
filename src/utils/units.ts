@@ -26,6 +26,7 @@ export function onUnitSystemChange(callback: (unit: UnitSystem) => void): () => 
 }
 
 export function convertSpeed(kmh: number, unit: UnitSystem): number {
+  if (typeof kmh !== 'number' || !Number.isFinite(kmh)) return 0;
   if (unit === 'imperial') {
     return kmh * 0.621371; // km/h to mph
   }
@@ -33,12 +34,14 @@ export function convertSpeed(kmh: number, unit: UnitSystem): number {
 }
 
 export function formatSpeed(kmh: number, unit: UnitSystem, includeUnit: boolean = true): string {
-  const val = Math.round(convertSpeed(kmh, unit));
+  const safeKmh = typeof kmh === 'number' && Number.isFinite(kmh) ? kmh : 0;
+  const val = Math.round(convertSpeed(safeKmh, unit));
   if (!includeUnit) return `${val}`;
   return `${val} ${unit === 'imperial' ? 'MPH' : 'KM/H'}`;
 }
 
 export function convertDistance(km: number, unit: UnitSystem): number {
+  if (typeof km !== 'number' || !Number.isFinite(km)) return 0;
   if (unit === 'imperial') {
     return km * 0.621371; // km to miles
   }
@@ -46,11 +49,13 @@ export function convertDistance(km: number, unit: UnitSystem): number {
 }
 
 export function formatDistance(km: number, unit: UnitSystem, decimals: number = 2): string {
-  const val = convertDistance(km, unit).toFixed(decimals);
+  const safeKm = typeof km === 'number' && Number.isFinite(km) ? km : 0;
+  const val = convertDistance(safeKm, unit).toFixed(decimals);
   return `${val} ${unit === 'imperial' ? 'MILES' : 'KM'}`;
 }
 
 export function convertTemp(celsius: number, unit: UnitSystem): number {
+  if (typeof celsius !== 'number' || !Number.isFinite(celsius)) return 0;
   if (unit === 'imperial') {
     return Math.round((celsius * 9) / 5 + 32); // Celsius to Fahrenheit
   }
@@ -58,7 +63,8 @@ export function convertTemp(celsius: number, unit: UnitSystem): number {
 }
 
 export function formatTemp(celsius: number, unit: UnitSystem): string {
-  const val = convertTemp(celsius, unit);
+  const safeC = typeof celsius === 'number' && Number.isFinite(celsius) ? celsius : 0;
+  const val = convertTemp(safeC, unit);
   return `${val}°${unit === 'imperial' ? 'F' : 'C'}`;
 }
 

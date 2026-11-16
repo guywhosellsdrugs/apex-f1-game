@@ -47,6 +47,7 @@ export interface GraphicsPresetConfig {
   enableSpeedParticlesAndSparks: boolean;
   cameraSmoothingHz: number;
   isRetroStyle?: boolean;
+  defaultMotionBlur: boolean;
 }
 
 const STORAGE_KEY = 'apex26_graphics_quality_v2';
@@ -76,6 +77,7 @@ export const GRAPHICS_PRESETS: Record<GraphicsQuality, GraphicsPresetConfig> = {
     enableRimAndFillLights: false,
     enableSpeedParticlesAndSparks: false,
     cameraSmoothingHz: 32,
+    defaultMotionBlur: true,
   },
   dynamic_aggressive: {
     id: 'dynamic_aggressive',
@@ -101,6 +103,7 @@ export const GRAPHICS_PRESETS: Record<GraphicsQuality, GraphicsPresetConfig> = {
     enableRimAndFillLights: true,
     enableSpeedParticlesAndSparks: true,
     cameraSmoothingHz: 32,
+    defaultMotionBlur: true,
   },
   retro: {
     id: 'retro',
@@ -127,6 +130,7 @@ export const GRAPHICS_PRESETS: Record<GraphicsQuality, GraphicsPresetConfig> = {
     enableSpeedParticlesAndSparks: true,
     cameraSmoothingHz: 34,
     isRetroStyle: true,
+    defaultMotionBlur: false,
   },
   retro_pixel: {
     id: 'retro_pixel',
@@ -136,23 +140,24 @@ export const GRAPHICS_PRESETS: Record<GraphicsQuality, GraphicsPresetConfig> = {
     badge: '16-BIT PIXELATED · 60+ FPS',
     description:
       'Slightly pixelated 16-bit CRT arcade renderer with crisp nearest-neighbor pixel blocks, flat-shaded low-poly F1 cars, OutRun neon grid horizon, and ultra-fast 60+ FPS.',
-    maxPixelRatio: 0.42,
+    maxPixelRatio: 0.36,
     antialias: false,
     shadowsEnabled: false,
     shadowMapSize: 256,
     useSoftShadows: false,
     useEnvironmentReflections: false,
-    envMapIntensity: 0.5,
-    trackSegments: 320,
-    asphaltTextureSize: 512,
+    envMapIntensity: 0.4,
+    trackSegments: 240,
+    asphaltTextureSize: 128,
     anisotropy: 1,
-    sceneryMode: 'standard',
-    carGeometrySegments: 8,
+    sceneryMode: 'minimal',
+    carGeometrySegments: 6,
     usePhysicalClearcoat: false,
-    enableRimAndFillLights: true,
-    enableSpeedParticlesAndSparks: true,
+    enableRimAndFillLights: false,
+    enableSpeedParticlesAndSparks: false,
     cameraSmoothingHz: 34,
     isRetroStyle: true,
+    defaultMotionBlur: false,
   },
   low: {
     id: 'low',
@@ -178,6 +183,7 @@ export const GRAPHICS_PRESETS: Record<GraphicsQuality, GraphicsPresetConfig> = {
     enableRimAndFillLights: false,
     enableSpeedParticlesAndSparks: false,
     cameraSmoothingHz: 26,
+    defaultMotionBlur: false,
   },
   medium: {
     id: 'medium',
@@ -203,6 +209,7 @@ export const GRAPHICS_PRESETS: Record<GraphicsQuality, GraphicsPresetConfig> = {
     enableRimAndFillLights: false,
     enableSpeedParticlesAndSparks: true,
     cameraSmoothingHz: 28,
+    defaultMotionBlur: true,
   },
   high: {
     id: 'high',
@@ -228,31 +235,33 @@ export const GRAPHICS_PRESETS: Record<GraphicsQuality, GraphicsPresetConfig> = {
     enableRimAndFillLights: true,
     enableSpeedParticlesAndSparks: true,
     cameraSmoothingHz: 32,
+    defaultMotionBlur: true,
   },
   ultra: {
     id: 'ultra',
-    label: 'Ultra Realistic (Photorealistic Clearcoat Reflections · Uncapped FPS)',
+    label: 'Ultra Realistic (Dark Aggregate Asphalt · Diffused Grazing Sheen · Clearcoat PBR)',
     shortLabel: 'Ultra Realistic',
     hudButtonLabel: 'Ultra',
-    badge: 'ULTRA PBR · TRUE REFLECTIONS',
+    badge: 'ULTRA PBR · DIFFUSED GRAZING SHEEN',
     description:
-      'Photorealistic 360° PMREM sky & horizon environment reflections, Neutral broadcast tone-mapping (zero harsh glare blowouts), multi-layer automotive clearcoat lacquer, satin carbon weave, and uncapped FPS.',
-    maxPixelRatio: 1.75,
+      'Dark aggregate asphalt with diffused grazing wet sheen, multi-layer automotive clearcoat paint, tinted optical glass, metallic brake calipers, HDR LED bloom, and uncapped FPS.',
+    maxPixelRatio: 2.0,
     antialias: true,
     shadowsEnabled: false,
     shadowMapSize: 2048,
     useSoftShadows: false,
     useEnvironmentReflections: true,
-    envMapIntensity: 0.82,
-    trackSegments: 1120,
+    envMapIntensity: 1.25,
+    trackSegments: 1200,
     asphaltTextureSize: 2048,
     anisotropy: 16,
     sceneryMode: 'ultra',
-    carGeometrySegments: 42,
+    carGeometrySegments: 48,
     usePhysicalClearcoat: true,
     enableRimAndFillLights: true,
     enableSpeedParticlesAndSparks: true,
-    cameraSmoothingHz: 36,
+    cameraSmoothingHz: 38,
+    defaultMotionBlur: true,
   },
 };
 
@@ -393,4 +402,42 @@ export const GRAPHICS_PRESET_LABELS: Record<
 export function getGraphicsPresetConfig(quality?: GraphicsQuality): GraphicsPresetConfig {
   const q = quality || getStoredGraphicsQuality();
   return GRAPHICS_PRESETS[q] || GRAPHICS_PRESETS.dynamic_conservative;
+}
+
+const MOTION_BLUR_KEY = 'apex26_motion_blur_enabled_v1';
+
+export function getStoredMotionBlur(quality?: GraphicsQuality): boolean {
+  if (typeof window === 'undefined') return true;
+  try {
+    const raw = localStorage.getItem(MOTION_BLUR_KEY);
+    if (raw !== null) {
+      return raw === 'true';
+    }
+  } catch {
+    // Ignore storage error
+  }
+  const q = quality || getStoredGraphicsQuality();
+  const preset = GRAPHICS_PRESETS[q];
+  return preset ? preset.defaultMotionBlur : true;
+}
+
+export function setStoredMotionBlur(enabled: boolean): void {
+  if (typeof window !== 'undefined') {
+    try {
+      localStorage.setItem(MOTION_BLUR_KEY, enabled ? 'true' : 'false');
+    } catch {
+      // Ignore storage error
+    }
+  }
+  motionBlurListeners.forEach((cb) => cb(enabled));
+}
+
+type MotionBlurListener = (enabled: boolean) => void;
+const motionBlurListeners = new Set<MotionBlurListener>();
+
+export function onMotionBlurChange(cb: MotionBlurListener): () => void {
+  motionBlurListeners.add(cb);
+  return () => {
+    motionBlurListeners.delete(cb);
+  };
 }

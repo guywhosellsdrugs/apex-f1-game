@@ -22,6 +22,8 @@ const KEY_LABELS: Record<KeyAction, { title: string; desc: string }> = {
   brake: { title: 'Brake / Reverse', desc: 'Braking deceleration or hold to reverse' },
   steerLeft: { title: 'Steer Left', desc: 'Turn vehicle wheels left' },
   steerRight: { title: 'Steer Right', desc: 'Turn vehicle wheels right' },
+  shiftUp: { title: 'Shift Gear Up (+)', desc: 'Force shift up to next gear (1–8, default: F)' },
+  shiftDown: { title: 'Shift Gear Down (-)', desc: 'Force shift down to lower gear / Reverse (default: V)' },
   boost: { title: 'ERS / Overtake Boost', desc: 'Deploy battery energy boost' },
   drs: { title: 'DRS Wing Flap', desc: 'Open rear wing flap in DRS zones' },
   switchCamera: { title: 'Switch Camera', desc: 'Cycle cockpit, chase, nose cam' },
@@ -31,13 +33,25 @@ const KEY_LABELS: Record<KeyAction, { title: string; desc: string }> = {
   orderYield: { title: 'Teammate Order: Yield Position', desc: 'Hotkey [2]: Tell teammate to yield line & let you pass' },
   orderPush: { title: 'Teammate Order: Push', desc: 'Hotkey [3]: Tell teammate to attack and push to overtake' },
   orderNeutral: { title: 'Teammate Order: Free Racing', desc: 'Hotkey [4]: Free racing mode for teammate' },
+  policePullOver: { title: 'Police: Order Pull Over [R]', desc: 'Direct vehicle ahead to pull over to curb with hazard lights' },
+  policeArrest: { title: 'Police: Cite / Arrest [F]', desc: 'Issue speeding/red-light citation or arrest fleeing felon' },
+  policeSiren: { title: 'Police: Emergency Siren [P]', desc: 'Toggle Code 3 siren & roof lights during active pursuit' },
+  horn: { title: 'Vehicle Horn [H]', desc: 'Honk horn to alert other vehicles and pedestrians' },
+  signalLeft: { title: 'Turn Signal Left [Q]', desc: 'Activate left blinker indicator lights' },
+  signalRight: { title: 'Turn Signal Right [E]', desc: 'Activate right blinker indicator lights' },
+  hazards: { title: 'Hazard Warning Flashers [X]', desc: 'Toggle four-way flashing emergency hazard lights' },
+  cityTablet: { title: 'City Tablet / MDT [TAB]', desc: 'Open Police Station HQ, Jobs, Real Estate, Dealership & Garage' },
+  toggleMinimap: { title: 'Toggle Minimap [N]', desc: 'Switch minimap view or minimize/maximize map' },
+  toggleHud: { title: 'Cinematic HUD Toggle [U]', desc: 'Hide or show entire screen HUD overlays for cinematic driving' },
 };
 
 const GAMEPAD_LABELS: Record<GamepadAction, { title: string; desc: string }> = {
   throttleButton: { title: 'Throttle', desc: 'Right Trigger / RT (or button)' },
   brakeButton: { title: 'Brake', desc: 'Left Trigger / LT (or button)' },
+  shiftUpButton: { title: 'Shift Gear Up (+)', desc: 'Force shift up (default: RB / R1)' },
+  shiftDownButton: { title: 'Shift Gear Down (-)', desc: 'Force shift down (default: LB / L1)' },
   boostButton: { title: 'ERS / Boost', desc: 'Overtake button (default: A / Cross)' },
-  drsButton: { title: 'DRS Flap', desc: 'DRS button (default: RB / R1)' },
+  drsButton: { title: 'DRS Flap', desc: 'DRS button (default: X / Square)' },
   switchCameraButton: { title: 'Switch Camera', desc: 'Cycle camera (default: Y / Triangle)' },
   resetButton: { title: 'Reset Car', desc: 'Car recovery (default: B / Circle)' },
   pauseButton: { title: 'Pause', desc: 'Pause game (default: Start / Options)' },
@@ -45,6 +59,10 @@ const GAMEPAD_LABELS: Record<GamepadAction, { title: string; desc: string }> = {
   orderYieldButton: { title: 'Teammate Order: Yield Position', desc: 'Teammate yield command (default: D-Pad Down)' },
   orderPushButton: { title: 'Teammate Order: Push', desc: 'Teammate push command (default: D-Pad Right)' },
   orderNeutralButton: { title: 'Teammate Order: Free Racing', desc: 'Teammate free racing command (default: D-Pad Up)' },
+  policePullOverButton: { title: 'Police: Pull Over', desc: 'Command vehicle ahead to pull over (default: X / Square)' },
+  policeSirenButton: { title: 'Police: Siren', desc: 'Toggle Code 3 siren (default: L3 Stick Click)' },
+  hornButton: { title: 'Vehicle Horn', desc: 'Honk horn (default: R3 Stick Click)' },
+  cityTabletButton: { title: 'City Tablet / MDT', desc: 'Open City OS Tablet (default: Select / Share)' },
 };
 
 const GAMEPAD_BUTTON_NAMES: Record<number, string> = {
@@ -74,6 +92,26 @@ export const ButtonMappingModal: React.FC<ButtonMappingModalProps> = ({ isOpen, 
   const [listeningKeyAction, setListeningKeyAction] = useState<KeyAction | null>(null);
   const [listeningGamepadAction, setListeningGamepadAction] = useState<GamepadAction | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [manualGearMode, setManualGearMode] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('apex26_manual_gear_mode') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const handleSetManualGearMode = (isManual: boolean) => {
+    setManualGearMode(isManual);
+    try {
+      localStorage.setItem('apex26_manual_gear_mode', String(isManual));
+    } catch {}
+    setSuccessMsg(
+      isManual
+        ? 'Gearbox set to FULL MANUAL mode (shifts only when pressing Shift Up / Shift Down)'
+        : 'Gearbox set to AUTOMATIC mode (shifts automatically + allows force-shifting anytime with Shift Up / Shift Down)'
+    );
+    setTimeout(() => setSuccessMsg(null), 2800);
+  };
 
   useEffect(() => {
     return onUnitSystemChange(setUnitSystem);
@@ -326,6 +364,42 @@ export const ButtonMappingModal: React.FC<ButtonMappingModalProps> = ({ isOpen, 
           </div>
         )}
 
+        {/* Gearbox Transmission Mode Selector: Automatic (with Force Shift) vs Full Manual */}
+        <div className="px-6 py-3 bg-neutral-950/80 border-b border-neutral-800 flex flex-wrap items-center justify-between gap-3 text-xs">
+          <div>
+            <span className="font-bold text-white uppercase tracking-wider">Transmission Gearbox Mode:</span>
+            <p className="text-[11px] text-neutral-400">
+              {manualGearMode
+                ? 'Manual Mode: Automatic shifting is off. You control every shift using Shift Up (F) and Shift Down (V).'
+                : 'Automatic Mode: Shifts automatically, AND you can still force-shift up/down anytime with F and V!'}
+            </p>
+          </div>
+          <div className="flex items-center gap-1.5 bg-neutral-900 p-1 rounded-xl border border-neutral-800 shrink-0">
+            <button
+              type="button"
+              onClick={() => handleSetManualGearMode(false)}
+              className={`px-3 py-1.5 rounded-lg font-bold text-xs transition-colors cursor-pointer ${
+                !manualGearMode
+                  ? 'bg-emerald-500 text-black'
+                  : 'text-neutral-400 hover:text-white'
+              }`}
+            >
+              Automatic (+ Force Shift)
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSetManualGearMode(true)}
+              className={`px-3 py-1.5 rounded-lg font-bold text-xs transition-colors cursor-pointer ${
+                manualGearMode
+                  ? 'bg-amber-500 text-black'
+                  : 'text-neutral-400 hover:text-white'
+              }`}
+            >
+              Full Manual Only
+            </button>
+          </div>
+        </div>
+
         {/* Tab Selector */}
         <div className="flex border-b border-neutral-800 bg-neutral-950/40 px-6 pt-3">
           <button
@@ -426,7 +500,11 @@ export const ButtonMappingModal: React.FC<ButtonMappingModalProps> = ({ isOpen, 
               {(Object.keys(GAMEPAD_LABELS) as GamepadAction[]).map((action) => {
                 const isListening = listeningGamepadAction === action;
                 const buttonIndex = gamepadBindings[action];
-                const buttonName = GAMEPAD_BUTTON_NAMES[buttonIndex] || `Button ${buttonIndex}`;
+                const buttonName = buttonIndex !== undefined && GAMEPAD_BUTTON_NAMES[buttonIndex]
+                  ? GAMEPAD_BUTTON_NAMES[buttonIndex]
+                  : buttonIndex !== undefined
+                  ? `Button ${buttonIndex}`
+                  : 'Unmapped';
 
                 return (
                   <div

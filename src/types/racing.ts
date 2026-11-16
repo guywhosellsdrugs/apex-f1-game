@@ -176,6 +176,28 @@ export interface CustomTeamConfig {
   engineCostPerRace?: number;
   teammateDriverId: string;
   teammateSalaryPerRace?: number;
+  teammateBaselineSalaryPerRace?: number;
+  teammateContractYearsRemaining?: number;
+  teammateContractTotalYears?: number;
+  teammateContractTypeLabel?: string;
+  teammateCustomName?: string;
+  teammateCustomRating?: number;
+  teammateWins?: number;
+  teammatePodiums?: number;
+  isAcademyRookieTeammate?: boolean;
+  cutFreeAgentDrivers?: {
+    id: string;
+    name: string;
+    rating: number;
+    number: number;
+    color: string;
+    previousSalary: number;
+    isAcademyRookie?: boolean;
+    cutRound: number;
+    joinedTeamId?: string;
+    joinedTeamName?: string;
+  }[];
+  driverTeamOverrides?: Record<string, string>;
   factoryLevel: number; // 1 - 5
   aeroStaffId?: string;
   aeroDownforceBonus?: number;
@@ -323,6 +345,37 @@ export interface NewsCompanyConfig {
   publishedReports: PublishedNewsReport[];
 }
 
+export interface IncomingTeamOffer {
+  id: string;
+  teamId: string;
+  teamName: string;
+  offerTier: 'super_max' | 'regular_poach' | 'rookie_prove_it' | 'underdog_warchest' | 'backmarker_lowball';
+  offerTitle: string;
+  annualSalary: number; // Cash per year (10-race season)
+  salaryPerRace: number; // Cash per race
+  signingBonus: number;
+  buyoutCovered: boolean;
+  waivesRequirements: boolean;
+  pitchMessage: string;
+  roundOffered: number;
+  teamTier?: number;
+  isDesperateOverpay?: boolean;
+  contractYears?: number; // e.g., 1, 2, or 3 years/seasons
+  isProveItDeal?: boolean;
+}
+
+export interface ReactionTimeRecord {
+  id: string;
+  circuitId: string;
+  circuitName: string;
+  reactionTimeMs: number;
+  falseStart: boolean;
+  jumpedEarlyByMs?: number;
+  round: number;
+  seasonNumber: number;
+  timestamp: number;
+}
+
 export interface CareerProfile {
   driverName: string;
   driverNumber: number;
@@ -347,6 +400,36 @@ export interface CareerProfile {
   offSeasonActionsUsed?: string[];
   lastOffSeasonInterviewQuote?: string;
   lastOffSeasonInterviewSummary?: string;
+  incomingOffers?: IncomingTeamOffer[];
+  isLookingForTeam?: boolean;
+  lookingForTeamAnnouncedRound?: number;
+  cpuDriversLookingForTeam?: string[];
+  bestReactionTimeMs?: number;
+  reactionTimeRecords?: ReactionTimeRecord[];
+  falseStartsCount?: number;
+  contractYearsRemaining?: number; // e.g. 1, 2, 3 seasons remaining
+  contractTotalYears?: number; // e.g. 1, 2, 3 seasons total
+  contractTypeLabel?: string; // e.g. '1-Season Prove-It Deal', '1-Year Contract ($3.0M)', '2-Year Extension'
+  contractSignedAtCups?: number;
+  contractSignedAtWins?: number;
+  contractSignedAtRating?: number;
+  isOnProveItContract?: boolean;
+  isUnsignedFreeAgent?: boolean;
+  proveItCutCount?: number;
+  lastCutByTeamId?: string;
+  lastCutByTeamName?: string;
+  cutFromTeamsHistory?: string[];
+  lastProveItCutNotice?: {
+    teamId: string;
+    teamName: string;
+    round: number;
+    finishPosition: number;
+    requiredPosition: number;
+    cutCount: number;
+    outcome: 'low_offers_only' | 'nobody_signed';
+    message: string;
+    timestamp: number;
+  } | null;
 }
 
 export interface TeamContractOffer {
@@ -377,12 +460,20 @@ export interface RaceResult {
   teammateFinishedPosition?: number;
   teammateOwnerBonus?: number;
   teammateOwnerBonusDesc?: string;
+  teammatePayCutSavings?: number;
   fastestLapDriverId: string;
   fastestLapTime: number;
   driverPointsAwarded: Record<string, number>;
   constructorPointsSnapshot?: Record<string, number>;
   prizeMoneyAwarded: number;
   lapsCompleted: number;
+  startReactionTimeMs?: number;
+  wasFalseStart?: boolean;
+  falseStartEarlyMs?: number;
+  wasCutFromProveIt?: boolean;
+  proveItCutMessage?: string;
+  proveItCutOutcome?: 'low_offers_only' | 'nobody_signed';
+  didQuitMidRace?: boolean;
   highlights?: {
     overtakes: string[];
     fastestLaps: string[];
@@ -512,6 +603,7 @@ export interface CarRadarPoint {
   tireCompound?: TireCompound;
   tireLife?: number;
   pitStopsCount?: number;
+  inPit?: boolean;
 }
 
 export interface TelemetryData {
@@ -558,6 +650,11 @@ export interface TelemetryData {
   slipstreamFactor?: number;
   wrongWayWarning?: boolean;
   wrongWayTimer?: number;
+  falseStartTriggered?: boolean;
+  falseStartPenaltyTimer?: number;
+  startReactionTimeMs?: number | null;
+  falseStartEarlyMs?: number | null;
+  launchBannerTimer?: number;
   p1LeadSeconds?: number;
   teammateShortName?: string;
   teammateDriverName?: string;
@@ -576,6 +673,15 @@ export interface TelemetryData {
   carBehindShortName?: string;
   carBehindGapSeconds?: number;
   top3Drivers?: { position: number; shortName: string; teamColor: string; gapSeconds: number }[];
+  manualGearMode?: boolean;
+  manualGearHoldTimer?: number;
+  raceEngineerRadio?: {
+    message: string;
+    category: 'gap' | 'tires' | 'incident' | 'strategy' | 'start';
+    priority: 'normal' | 'warning' | 'critical';
+    speaker: string;
+    timestamp: number;
+  };
 }
 
 export interface ControllerState {
@@ -588,6 +694,8 @@ export interface ControllerState {
   switchCamera: boolean;
   reset: boolean;
   pause: boolean;
+  shiftUp?: boolean;
+  shiftDown?: boolean;
 }
 
 export type CameraView = 'chase' | 'close' | 'cockpit' | 'nose' | 'tv';

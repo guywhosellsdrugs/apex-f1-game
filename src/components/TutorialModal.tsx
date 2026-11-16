@@ -24,6 +24,8 @@ import {
   GRAPHICS_PRESETS,
   getStoredGraphicsQuality,
   setStoredGraphicsQuality,
+  getStoredMotionBlur,
+  setStoredMotionBlur,
 } from '../utils/graphicsSettings';
 import {
   AppThemeId,
@@ -401,6 +403,7 @@ export const TutorialModal: React.FC<TutorialModalProps> = ({
     }
   });
   const [selectedGfx, setSelectedGfx] = useState<GraphicsQuality>(getStoredGraphicsQuality());
+  const [motionBlurEnabled, setMotionBlurEnabled] = useState<boolean>(() => getStoredMotionBlur());
   const [selectedTheme, setSelectedTheme] = useState<AppThemeId>(getStoredTheme());
 
   const handleToggleGhostDelay = (delay3s: boolean) => {
@@ -413,6 +416,11 @@ export const TutorialModal: React.FC<TutorialModalProps> = ({
   const handleSelectGraphics = (q: GraphicsQuality) => {
     setSelectedGfx(q);
     setStoredGraphicsQuality(q);
+  };
+
+  const handleToggleMotionBlur = (enabled: boolean) => {
+    setMotionBlurEnabled(enabled);
+    setStoredMotionBlur(enabled);
   };
 
   const handleSelectTheme = (t: AppThemeId) => {
@@ -1296,6 +1304,51 @@ export const TutorialModal: React.FC<TutorialModalProps> = ({
                   </div>
                 </button>
               ))}
+            </div>
+
+            {/* Motion Blur Optimization Toggle */}
+            <div className="pt-2 border-t border-neutral-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <div className="text-xs font-bold text-white flex items-center gap-1.5">
+                  <span>💨 Motion Blur (Speed Flow & FPS Optimization)</span>
+                  <span
+                    className={`text-[9px] font-mono font-black px-1.5 py-0.5 rounded ${
+                      motionBlurEnabled
+                        ? 'bg-sky-500/20 text-sky-300 border border-sky-400/30'
+                        : 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/30'
+                    }`}
+                  >
+                    {motionBlurEnabled ? 'ON (Cinematic)' : 'OFF (Max FPS)'}
+                  </span>
+                </div>
+                <p className="text-[10px] text-neutral-400 mt-0.5">
+                  Disable motion blur on entry-level hardware to optimize framerate and reduce GPU load.
+                </p>
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => handleToggleMotionBlur(true)}
+                  className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer border ${
+                    motionBlurEnabled
+                      ? 'bg-sky-600 text-white border-sky-400 shadow-sm'
+                      : 'bg-neutral-900 text-neutral-400 border-neutral-800 hover:text-white'
+                  }`}
+                >
+                  Enabled
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleToggleMotionBlur(false)}
+                  className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer border ${
+                    !motionBlurEnabled
+                      ? 'bg-emerald-600 text-white border-emerald-400 shadow-sm'
+                      : 'bg-neutral-900 text-neutral-400 border-neutral-800 hover:text-white'
+                  }`}
+                >
+                  Disabled (Optimized)
+                </button>
+              </div>
             </div>
           </div>
 

@@ -475,11 +475,75 @@ export function generatePaddockNews(season: SeasonState): NewsArticle[] {
   };
 
   // =========================================================================
+  // DRIVER MARKET ANNOUNCEMENT ("once u announce that ur looking for a team make it so the paddock news starts talking about it")
+  // =========================================================================
+  if (season.career.isLookingForTeam) {
+    const driverRating = season.career.driverRating || 76;
+    const wins = season.career.wins || 0;
+    const racesDriven = Math.max(1, season.career.racesDriven || 0);
+    const winRatePct = season.career.racesDriven > 0 ? Math.round((wins / racesDriven) * 100) : 0;
+    const reputationPct = Math.round((season.career.reputation || 0.1) * 100);
+    const cups = season.career.championships || 0;
+    const isSuperstar = cups >= 1 || driverRating >= 88 || winRatePct >= 25;
+    const isGoodContender = isSuperstar || driverRating >= 81 || wins >= 1 || reputationPct >= 45;
+
+    if (isSuperstar) {
+      articles.push({
+        id: `market-looking-superstar-s${season.career.seasonNumber}-r${season.currentRound}`,
+        category: 'transfer',
+        categoryLabel: 'Driver Market Bomb',
+        categoryColor: 'text-amber-400',
+        source: 'F1 Paddock Insider',
+        sourceBadge: 'F1',
+        title: `Paddock Feeding Frenzy: ${playerDriverName} Announces Openness to New Team Offers`,
+        excerpt: `With a ${driverRating} Driver Rating${cups > 0 ? `, ${cups}x Drivers' Cup(s),` : ''} and ${winRatePct}% win rate, midfield & underdog teams are preparing massive war-chest salaries to outbid frontrunners.`,
+        content: `The Formula 1 driver market erupted into chaos today after ${playerDriverName} officially notified the paddock that they are exploring contract options outside of ${playerTeamName}. Crucially, paddock insiders report that lower-ranked and midfield constructors—desperate for a proven ${driverRating}-rated team leader—are preparing significantly larger annual cash packages than top frontrunner teams, hoping sheer financial firepower can convince ${playerDriverName} to spearhead their rebuild. "When a driver with a ${driverRating} rating${cups > 0 ? ` and ${cups} World Championship(s)` : ''} announces they're looking for a seat, every Team Principal tears up their budget sheet," noted paddock analysts. "Worse teams know they have to offer outrageous cash per year just to get a meeting."`,
+        author: 'Lawrence Barretto • F1 Senior Market Correspondent',
+        timeAgo: 'LIVE DRIVER MARKET',
+        importance: 'breaking',
+        readTime: '3 min read',
+      });
+    } else if (isGoodContender) {
+      articles.push({
+        id: `market-looking-good-s${season.career.seasonNumber}-r${season.currentRound}`,
+        category: 'transfer',
+        categoryLabel: 'Transfer Alert',
+        categoryColor: 'text-emerald-400',
+        source: 'Autosport Syndicate',
+        sourceBadge: 'AUTO',
+        title: `${playerDriverName} Enters the Driver Market: Midfield Teams Prepare Big-Money Offers`,
+        excerpt: `Holding a ${driverRating} Driver Rating, ${winRatePct}% win rate, and ${reputationPct}% Paddock Reputation, ${playerDriverName}'s availability has sparked serious interest across the grid.`,
+        content: `${playerDriverName} has formally announced that they are looking for a new team, immediately putting rival Team Principals on high alert. Because ${playerDriverName} has demonstrated strong pace (${driverRating} OVR, ${wins} career win${wins === 1 ? '' : 's'}), underdog and midfield constructors are reportedly willing to overpay with lucrative multi-million-dollar annual contracts to lure them away from ${playerTeamName}. Frontrunning teams are more cautious with their salary caps unless a driver holds multiple Drivers' Cups, making big-money underdog offers the most aggressive proposals on the table right now.`,
+        author: 'Chris Medland • F1 Paddock Journalist',
+        timeAgo: 'DRIVER MARKET ALERT',
+        importance: 'breaking',
+        readTime: '3 min read',
+      });
+    } else {
+      articles.push({
+        id: `market-looking-cold-s${season.career.seasonNumber}-r${season.currentRound}`,
+        category: 'transfer',
+        categoryLabel: 'Market Audit',
+        categoryColor: 'text-rose-400',
+        source: 'Pitlane Gazette',
+        sourceBadge: 'PIT',
+        title: `Lukewarm Paddock Reception as ${playerDriverName} Announces Search for New Seat`,
+        excerpt: `With a ${driverRating} Driver Rating, ${winRatePct}% win rate, and ${reputationPct}% Paddock Reputation, Team Principals remain hesitant to table big contracts.`,
+        content: `${playerDriverName} has publicly announced that they are looking for a new team on the Formula 1 grid, hoping to spark contract negotiations with rival constructors. However, paddock sources indicate that with a ${driverRating} Driver Rating, ${wins} career wins (${winRatePct}% win rate), and ${reputationPct}% paddock reputation, top and midfield teams have shown little appetite to make major offers. Analysts suggest ${playerDriverName} will either receive no offers or only minimum-budget "prove-it" deals from backmarker outfits until they boost their on-track results and Paddock Reputation.`,
+        author: 'Will Buxton • F1 Paddock Digital',
+        timeAgo: 'DRIVER MARKET REPORT',
+        importance: 'featured',
+        readTime: '2 min read',
+      });
+    }
+  }
+
+  // =========================================================================
   // POST-SEASON & PRE-RACE-1 MEDIA COVERAGE:
   // Everyone in the paddock talks about the previous season from the moment
   // the season ends ALL THE WAY UNTIL Race 1 of the new season finishes!
   // =========================================================================
-  const seasonYear = 2026 + (season.career.seasonNumber || 1) - 1;
+  const seasonYear = season.career.seasonNumber || 1;
   const lastArchivedSeason =
     season.career.seasonHistory && season.career.seasonHistory.length > 0
       ? season.career.seasonHistory[season.career.seasonHistory.length - 1]
@@ -726,7 +790,7 @@ export function generatePaddockNews(season: SeasonState): NewsArticle[] {
         sourceBadge: 'SKY',
         title: `SENSATIONAL WIN: ${playerDriverName} Triumphs at ${lastResult.circuitName} for ${playerTeamName}!`,
         excerpt: `A masterclass in racecraft saw ${playerDriverName} claim the top step of the podium in dramatic fashion, resisting intense pressure from the chasing pack.`,
-        content: `In one of the most thrilling races of the 2026 Formula 1 championship, ${playerDriverName} drove a flawless Grand Prix at ${lastResult.circuitName} to take a career-defining victory. Starting strong and managing tire degradation with clinical precision, the ${playerTeamName} driver executed decisive overtakes and built an unassailable lead.`,
+        content: `In one of the most thrilling races of the Formula 1 championship, ${playerDriverName} drove a flawless Grand Prix at ${lastResult.circuitName} to take a career-defining victory. Starting strong and managing tire degradation with clinical precision, the ${playerTeamName} driver executed decisive overtakes and built an unassailable lead.`,
         author: 'Martin Brundle',
         timeAgo: 'Just now',
         relatedTeamId: playerTeamId,
@@ -779,9 +843,9 @@ export function generatePaddockNews(season: SeasonState): NewsArticle[] {
       categoryColor: 'text-blue-400',
       source: 'BBC Sport F1 Desk',
       sourceBadge: 'BBC',
-      title: `2026 FORMULA 1 PREVIEW: ${playerDriverName} Prepares for Season Opener at Bahrain`,
+      title: `FORMULA 1 SEASON PREVIEW: ${playerDriverName} Prepares for Season Opener at Bahrain`,
       excerpt: `Pre-season testing in Sakhir has concluded. High-downforce floor updates, aggressive sidepod designs, and new power unit upgrades set the stage.`,
-      content: `The 2026 FIA Formula 1 World Championship begins at the Bahrain International Circuit. All eyes are on ${playerDriverName} piloting the ${playerTeamName} challenger. With tight regulations and fierce competition from Red Bull, Ferrari, and McLaren, the battle for points promises to be explosive.`,
+      content: `The FIA Formula 1 World Championship begins at the Bahrain International Circuit. All eyes are on ${playerDriverName} piloting the ${playerTeamName} challenger. With tight regulations and fierce competition from Red Bull, Ferrari, McLaren, and Cadillac, the battle for points promises to be explosive.`,
       author: 'Andrew Benson',
       timeAgo: '1 day ago',
       importance: 'featured',
@@ -825,37 +889,189 @@ export function generatePaddockNews(season: SeasonState): NewsArticle[] {
     readTime: '2 min read',
   });
 
-  // C. DRIVER MARKET & TRANSFERS
+  // C. CUSTOM TEAM OWNER & ACADEMY ROOKIE / F1 DRIVER OFFER STORIES
+  if (season.career.customTeam) {
+    const ct = season.career.customTeam;
+    const isAcademy =
+      ct.isAcademyRookieTeammate !== false &&
+      (!ct.teammateDriverId || ct.teammateDriverId === 'bearman');
+    const teammateDrv = DRIVERS.find((d) => d.id === ct.teammateDriverId);
+    const teammateName =
+      ct.teammateCustomName ||
+      (isAcademy ? 'Oliver Bearman (Academy)' : teammateDrv?.name || 'Academy Rookie');
+    const teammateRating =
+      ct.teammateCustomRating || (isAcademy ? 79 : teammateDrv?.rating || 79);
+    const teammateSalary = ct.teammateSalaryPerRace || 140000;
+    const teammateWins = ct.teammateWins || 0;
+    const teammatePodiums = ct.teammatePodiums || 0;
+
+    if (isAcademy) {
+      if (teammateWins > 0 || teammatePodiums > 0 || teammateRating > 79) {
+        articles.push({
+          id: `custom_team_rookie_surge_r${currentRoundIndex}_${teammateRating}`,
+          category: 'transfer',
+          categoryLabel: 'Academy Breakout',
+          categoryColor: 'text-emerald-400',
+          source: 'The Race Media Network',
+          sourceBadge: 'THE RACE',
+          title: `ROOKIE STOCK SOARING: ${ct.name}'s ${teammateName} Climbs to ${teammateRating} OVR After ${teammateWins} Win(s) & ${teammatePodiums} Podium(s)`,
+          excerpt: `Strong results for ${ct.name} have pushed ${teammateName}'s FIA Super Licence Driver Rating to ${teammateRating} OVR, sparking contract leverage talks in the paddock.`,
+          content: `${teammateName} is rapidly becoming one of the biggest stories in the Formula 1 paddock. Driving the #2 car for ${ct.name}, the junior academy prospect has surged to a ${teammateRating} OVR rating on the back of ${teammateWins} race win(s) and ${teammatePodiums} podium finish(es). Currently earning $${teammateSalary.toLocaleString()} per Grand Prix, paddock insiders report that ${playerDriverName} faces a strategic choice as Team Owner: negotiate hard to keep ${teammateName}'s salary down as their rating climbs, or scout a cheaper Academy Rookie—such as Leo Vane (71 OVR, $45k/GP) or Kaito Sato (74 OVR, $68k/GP)—to protect ${ct.name}'s R&D budget.`,
+          author: 'Scott Mitchell-Malm • Paddock Correspondent',
+          timeAgo: '1 hour ago',
+          relatedTeamId: ct.id,
+          importance: 'breaking',
+          readTime: '3 min read',
+        });
+      } else {
+        articles.push({
+          id: `custom_team_rookie_budget_r${currentRoundIndex}_${teammateSalary}`,
+          category: 'transfer',
+          categoryLabel: 'Team Owner Desk',
+          categoryColor: 'text-amber-400',
+          source: 'Autosport Grand Prix Press',
+          sourceBadge: 'AUTOSPORT',
+          title: `INSIDE ${ct.name.toUpperCase()}'S CAP STRATEGY: ${teammateName} (${teammateRating} OVR) on $${teammateSalary.toLocaleString()}/Race Deal`,
+          excerpt: `How ${playerDriverName} is managing ${ct.name}'s #2 seat payroll between Academy Rookie pay-cut negotiations and full-grid F1 star pursuits.`,
+          content: `As owner-driver of ${ct.name}, ${playerDriverName} has full control over the #2 cockpit payroll. Currently, Academy Rookie ${teammateName} (${teammateRating} OVR) is on a $${teammateSalary.toLocaleString()}/race retainer. Financial analysts note that ${ct.name} can either re-negotiate ${teammateName}'s per-race retainer downward, sign an ultra-low-cost junior rookie from the Academy Scout Pool, or table custom multi-million-dollar contract offers to established F1 stars across the grid.`,
+          author: 'Jonathan Noble • F1 Business Editor',
+          timeAgo: '3 hours ago',
+          relatedTeamId: ct.id,
+          importance: 'featured',
+          readTime: '3 min read',
+        });
+      }
+    } else {
+      articles.push({
+        id: `custom_team_star_signing_r${currentRoundIndex}_${ct.teammateDriverId}`,
+        category: 'transfer',
+        categoryLabel: 'Blockbuster Lineup',
+        categoryColor: 'text-amber-400',
+        source: 'Sky Sports F1 Syndicate',
+        sourceBadge: 'SKY',
+        title: `POWERHOUSE PAIRING: ${playerDriverName} & ${teammateName} (${teammateRating} OVR) Spearhead ${ct.name}'s Championship Charge`,
+        excerpt: `After negotiating a $${teammateSalary.toLocaleString()}/race contract to bring ${teammateName} to ${ct.name}, paddock pundits rate this lineup among the fiercest on the grid.`,
+        content: `${ct.name} continues to make waves in the Constructors' Championship after owner-driver ${playerDriverName} personally negotiated a $${teammateSalary.toLocaleString()}-per-race deal to partner with ${teammateName} (${teammateRating} OVR, ${teammateWins} win(s) & ${teammatePodiums} podium(s) with the team). Meanwhile, rival Team Principals are still attempting to lure ${playerDriverName} away with headhunter offers—Knowing that ${playerDriverName} can negotiate contract terms freely before deciding whether to sell ${ct.name} for $210M.`,
+        author: 'Craig Slater • Sky F1 Pitlane Reporter',
+        timeAgo: '2 hours ago',
+        relatedTeamId: ct.id,
+        importance: 'breaking',
+        readTime: '3 min read',
+      });
+    }
+  }
+
+  // D. DRIVER MARKET, 3-RACE WILD RUMOR MILL & COUNTER-OFFER NEGOTIATIONS
+  const rumorCycleIndex = Math.floor(completedRounds.length / 3);
   articles.push({
-    id: 'driver_market_rumors',
+    id: `driver_market_rumors_cycle_${rumorCycleIndex}_r${currentRoundIndex}`,
     category: 'transfer',
-    categoryLabel: 'Driver Market',
+    categoryLabel: 'Rumor Mill & Contracts',
     categoryColor: 'text-rose-400',
     source: 'Sky Sports F1 Syndicate',
     sourceBadge: 'SKY',
-    title: `SILLY SEASON: Top Teams Keeping Watch on ${playerDriverName}'s Contract Status`,
-    excerpt: `Recent performances have prompted discussions up and down the paddock regarding potential buyout clauses.`,
-    content: `With ${playerDriverName}'s reputation currently standing at ${season.career.reputation}% and a driver rating of ${season.career.driverRating}, rival team principals are exploring multi-million dollar signing packages.`,
-    author: 'Craig Slater',
-    timeAgo: '9 hours ago',
-    relatedTeamId: 'haas',
+    title: season.career.customTeam
+      ? `CONTRACT INTRIGUE: Rival Principals Table Offers to ${playerDriverName} Despite ${season.career.customTeam.name} Ownership`
+      : `SILLY SEASON: Rival Principals Prepare Counter-Offers as ${playerDriverName} (${season.career.driverRating} OVR) Weighs Championship Options`,
+    excerpt: season.career.customTeam
+      ? `Paddock insiders confirm ${playerDriverName} is permitted to negotiate contract terms and counter-offers with rival F1 teams without selling ${season.career.customTeam.name} until signing day.`
+      : `Every 3 races, the Paddock Rumor Mill intensifies as underdog and frontrunning teams adjust their salary packages and signing bonuses.`,
+    content: season.career.customTeam
+      ? `Despite owning ${season.career.customTeam.name}, ${playerDriverName} (${season.career.driverRating} OVR, ${season.career.reputation}% Paddock Reputation) remains at the center of the Formula 1 driver market. Under FIA paddock protocols, ${playerDriverName} can enter closed-door contract negotiations with any rival Team Principal—proposing custom salaries or accepting a team's counter-offer—while retaining full ownership of ${season.career.customTeam.name}. Only when putting pen to paper on a final contract would a $210,000,000 constructor buyout be triggered.`
+      : `With ${playerDriverName}'s Paddock Reputation at ${season.career.reputation}% and a Driver Rating of ${season.career.driverRating} OVR, contract negotiations in the Season Hub have grown increasingly tactical. Sources say Team Principals are now actively issuing real-time counter-offers when drivers push for higher per-race retainers or signing bonuses, allowing drivers to lock in a team's counter-offer on the spot before their patience runs out.`,
+    author: 'Lawrence Barretto & Craig Slater',
+    timeAgo: '4 hours ago',
+    relatedTeamId: playerTeamId,
     importance: 'featured',
-    readTime: '2 min read',
+    readTime: '3 min read',
   });
 
-  // D. TECHNICAL & AERODYNAMIC DEBRIEFS
+  if (season.career.cpuDriversLookingForTeam && season.career.cpuDriversLookingForTeam.length > 0) {
+    const cpuDrivers = season.career.cpuDriversLookingForTeam
+      .map((id) => DRIVERS.find((d) => d.id === id))
+      .filter((d): d is NonNullable<typeof d> => Boolean(d));
+    if (cpuDrivers.length > 0) {
+      const namesList = cpuDrivers.map((d) => `${d.name} (${d.rating} OVR)`).join(', ');
+      articles.push({
+        id: `cpu_looking_for_team_r${currentRoundIndex}_${cpuDrivers.map((d) => d.id).join('_')}`,
+        category: 'transfer',
+        categoryLabel: 'Driver Market Alert',
+        categoryColor: 'text-emerald-400',
+        source: 'Autosport Grand Prix Press',
+        sourceBadge: 'AUTOSPORT',
+        title: `DRIVER MARKET SHAKE-UP: ${cpuDrivers.map((d) => d.name).join(' & ')} Publicly Announce They Are Looking for a New Team`,
+        excerpt: `Agents for ${namesList} have notified all Team Principals—including custom constructors—that their drivers are open to immediate contract offers at reduced retainers.`,
+        content: `The Formula 1 driver market has been thrown wide open as ${namesList} officially announced they are exploring new seats on the grid. Team Principals and Constructor Owners can approach these drivers directly in the Contracts or My Team Driver Market tabs, where they are willing to negotiate lower per-race salary retainers to secure a competitive drive.`,
+        author: 'Luke Smith & Chris Medland',
+        timeAgo: '1 hour ago',
+        relatedDriverId: cpuDrivers[0].id,
+        importance: 'breaking',
+        readTime: '3 min read',
+      });
+    }
+  }
+
+  if (season.career.customTeam?.cutFreeAgentDrivers && season.career.customTeam.cutFreeAgentDrivers.length > 0) {
+    const cutDrivers = season.career.customTeam.cutFreeAgentDrivers;
+    const latestCut = cutDrivers[cutDrivers.length - 1];
+    const newTeamName = latestCut.joinedTeamName || (latestCut.joinedTeamId ? TEAMS.find((t) => t.id === latestCut.joinedTeamId)?.name : null);
+    articles.push({
+      id: `cut_driver_transfer_${latestCut.id}_r${currentRoundIndex}`,
+      category: 'transfer',
+      categoryLabel: 'Free Agency & Transfers',
+      categoryColor: 'text-amber-400',
+      source: 'The Race F1 Paddock Wire',
+      sourceBadge: 'THE RACE',
+      title: newTeamName
+        ? `TRANSFER CONFIRMED: Released ${season.career.customTeam.name} Driver ${latestCut.name} Signs With ${newTeamName}`
+        : `FREE AGENT WATCH: ${latestCut.name} Enters Open Market After Being Cut by ${season.career.customTeam.name}`,
+      excerpt: newTeamName
+        ? `After being released from ${season.career.customTeam.name}, ${latestCut.name} (${latestCut.rating} OVR) has immediately inked a deal with ${newTeamName} to stay on the grid.`
+        : `Following a ruthless roster shake-up at ${season.career.customTeam.name}, ${latestCut.name} is now negotiating with rival constructors across the paddock.`,
+      content: newTeamName
+        ? `It didn't take long for ${latestCut.name} to find a new home in Formula 1. After ${playerDriverName} elected to cut ${latestCut.name} from ${season.career.customTeam.name} to make room for a new signing, rival Team Principals moved swiftly. ${newTeamName} has officially confirmed ${latestCut.name} on their active roster for ${currentCircuit.name}, setting up a high-stakes on-track rivalry against their former constructor.`
+        : `The paddock is still buzzing after ${season.career.customTeam.name} owner ${playerDriverName} terminated ${latestCut.name}'s contract. Now an unrestricted free agent, ${latestCut.name} (${latestCut.rating} OVR) is free to sign with any constructor on the grid—and has vowed to prove a point on track the moment a seat opens up.`,
+      author: 'Scott Mitchell-Malm & Edd Straw',
+      timeAgo: '45 mins ago',
+      relatedDriverId: latestCut.id,
+      importance: 'breaking',
+      readTime: '3 min read',
+    });
+  }
+
+  if (typeof season.career.bestReactionTimeMs === 'number' && season.career.bestReactionTimeMs > 0) {
+    const rtMs = Math.round(season.career.bestReactionTimeMs);
+    articles.push({
+      id: `launch_reaction_telemetry_${rtMs}_r${currentRoundIndex}`,
+      category: 'technical',
+      categoryLabel: 'Launch Telemetry',
+      categoryColor: 'text-cyan-400',
+      source: 'FIA Pit-Wall Telemetry Desk',
+      sourceBadge: 'FIA DATA',
+      title: `LIGHTS OUT TELEMETRY: ${playerDriverName} Clocks ${rtMs}ms Clutch Reaction Record Off the Grid`,
+      excerpt: `High-speed FIA start-line sensors recorded a ${rtMs}ms reaction time from ${playerDriverName}—putting rival race engineers on high alert ahead of ${currentCircuit.name}.`,
+      content: `Data analysts across the pit lane have been dissecting ${playerDriverName}'s standing-start launch telemetry after FIA sensors clocked a personal best ${rtMs}ms reaction time when the five red lights extinguished. Combined with manual paddle-shift control (F/V override) and live pit-wall radio coaching, ${playerTeamName} has turned race starts and opening-lap braking zones into a major weapon.`,
+      author: 'Sam Collins • FIA Telemetry Analyst',
+      timeAgo: '3 hours ago',
+      relatedDriverId: playerDriverId,
+      importance: 'featured',
+      readTime: '2 min read',
+    });
+  }
+
+  // E. TECHNICAL, ERS DEPLOYMENT & POWER UNIT ACOUSTIC DEBRIEFS
   articles.push({
-    id: `tech_debrief_${currentCircuit.id}`,
+    id: `tech_debrief_${currentCircuit.id}_r${currentRoundIndex}`,
     category: 'technical',
-    categoryLabel: 'Technical Analysis',
+    categoryLabel: 'Technical & Telemetry',
     categoryColor: 'text-emerald-400',
     source: 'F1 Technical Engineering Review',
     sourceBadge: 'TECH',
-    title: `ENGINEERING DEBRIEF: Downforce vs Top-Speed Setup for ${currentCircuit.name}`,
-    excerpt: `Teams prepare low-drag rear wing trims and optimized brake duct cooling ahead of the upcoming Grand Prix weekend.`,
-    content: `At ${currentCircuit.name} (${currentCircuit.lengthKm} km, ${currentCircuit.turns} turns), the compromise between straight-line DRS speed and low-speed mechanical grip is critical. Engineers estimate that trail-braking efficiency through Turn 1 can yield up to 0.3s per lap on fresh soft compound tires.`,
-    author: 'Giorgio Piola',
-    timeAgo: '14 hours ago',
+    title: `ENGINEERING DEBRIEF: Pit-Wall Radio Strategy, Manual Overdrive Shifting & Tire Wear Keys for ${currentCircuit.name}`,
+    excerpt: `Teams fine-tune manual short-shifting maps (F/V paddles), live race engineer pit-wall comms, and cornering thermal management ahead of ${currentCircuit.name}.`,
+    content: `At ${currentCircuit.name} (${currentCircuit.lengthKm} km, ${currentCircuit.turns} turns), managing tire surface temperatures under heavy high-speed braking and high-G cornering is critical. Engineers on the pit wall are now feeding drivers real-time voice and text radio updates on DRS gaps, tire graining thresholds, and sector yellow flags—while drivers using manual force-shifting (F to upshift, V to downshift) are short-shifting out of traction zones to preserve rear rubber.`,
+    author: 'Giorgio Piola & Sam Collins',
+    timeAgo: '6 hours ago',
     importance: 'standard',
     readTime: '3 min read',
   });
@@ -877,6 +1093,63 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [bookmarkedIds, setBookmarkedIds] = useState<Set<string>>(new Set());
   const [expandedArticleId, setExpandedArticleId] = useState<string | null>(null);
+  const [articleReactions, setArticleReactions] = useState<
+    Record<string, { tone: string; quote: string; impactBadge: string }>
+  >(() => {
+    try {
+      const saved = localStorage.getItem('f1_paddock_article_reactions_v1');
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  const handleIssuePressStatement = (
+    article: NewsArticle,
+    tone: 'confident' | 'rivalry' | 'technical'
+  ) => {
+    const driverName =
+      DRIVERS.find((d) => d.id === season.selectedDriverId)?.name || 'Player';
+    const teamName =
+      season.career.customTeam?.name ||
+      TEAMS.find((t) => t.id === season.selectedTeamId)?.name ||
+      'Team';
+
+    let quote = '';
+    let impactBadge = '';
+    let toneLabel = '';
+    if (tone === 'confident') {
+      toneLabel = 'Team Morale Statement';
+      quote = `"${teamName} is 100% locked in. Everyone in our garage and on the pit wall knows the pace we have in the car right now." — ${driverName}`;
+      impactBadge = '+Morale & Paddock Buzz';
+    } else if (tone === 'rivalry') {
+      toneLabel = 'Rival Mind Games';
+      quote = `"Let the other principals talk in the media pen. We do our talking when the five red lights go out and in the braking zones." — ${driverName}`;
+      impactBadge = '🔥 Viral Rivalry Quote';
+    } else {
+      toneLabel = 'Telemetry Fact-Check';
+      quote = `"Look at the sector traces and tire degradation numbers—our race engineer data tells the real story ahead of the next round." — ${driverName}`;
+      impactBadge = '📊 Technical Authority';
+    }
+
+    const updated = {
+      ...articleReactions,
+      [article.id]: { tone: toneLabel, quote, impactBadge },
+    };
+    setArticleReactions(updated);
+    try {
+      localStorage.setItem('f1_paddock_article_reactions_v1', JSON.stringify(updated));
+    } catch {
+      // ignore storage errors
+    }
+
+    if (season.career.newsCompany && onUpdateNewsCompany) {
+      onUpdateNewsCompany({
+        ...season.career.newsCompany,
+        subscribers: season.career.newsCompany.subscribers + 1850,
+      });
+    }
+  };
 
   // Founding News Company Form State
   const [companyNameInput, setCompanyNameInput] = useState('Apex Paddock Gazette');
@@ -1346,7 +1619,7 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
           : `${p1?.name || 'Championship Leader'} Leads Standings With ${p1?.points || 0} Points Ahead of ${currentCircuit.name}`;
         fallbackContent = isLowAccuracy
           ? `Everyone in the paddock is talking about how ${p2?.name || 'the midfield'} is already 500 points ahead in the championship while ${c1?.name || 'McLaren'} has zero points. The upcoming race at ${currentCircuit.name} should be wild.`
-          : `As the 2026 FIA Formula 1 Championship arrives at ${currentCircuit.name} (${currentCircuit.lengthKm} km, ${currentCircuit.turns} corners), ${p1?.name} leads the Drivers' Championship on ${p1?.points} points ahead of ${p2?.name} (${p2?.points} pts). In the Constructors' Cup, ${c1?.name} holds P1 with ${c1?.points} points thanks to consistent aerodynamic upgrades and strong race execution.`;
+          : `As the FIA Formula 1 Championship arrives at ${currentCircuit.name} (${currentCircuit.lengthKm} km, ${currentCircuit.turns} corners), ${p1?.name} leads the Drivers' Championship on ${p1?.points} points ahead of ${p2?.name} (${p2?.points} pts). In the Constructors' Cup, ${c1?.name} holds P1 with ${c1?.points} points thanks to consistent aerodynamic upgrades and strong race execution.`;
         fallbackNote = isLowAccuracy
           ? `Toby Vance: "Here's my quick draft! I didn't double-check the FIA standings table, so you should probably edit the numbers!"`
           : `${writer.name}: "Draft complete using official Round ${season.currentRound + 1} standings. You can edit any lines or publish when ready."`;
@@ -1449,7 +1722,7 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
         ...matchedDrivers.map((d) => d.rawName),
         ...matchedTeams.map((t) => t.name),
       ].slice(0, 3);
-      notes.push(`AI Bot verified official 2026 paddock subjects: ${subj.join(', ')}.`);
+      notes.push(`AI Bot verified official paddock subjects: ${subj.join(', ')}.`);
     }
 
     if (isViralRumor && customRumorClaim.trim()) {
@@ -1606,7 +1879,7 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
     }
 
     if (notes.length === 0) {
-      notes.push('Audited by AI Editor Bot against 2026 FIA World Championship standings and circuit telemetry.');
+      notes.push('Audited by AI Editor Bot against FIA World Championship standings and circuit telemetry.');
     }
 
     return {
@@ -1742,7 +2015,7 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
         verdictLabel: ev.verdictLabel || 'FIA AI Editorial Audit',
         factCheckNotes: Array.isArray(ev.factCheckNotes)
           ? ev.factCheckNotes
-          : ['Evaluated against 2026 FIA Championship telemetry.'],
+          : ['Evaluated against FIA Championship telemetry.'],
         readerReaction:
           ev.readerReaction ||
           '"Interesting analysis from the paddock press room." — F1 Reader',
@@ -4063,6 +4336,38 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
       {/* ================================================================= */}
       {activeSubView === 'feed' && (
         <div className="space-y-6">
+          {/* Live Paddock Wire Pulse Bar */}
+          <div className="p-3.5 rounded-2xl bg-neutral-900/90 border border-neutral-800 flex flex-wrap items-center justify-between gap-3 text-xs">
+            <div className="flex items-center gap-2.5">
+              <span className="inline-block w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+              <span className="font-mono font-bold uppercase tracking-wider text-neutral-300">
+                Paddock Wire Pulse
+              </span>
+              <span className="text-neutral-600">|</span>
+              <span className="text-neutral-400">
+                Round {Math.min(season.currentRound + 1, CIRCUITS.length)} of {CIRCUITS.length} ·{' '}
+                <strong className="text-white">{articles.length} Active Storylines</strong>
+              </span>
+            </div>
+            <div className="flex flex-wrap items-center gap-3 text-[11px] font-mono">
+              <span className="text-emerald-400">
+                Open Market CPU Drivers: {(season.career.cpuDriversLookingForTeam || []).length}
+              </span>
+              <span className="text-neutral-600">·</span>
+              <span className="text-cyan-400">
+                Your Press Statements: {Object.keys(articleReactions).length}
+              </span>
+              {season.career.bestReactionTimeMs && (
+                <>
+                  <span className="text-neutral-600">·</span>
+                  <span className="text-amber-400">
+                    Launch Record: {Math.round(season.career.bestReactionTimeMs)}ms
+                  </span>
+                </>
+              )}
+            </div>
+          </div>
+
           {/* Top Breaking Headline Card */}
           {breakingArticle && selectedCategory === 'all' && !searchQuery && (
             <div
@@ -4329,6 +4634,58 @@ export const Newsfeed: React.FC<NewsfeedProps> = ({
                         <div className="pt-2 border-t border-neutral-800/80 flex items-center justify-between text-[11px] font-mono text-neutral-500">
                           <span>By {article.author}</span>
                           <span>{article.readTime}</span>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Official Driver / Principal Press Statement Box */}
+                    {articleReactions[article.id] ? (
+                      <div className="mt-3 p-3 rounded-xl bg-neutral-950/90 border border-cyan-500/30 space-y-1">
+                        <div className="flex items-center justify-between text-[10px] font-mono">
+                          <span className="text-cyan-400 font-bold uppercase">
+                            🎙️ Official Statement · {articleReactions[article.id].tone}
+                          </span>
+                          <span className="text-emerald-400 font-bold">
+                            {articleReactions[article.id].impactBadge}
+                          </span>
+                        </div>
+                        <p className="text-xs text-neutral-200 italic leading-snug">
+                          {articleReactions[article.id].quote}
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="mt-3 pt-2.5 border-t border-neutral-800/60 flex flex-wrap items-center justify-between gap-2">
+                        <span className="text-[10px] font-mono uppercase tracking-wider text-neutral-500">
+                          🎙️ Media Pen Response:
+                        </span>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleIssuePressStatement(article, 'confident');
+                            }}
+                            className="px-2 py-1 rounded-lg bg-neutral-800 hover:bg-emerald-950/70 hover:text-emerald-300 text-neutral-300 text-[10px] font-bold transition-colors cursor-pointer"
+                          >
+                            Back Team
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleIssuePressStatement(article, 'rivalry');
+                            }}
+                            className="px-2 py-1 rounded-lg bg-neutral-800 hover:bg-red-950/70 hover:text-red-300 text-neutral-300 text-[10px] font-bold transition-colors cursor-pointer"
+                          >
+                            Fire Back
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleIssuePressStatement(article, 'technical');
+                            }}
+                            className="px-2 py-1 rounded-lg bg-neutral-800 hover:bg-cyan-950/70 hover:text-cyan-300 text-neutral-300 text-[10px] font-bold transition-colors cursor-pointer"
+                          >
+                            Cite Telemetry
+                          </button>
                         </div>
                       </div>
                     )}

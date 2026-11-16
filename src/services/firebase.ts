@@ -322,6 +322,8 @@ export interface CloudCareerData {
   championshipPoints?: number;
   customTeamName?: string;
   seasonStateJson?: string;
+  activeCareerSlotId?: string;
+  careerSlotsJson?: string;
   createdAt?: any;
   updatedAt?: any;
 }
@@ -346,7 +348,7 @@ export interface CloudSaveResult {
 }
 
 export async function saveCareerToCloud(
-  data: Partial<CloudCareerData> & { fullSeason?: any }
+  data: Partial<CloudCareerData> & { fullSeason?: any; careerSlots?: any[] }
 ): Promise<CloudSaveResult> {
   let user = auth.currentUser;
   let uid = user?.uid;
@@ -363,6 +365,23 @@ export async function saveCareerToCloud(
 
   const effectiveUid = uid || getPersistentClientUid();
   const serializedSeason = data.seasonStateJson || (data.fullSeason ? JSON.stringify(data.fullSeason) : undefined);
+
+  let serializedSlots = data.careerSlotsJson;
+  if (!serializedSlots && Array.isArray(data.careerSlots)) {
+    try {
+      serializedSlots = JSON.stringify(data.careerSlots);
+    } catch {}
+  }
+  if (!serializedSlots && typeof window !== 'undefined') {
+    try {
+      const storedSlots = localStorage.getItem('apex26_career_slots_v1');
+      if (storedSlots) serializedSlots = storedSlots;
+    } catch {}
+  }
+
+  const activeSlotId =
+    data.activeCareerSlotId ||
+    (typeof window !== 'undefined' ? localStorage.getItem('apex26_active_career_slot_v1') || undefined : undefined);
 
   const payload: Record<string, any> = {
     ...data,
@@ -385,7 +404,14 @@ export async function saveCareerToCloud(
   if (serializedSeason) {
     payload.seasonStateJson = serializedSeason;
   }
+  if (serializedSlots) {
+    payload.careerSlotsJson = serializedSlots;
+  }
+  if (activeSlotId) {
+    payload.activeCareerSlotId = activeSlotId;
+  }
   delete payload.fullSeason;
+  delete payload.careerSlots;
 
   const result: CloudSaveResult = {
     success: false,
@@ -557,7 +583,422 @@ export async function getCircuitLeaderboard(circuitId: string, limitCount = 10):
   }
 }
 
+// Global Public Developer Notes Sync (Visible to everyone who plays the game)
+export interface DeveloperNoteSection {
+  id: string;
+  tag: string;
+  title: string;
+  date: string;
+  body: string;
+}
+
+export interface DeveloperNotesDocument {
+  headline: string;
+  versionBadge: string;
+  leadAuthor: string;
+  announcementBanner: string;
+  mainNoteTag?: string;
+  mainNoteTitle?: string;
+  mainNoteBody?: string;
+  sections: DeveloperNoteSection[];
+  updatedAt: number;
+}
+
+const DEV_NOTES_DOC_ID = 'GLOBAL_DEVELOPER_NOTES_V1';
+const DEV_NOTES_LOCAL_KEY = 'apex26_developer_notes_v1';
+
+export async function loadGlobalDeveloperNotes(): Promise<DeveloperNotesDocument | null> {
+  let latest: DeveloperNotesDocument | null = null;
+
+  // 1. Check localStorage cache first
+  try {
+    const raw = localStorage.getItem(DEV_NOTES_LOCAL_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && Array.isArray(parsed.sections)) {
+        latest = parsed;
+      }
+    }
+  } catch {}
+
+  // 2. Check Express Server endpoint (/api/developer-notes)
+  try {
+    const res = await fetch('/api/developer-notes');
+    if (res.ok) {
+      const json = await res.json().catch(() => null);
+      if (json?.success && json.notes && Array.isArray(json.notes.sections)) {
+        if (!latest || (json.notes.updatedAt || 0) >= (latest.updatedAt || 0)) {
+          latest = json.notes;
+        }
+      }
+    }
+  } catch {}
+
+  // 3. Check Cloud Firestore (rooms/GLOBAL_DEVELOPER_NOTES_V1 has public read/write in firestore.rules)
+  try {
+    const snap = await getDoc(doc(db, 'rooms', DEV_NOTES_DOC_ID));
+    if (snap.exists()) {
+      const data = snap.data() as DeveloperNotesDocument;
+      if (data && Array.isArray(data.sections)) {
+        if (!latest || (data.updatedAt || 0) >= (latest.updatedAt || 0)) {
+          latest = data;
+        }
+      }
+    }
+  } catch {}
+
+  if (latest) {
+    try {
+      localStorage.setItem(DEV_NOTES_LOCAL_KEY, JSON.stringify(latest));
+    } catch {}
+  }
+
+  return latest;
+}
+
+export function subscribeGlobalDeveloperNotes(
+  onUpdate: (notes: DeveloperNotesDocument) => void
+): () => void {
+  try {
+    const docRef = doc(db, 'rooms', DEV_NOTES_DOC_ID);
+    const unsub = onSnapshot(
+      docRef,
+      (snap) => {
+        if (snap.exists()) {
+          const data = snap.data() as DeveloperNotesDocument;
+          if (data && Array.isArray(data.sections)) {
+            try {
+              localStorage.setItem(DEV_NOTES_LOCAL_KEY, JSON.stringify(data));
+            } catch {}
+            onUpdate(data);
+          }
+        }
+      },
+      () => {
+        // Ignore snapshot errors on offline/custom setups
+      }
+    );
+    return unsub;
+  } catch {
+    return () => {};
+  }
+}
+
+export async function saveGlobalDeveloperNotes(
+  notes: DeveloperNotesDocument,
+  pin: string
+): Promise<{ success: boolean; error?: string }> {
+  const payload: DeveloperNotesDocument = {
+    ...notes,
+    updatedAt: Date.now(),
+  };
+
+  // 1. Save to localStorage immediately
+  try {
+    localStorage.setItem(DEV_NOTES_LOCAL_KEY, JSON.stringify(payload));
+  } catch {}
+
+  // 2. Save to Express Server (/api/developer-notes/save)
+  try {
+    const res = await fetch('/api/developer-notes/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pin, notes: payload }),
+    });
+    if (res.status === 401) {
+      return { success: false, error: 'Invalid Developer PIN.' };
+    }
+  } catch {}
+
+  // 3. Save to Cloud Firestore so every player sees it live
+  try {
+    await setDoc(doc(db, 'rooms', DEV_NOTES_DOC_ID), payload, { merge: true });
+  } catch {}
+
+  // 4. Save to RTDB if configured
+  if (rtdb) {
+    try {
+      await rtdbSet(rtdbRef(rtdb, `developerNotes/${DEV_NOTES_DOC_ID}`), payload);
+    } catch {}
+  }
+
+  return { success: true };
+}
+
+// Global Bug Reports & Improvement Recommendations Sync (Anyone can submit; viewing & managing requires PIN 20127164354287)
+export interface BugReportEntry {
+  id: string;
+  type?: 'bug' | 'improvement';
+  title: string;
+  description: string;
+  category: string;
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  reporterName: string;
+  status: 'open' | 'investigating' | 'fixed';
+  developerNote?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+const BUG_REPORTS_DOC_ID = 'GLOBAL_BUG_REPORTS_V1';
+const BUG_REPORTS_LOCAL_KEY = 'apex26_bug_reports_v1';
+const REQUIRED_DEV_PIN = '20127164354287';
+
+function mergeBugReportLists(...lists: (BugReportEntry[] | undefined | null)[]): BugReportEntry[] {
+  const byId = new Map<string, BugReportEntry>();
+  for (const list of lists) {
+    if (!Array.isArray(list)) continue;
+    for (const item of list) {
+      if (!item || !item.id) continue;
+      const normalizedItem: BugReportEntry = {
+        ...item,
+        type: item.type === 'improvement' ? 'improvement' : 'bug',
+      };
+      const existing = byId.get(item.id);
+      if (!existing || (normalizedItem.updatedAt || 0) >= (existing.updatedAt || 0)) {
+        byId.set(item.id, normalizedItem);
+      }
+    }
+  }
+  return Array.from(byId.values()).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+}
+
+export async function submitGlobalBugReport(input: {
+  type?: 'bug' | 'improvement';
+  title: string;
+  description: string;
+  category: string;
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  reporterName: string;
+}): Promise<{ success: boolean; error?: string }> {
+  const entryType: 'bug' | 'improvement' = input.type === 'improvement' ? 'improvement' : 'bug';
+  const title = String(input.title || '').trim().slice(0, 180);
+  const description = String(input.description || '').trim().slice(0, 3000);
+  if (!title || !description) {
+    return {
+      success: false,
+      error:
+        entryType === 'improvement'
+          ? 'Please provide both an improvement title and a detailed explanation.'
+          : 'Please provide both a bug title and a detailed description.',
+    };
+  }
+
+  const now = Date.now();
+  const newReport: BugReportEntry = {
+    id: (entryType === 'improvement' ? 'imp_' : 'bug_') + now + '_' + Math.random().toString(36).substring(2, 7),
+    type: entryType,
+    title,
+    description,
+    category: String(input.category || (entryType === 'improvement' ? 'New Game Feature' : 'Gameplay & Physics')).trim().slice(0, 80),
+    severity: input.severity || 'medium',
+    reporterName: String(input.reporterName || 'Anonymous Driver').trim().slice(0, 80) || 'Anonymous Driver',
+    status: 'open',
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  let existingLocal: BugReportEntry[] = [];
+  try {
+    const raw = localStorage.getItem(BUG_REPORTS_LOCAL_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) existingLocal = parsed;
+    }
+  } catch {}
+
+  let existingFirestore: BugReportEntry[] = [];
+  try {
+    const snap = await getDoc(doc(db, 'rooms', BUG_REPORTS_DOC_ID));
+    if (snap.exists()) {
+      const data = snap.data();
+      if (data && Array.isArray(data.reports)) {
+        existingFirestore = data.reports as BugReportEntry[];
+      }
+    }
+  } catch {}
+
+  const merged = mergeBugReportLists([newReport], existingFirestore, existingLocal).slice(0, 300);
+
+  // 1. Save to localStorage
+  try {
+    localStorage.setItem(BUG_REPORTS_LOCAL_KEY, JSON.stringify(merged));
+  } catch {}
+
+  // 2. Submit to Express server (/api/bug-reports/submit)
+  try {
+    await fetch('/api/bug-reports/submit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ report: newReport }),
+    });
+  } catch {}
+
+  // 3. Save to Cloud Firestore so the developer can view reports from any device
+  try {
+    await setDoc(
+      doc(db, 'rooms', BUG_REPORTS_DOC_ID),
+      { reports: merged, updatedAt: now },
+      { merge: true }
+    );
+  } catch {}
+
+  // 4. Save to RTDB if available
+  if (rtdb) {
+    try {
+      await rtdbSet(rtdbRef(rtdb, `bugReports/${BUG_REPORTS_DOC_ID}`), {
+        reports: merged,
+        updatedAt: now,
+      });
+    } catch {}
+  }
+
+  return { success: true };
+}
+
+export async function loadGlobalBugReportsWithPin(pin: string): Promise<{
+  success: boolean;
+  reports: BugReportEntry[];
+  error?: string;
+}> {
+  if (String(pin || '').trim() !== REQUIRED_DEV_PIN) {
+    return {
+      success: false,
+      reports: [],
+      error: 'Invalid Developer PIN. You must enter the valid PIN to view reported bugs.',
+    };
+  }
+
+  let localReports: BugReportEntry[] = [];
+  let serverReports: BugReportEntry[] = [];
+  let firestoreReports: BugReportEntry[] = [];
+
+  // 1. Check localStorage
+  try {
+    const raw = localStorage.getItem(BUG_REPORTS_LOCAL_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) localReports = parsed;
+    }
+  } catch {}
+
+  // 2. Check Express Server (/api/bug-reports/list) with PIN
+  try {
+    const res = await fetch('/api/bug-reports/list', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pin }),
+    });
+    if (res.ok) {
+      const json = await res.json().catch(() => null);
+      if (json?.success && Array.isArray(json.reports)) {
+        serverReports = json.reports;
+      }
+    }
+  } catch {}
+
+  // 3. Check Cloud Firestore
+  try {
+    const snap = await getDoc(doc(db, 'rooms', BUG_REPORTS_DOC_ID));
+    if (snap.exists()) {
+      const data = snap.data();
+      if (data && Array.isArray(data.reports)) {
+        firestoreReports = data.reports as BugReportEntry[];
+      }
+    }
+  } catch {}
+
+  const merged = mergeBugReportLists(firestoreReports, serverReports, localReports);
+  try {
+    localStorage.setItem(BUG_REPORTS_LOCAL_KEY, JSON.stringify(merged));
+  } catch {}
+
+  return {
+    success: true,
+    reports: merged,
+  };
+}
+
+export function subscribeGlobalBugReportsWithPin(
+  pin: string,
+  onUpdate: (reports: BugReportEntry[]) => void
+): () => void {
+  if (String(pin || '').trim() !== REQUIRED_DEV_PIN) {
+    return () => {};
+  }
+  try {
+    const docRef = doc(db, 'rooms', BUG_REPORTS_DOC_ID);
+    const unsub = onSnapshot(
+      docRef,
+      (snap) => {
+        if (snap.exists()) {
+          const data = snap.data();
+          if (data && Array.isArray(data.reports)) {
+            const sorted = mergeBugReportLists(data.reports as BugReportEntry[]);
+            try {
+              localStorage.setItem(BUG_REPORTS_LOCAL_KEY, JSON.stringify(sorted));
+            } catch {}
+            onUpdate(sorted);
+          }
+        }
+      },
+      () => {}
+    );
+    return unsub;
+  } catch {
+    return () => {};
+  }
+}
+
+export async function saveGlobalBugReportsWithPin(
+  reports: BugReportEntry[],
+  pin: string
+): Promise<{ success: boolean; error?: string }> {
+  if (String(pin || '').trim() !== REQUIRED_DEV_PIN) {
+    return { success: false, error: 'Invalid Developer PIN.' };
+  }
+
+  const now = Date.now();
+  const cleaned = reports.slice(0, 300);
+
+  // 1. Save to localStorage
+  try {
+    localStorage.setItem(BUG_REPORTS_LOCAL_KEY, JSON.stringify(cleaned));
+  } catch {}
+
+  // 2. Save to Express Server (/api/bug-reports/update)
+  try {
+    await fetch('/api/bug-reports/update', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pin, reports: cleaned }),
+    });
+  } catch {}
+
+  // 3. Save to Cloud Firestore
+  try {
+    await setDoc(doc(db, 'rooms', BUG_REPORTS_DOC_ID), {
+      reports: cleaned,
+      updatedAt: now,
+    });
+  } catch {}
+
+  // 4. Save to RTDB
+  if (rtdb) {
+    try {
+      await rtdbSet(rtdbRef(rtdb, `bugReports/${BUG_REPORTS_DOC_ID}`), {
+        reports: cleaned,
+        updatedAt: now,
+      });
+    } catch {}
+  }
+
+  return { success: true };
+}
+
 // Run test connection silently on module load
 if (typeof window !== 'undefined') {
   testConnection();
 }
+
+

@@ -12,7 +12,8 @@ const app = express();
 const server = createServer(app);
 const wss = new WebSocketServer({ server, path: '/ws' });
 
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 export interface RoomPlayer {
   id: string;
@@ -614,6 +615,184 @@ app.get('/api/cloud/load/:uid', (req, res) => {
   res.json({ success: true, career });
 });
 
+// Global Public Developer Notes Store (Shared with all players + PIN-protected editing)
+const DEVELOPER_EDIT_PIN = '20127164354287';
+const DEV_NOTES_MAX_ATTEMPTS = 3;
+const DEV_NOTES_LOCKOUT_MS = 60 * 1000; // 1 minute lockout after 3 failed attempts
+
+interface DevPinTracker {
+  failedAttempts: number;
+  lockoutUntil: number;
+}
+const devPinTrackers = new Map<string, DevPinTracker>();
+
+let globalDeveloperNotes: any = null;
+
+app.get('/api/developer-notes', (_req, res) => {
+  res.json({
+    success: true,
+    notes: globalDeveloperNotes,
+  });
+});
+
+app.post('/api/developer-notes/verify-pin', (req, res) => {
+  const clientId = String(req.body?.clientId || req.ip || 'default_client');
+  const pin = String(req.body?.pin || '').trim();
+  const now = Date.now();
+
+  let tracker = devPinTrackers.get(clientId) || { failedAttempts: 0, lockoutUntil: 0 };
+
+  if (tracker.lockoutUntil > now) {
+    const remainingMs = tracker.lockoutUntil - now;
+    return res.status(429).json({
+      success: false,
+      locked: true,
+      remainingMs,
+      attemptsRemaining: 0,
+      error: `PIN locked after 3 failed attempts. Please wait ${Math.ceil(remainingMs / 1000)}s before trying again.`,
+    });
+  }
+
+  // If previous lockout expired, reset failedAttempts
+  if (tracker.lockoutUntil !== 0 && tracker.lockoutUntil <= now) {
+    tracker = { failedAttempts: 0, lockoutUntil: 0 };
+  }
+
+  if (pin === DEVELOPER_EDIT_PIN) {
+    devPinTrackers.set(clientId, { failedAttempts: 0, lockoutUntil: 0 });
+    return res.json({
+      success: true,
+      locked: false,
+      attemptsRemaining: DEV_NOTES_MAX_ATTEMPTS,
+    });
+  }
+
+  tracker.failedAttempts += 1;
+  if (tracker.failedAttempts >= DEV_NOTES_MAX_ATTEMPTS) {
+    tracker.lockoutUntil = now + DEV_NOTES_LOCKOUT_MS;
+    devPinTrackers.set(clientId, tracker);
+    return res.status(429).json({
+      success: false,
+      locked: true,
+      remainingMs: DEV_NOTES_LOCKOUT_MS,
+      attemptsRemaining: 0,
+      error: '3 incorrect attempts used. PIN is locked for 1 minute (60 seconds).',
+    });
+  }
+
+  devPinTrackers.set(clientId, tracker);
+  const attemptsRemaining = DEV_NOTES_MAX_ATTEMPTS - tracker.failedAttempts;
+  return res.status(401).json({
+    success: false,
+    locked: false,
+    attemptsRemaining,
+    error: `Incorrect PIN. ${attemptsRemaining} ${attemptsRemaining === 1 ? 'attempt' : 'attempts'} remaining.`,
+  });
+});
+
+app.post('/api/developer-notes/save', (req, res) => {
+  const pin = String(req.body?.pin || '').trim();
+  if (pin !== DEVELOPER_EDIT_PIN) {
+    return res.status(401).json({
+      success: false,
+      error: 'Unauthorized: Valid developer PIN is required to save Developer Notes.',
+    });
+  }
+  if (req.body?.notes) {
+    globalDeveloperNotes = {
+      ...req.body.notes,
+      updatedAt: Date.now(),
+    };
+  }
+  res.json({
+    success: true,
+    notes: globalDeveloperNotes,
+  });
+});
+
+// Global Bug Reports & Improvement Recommendations Store (Anyone can submit; viewing or managing requires DEVELOPER_EDIT_PIN)
+interface ServerBugReport {
+  id: string;
+  type: 'bug' | 'improvement';
+  title: string;
+  description: string;
+  category: string;
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  reporterName: string;
+  status: 'open' | 'investigating' | 'fixed';
+  developerNote?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+let globalBugReports: ServerBugReport[] = [];
+
+app.post('/api/bug-reports/submit', (req, res) => {
+  const raw = req.body?.report || req.body || {};
+  const entryType: 'bug' | 'improvement' = raw.type === 'improvement' ? 'improvement' : 'bug';
+  const title = String(raw.title || '').trim().slice(0, 180);
+  const description = String(raw.description || '').trim().slice(0, 3000);
+  if (!title || !description) {
+    return res.status(400).json({
+      success: false,
+      error: 'Please provide both a title and description.',
+    });
+  }
+  const validSeverities = ['low', 'medium', 'high', 'critical'];
+  const severity = validSeverities.includes(raw.severity) ? raw.severity : 'medium';
+
+  const newReport: ServerBugReport = {
+    id: String(raw.id || (entryType === 'improvement' ? 'imp_' : 'bug_') + Date.now() + '_' + Math.random().toString(36).substring(2, 7)),
+    type: entryType,
+    title,
+    description,
+    category: String(raw.category || (entryType === 'improvement' ? 'New Game Feature' : 'Gameplay & Physics')).trim().slice(0, 80),
+    severity,
+    reporterName: String(raw.reporterName || 'Anonymous Driver').trim().slice(0, 80) || 'Anonymous Driver',
+    status: 'open',
+    createdAt: Number(raw.createdAt || Date.now()),
+    updatedAt: Date.now(),
+  };
+
+  globalBugReports = [newReport, ...globalBugReports.filter((b) => b.id !== newReport.id)].slice(0, 300);
+
+  res.json({
+    success: true,
+    reportId: newReport.id,
+  });
+});
+
+app.post('/api/bug-reports/list', (req, res) => {
+  const pin = String(req.body?.pin || '').trim();
+  if (pin !== DEVELOPER_EDIT_PIN) {
+    return res.status(401).json({
+      success: false,
+      error: 'Unauthorized: Valid developer PIN is required to view reported bugs.',
+    });
+  }
+  res.json({
+    success: true,
+    reports: globalBugReports,
+  });
+});
+
+app.post('/api/bug-reports/update', (req, res) => {
+  const pin = String(req.body?.pin || '').trim();
+  if (pin !== DEVELOPER_EDIT_PIN) {
+    return res.status(401).json({
+      success: false,
+      error: 'Unauthorized: Valid developer PIN is required to manage bug reports.',
+    });
+  }
+  if (Array.isArray(req.body?.reports)) {
+    globalBugReports = req.body.reports.slice(0, 300);
+  }
+  res.json({
+    success: true,
+    reports: globalBugReports,
+  });
+});
+
 // Helper: Deep Server-Side F1 Telemetry & Reasoning Auditor
 function auditReportAgainstTelemetry(params: {
   title: string;
@@ -679,7 +858,7 @@ function auditReportAgainstTelemetry(params: {
     };
   }
 
-  // 2. Fact-Checking against Ground-Truth Season Telemetry & Full 2026 F1 Grid
+  // 2. Fact-Checking against Ground-Truth Season Telemetry & Full F1 Grid
   let accuracyScore = 82; // Baseline for coherent F1 reporting
   let contradictionsFound = 0;
   let verifiedFactsCount = 0;
@@ -690,6 +869,7 @@ function auditReportAgainstTelemetry(params: {
     'lawson', 'liam', 'antonelli', 'kimi', 'stroll', 'lance', 'hulkenberg', 'nico',
     'bortoleto', 'gabriel', 'albon', 'alex', 'gasly', 'pierre', 'doohan', 'jack',
     'tsunoda', 'yuki', 'hadjar', 'isack', 'bearman', 'ollie', 'oliver', 'ocon', 'esteban',
+    'perez', 'sergio', 'checo', 'herta', 'colton',
     String(playerProfile.driverName || '').toLowerCase(),
   ].filter((t) => t.length >= 3);
 
@@ -724,8 +904,8 @@ function auditReportAgainstTelemetry(params: {
     ].slice(0, 3);
     notes.push(
       names.length > 0
-        ? `AI Bot verified official 2026 paddock subjects: ${names.join(', ')}.`
-        : 'AI Bot verified official 2026 FIA Formula 1 Championship driver/team references.'
+        ? `AI Bot verified official paddock subjects: ${names.join(', ')}.`
+        : 'AI Bot verified official FIA Formula 1 Championship driver/team references.'
     );
   }
 
@@ -845,8 +1025,7 @@ function auditReportAgainstTelemetry(params: {
   // Check if numbers mentioned in the article match actual points, turns, or ratings
   const numbersInText = (fullText.match(/\b\d+\b/g) || []).map((n) => Number(n));
   const validNumbers = new Set<number>([
-    2026, 2027, 2028,
-    1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 16, 17, 18, 19, 20, 22, 24,
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 16, 17, 18, 19, 20, 22, 24, 26,
     Number(ctx.currentRoundNumber || 1),
     Number(upcoming.turns || 0),
     Math.round(Number(upcoming.lengthKm || 0)),
@@ -859,7 +1038,7 @@ function auditReportAgainstTelemetry(params: {
 
   let matchedStats = 0;
   for (const num of numbersInText) {
-    if (num > 22 && num !== 2026 && num !== 2027 && num !== 2028) {
+    if (num > 22) {
       if (validNumbers.has(num)) {
         matchedStats += 1;
       } else if (num > 360 && !params.isViralRumor) {
@@ -1141,7 +1320,7 @@ function auditReportAgainstTelemetry(params: {
   }
 
   if (notes.length === 0) {
-    notes.push('Audited by AI Editor Bot against 2026 FIA World Championship standings and circuit telemetry.');
+    notes.push('Audited by AI Editor Bot against FIA World Championship standings and circuit telemetry.');
   }
 
   return {
@@ -1248,7 +1427,7 @@ function buildServerWriterDraft(params: {
 
   return {
     title: `Championship Audit: ${p1.name.replace(' (Player)', '')} (${p1.points} PTS) Leads Title Fight Heading Into ${upcoming.name}`,
-    content: `As the 2026 FIA Formula 1 World Championship arrives at ${upcoming.name} (${upcoming.lengthKm} km, ${upcoming.turns} turns), ${p1.name.replace(' (Player)', '')} holds P1 in the Drivers' standings with ${p1.points} points ahead of ${p2.name.replace(' (Player)', '')} on ${p2.points} points. Meanwhile, ${c1.name} leads the Constructors' Cup with ${c1.points} points thanks to superior aerodynamic efficiency, consistent podium pace, and sharp pit-wall strategy.`,
+    content: `As the FIA Formula 1 World Championship arrives at ${upcoming.name} (${upcoming.lengthKm} km, ${upcoming.turns} turns), ${p1.name.replace(' (Player)', '')} holds P1 in the Drivers' standings with ${p1.points} points ahead of ${p2.name.replace(' (Player)', '')} on ${p2.points} points. Meanwhile, ${c1.name} leads the Constructors' Cup with ${c1.points} points thanks to superior aerodynamic efficiency, consistent podium pace, and sharp pit-wall strategy.`,
     writerNote: `${writer.name}: "Verified all Round ${ctx.currentRoundNumber || 1} driver and constructor point totals. Feel free to edit or publish!"`,
   };
 }
@@ -1312,7 +1491,7 @@ Strict Grading Rules:
    - "mediocre": Coherent (>=50) but very brief or lacking detail (<52).
    - "inaccurate_flop": Contradicted by impossible stats, or complete gibberish/spam.`;
 
-    const prompt = `GROUND-TRUTH 2026 F1 SEASON TELEMETRY:
+    const prompt = `GROUND-TRUTH F1 SEASON TELEMETRY:
 ${JSON.stringify(seasonContext, null, 2)}
 
 PLAYER SUBMISSION:
@@ -1462,12 +1641,12 @@ Your Journalist Attributes:
 
 How to write your draft based on your skill ratings:
 1. If isViralRumor is true and customRumorClaim is provided, write a juicy, dramatic F1 paddock rumor article centered directly around "${customRumorClaim}".
-2. If your Accuracy Skill (${acc}) is HIGH (>=82): Use 100% accurate contextual facts, real point totals, real race winners, and true circuit characteristics from the provided 2026 F1 Season Telemetry.
+2. If your Accuracy Skill (${acc}) is HIGH (>=82): Use 100% accurate contextual facts, real point totals, real race winners, and true circuit characteristics from the provided F1 Season Telemetry.
 3. If your Accuracy Skill (${acc}) is MEDIUM (65-81): Mostly use real facts from the telemetry, but occasionally be slightly vague so the Editor-in-Chief (the player) can polish it.
 4. If your Accuracy Skill (${acc}) is LOW (<65): Slip in 1 or 2 noticeable factual mistakes or exaggerated tabloid claims (e.g. 999 points, 500 points, 45 corners) that the player should catch and edit before publishing!
 5. Provide a short "writerNote" (1 sentence from the writer to the boss explaining what they focused on or what the boss might want to double-check).`;
 
-    const prompt = `GROUND-TRUTH 2026 F1 SEASON TELEMETRY:
+    const prompt = `GROUND-TRUTH F1 SEASON TELEMETRY:
 ${JSON.stringify(seasonContext, null, 2)}
 
 ASSIGNMENT FOR ${writer.name}:

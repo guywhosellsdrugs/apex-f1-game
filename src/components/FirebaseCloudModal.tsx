@@ -40,6 +40,8 @@ interface FirebaseCloudModalProps {
   onClose: () => void;
   season: SeasonState;
   onLoadSeason: (season: SeasonState) => void;
+  onOpenCareerSlots?: () => void;
+  careerSlotsCount?: number;
 }
 
 export const FirebaseCloudModal: React.FC<FirebaseCloudModalProps> = ({
@@ -47,6 +49,8 @@ export const FirebaseCloudModal: React.FC<FirebaseCloudModalProps> = ({
   onClose,
   season,
   onLoadSeason,
+  onOpenCareerSlots,
+  careerSlotsCount = 1,
 }) => {
   const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(auth.currentUser);
   const [activeTab, setActiveTab] = useState<'account' | 'leaderboards' | 'diagnostics'>('account');
@@ -391,6 +395,26 @@ export const FirebaseCloudModal: React.FC<FirebaseCloudModalProps> = ({
                     <span className="text-sm font-black text-blue-400 uppercase font-mono">{season.difficulty}</span>
                   </div>
                 </div>
+
+                {onOpenCareerSlots && (
+                  <div className="pt-2 border-t border-neutral-800 flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <span className="text-xs font-bold text-white block">
+                        Multiple Careers Under One Account ({careerSlotsCount} Saved)
+                      </span>
+                      <span className="text-[11px] text-neutral-400">
+                        Start a new career or switch between your saved careers anytime without quitting.
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={onOpenCareerSlots}
+                      className="px-4 py-2 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 font-black text-xs uppercase tracking-wider cursor-pointer"
+                    >
+                      Manage Careers ({careerSlotsCount})
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           ) : activeTab === 'leaderboards' ? (
