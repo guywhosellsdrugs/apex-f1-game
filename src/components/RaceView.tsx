@@ -43,6 +43,8 @@ import { soundEngine } from '../services/soundEngine';
 import { BroadcastHUD } from './BroadcastHUD';
 import { ControlsSettingsModal } from './ControlsSettingsModal';
 import { BankHeistMinigame } from './BankHeistMinigame';
+import { LockpickMinigame } from './LockpickMinigame';
+import { MarylandGoogleMapModal } from './MarylandGoogleMapModal';
 import { multiplayerService, RoomPublicState } from '../services/multiplayerService';
 import { recordCircuitLapTime } from '../services/firebase';
 import {
@@ -305,6 +307,21 @@ export const RaceView: React.FC<RaceViewProps> = ({
   const [isApbHudMinimized, setIsApbHudMinimized] = useState<boolean>(false);
   const [isCinematicHudHidden, setIsCinematicHudHidden] = useState<boolean>(false);
   const [showControlsMappingModal, setShowControlsMappingModal] = useState<boolean>(false);
+  const [showGoogleMapsModal, setShowGoogleMapsModal] = useState<boolean>(false);
+
+  const openGoogleMapsModal = () => {
+    setShowGoogleMapsModal(true);
+    isPausedRef.current = true;
+    soundEngine.stopAll();
+  };
+
+  const closeGoogleMapsModal = () => {
+    setShowGoogleMapsModal(false);
+    if (!isPaused) {
+      isPausedRef.current = false;
+      soundEngine.resume();
+    }
+  };
 
   const showPracticeRacingLineRef = useRef<boolean>(isStrictPracticeMode);
   useEffect(() => {
@@ -414,7 +431,10 @@ export const RaceView: React.FC<RaceViewProps> = ({
     renderer.setSize(width, height);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, gfxPreset.maxPixelRatio));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
-    renderer.shadowMap.enabled = false;
+    renderer.shadowMap.enabled = gfxPreset.shadowsEnabled;
+    if (gfxPreset.shadowsEnabled) {
+      renderer.shadowMap.type = gfxPreset.useSoftShadows ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
+    }
     const isHighOrUltra = gfxPreset.id === 'high' || gfxPreset.id === 'ultra';
     const isRetroAny = gfxPreset.id === 'retro' || gfxPreset.id === 'retro_pixel';
     renderer.toneMapping = isHighOrUltra ? THREE.NeutralToneMapping : THREE.NoToneMapping;
@@ -662,7 +682,21 @@ export const RaceView: React.FC<RaceViewProps> = ({
         ? sunIntensity * 0.78
         : sunIntensity;
     const sunLight = new THREE.DirectionalLight(sunColor, calibratedSunIntensity);
-    sunLight.castShadow = false;
+    sunLight.castShadow = gfxPreset.shadowsEnabled;
+    if (gfxPreset.shadowsEnabled) {
+      sunLight.shadow.mapSize.width = gfxPreset.shadowMapSize;
+      sunLight.shadow.mapSize.height = gfxPreset.shadowMapSize;
+      const shadowRange = isCityDrivingMode ? 95 : 85;
+      sunLight.shadow.camera.left = -shadowRange;
+      sunLight.shadow.camera.right = shadowRange;
+      sunLight.shadow.camera.top = shadowRange;
+      sunLight.shadow.camera.bottom = -shadowRange;
+      sunLight.shadow.camera.near = 2;
+      sunLight.shadow.camera.far = 260;
+      sunLight.shadow.bias = -0.00045;
+      sunLight.shadow.normalBias = 0.03;
+      sunLight.shadow.radius = 2.2;
+    }
     scene.add(sunLight);
     scene.add(sunLight.target);
 
@@ -709,6 +743,7 @@ export const RaceView: React.FC<RaceViewProps> = ({
     let motionBlurPass: ShaderPass | null = null;
     let planarReflectionRT: THREE.WebGLRenderTarget | null = null;
     let reflectionCamera: THREE.PerspectiveCamera | null = null;
+    let currentRoadWetness = 0.0;
 
     if (gfxPreset.id === 'ultra' || gfxPreset.id === 'high') {
       const reflScale = gfxPreset.id === 'ultra' ? 0.85 : 0.5;
@@ -722,7 +757,8 @@ export const RaceView: React.FC<RaceViewProps> = ({
         }
       );
       reflectionCamera = new THREE.PerspectiveCamera(camera.fov, width / height, 0.1, 2200);
-      track.setReflectionTexture(planarReflectionRT.texture, gfxPreset.id === 'ultra' ? 0.20 : 0.12);
+      track.setReflectionTexture(planarReflectionRT.texture, gfxPreset.id === 'ultra' ? 0.22 : 0.12);
+      track.setRoadWetness?.(0.0);
     }
     const reflectionBgColor = new THREE.Color(0x020308);
 
@@ -807,6 +843,16 @@ export const RaceView: React.FC<RaceViewProps> = ({
     }
     if (isCityDrivingMode) {
       soundEngine.setStreetCarEngineProfile(physics.cityPursuitStats.currentStreetCar.id);
+      try {
+        const pendingRaw = localStorage.getItem('apex26_pending_md_gps');
+        if (pendingRaw) {
+          localStorage.removeItem('apex26_pending_md_gps');
+          const pending = JSON.parse(pendingRaw) as { x?: number; z?: number; label?: string };
+          if (typeof pending.x === 'number' && typeof pending.z === 'number' && pending.label) {
+            physics.setCityGpsTarget(pending.x, pending.z, pending.label, '#38bdf8');
+          }
+        }
+      } catch {}
     }
     physicsRef.current = physics;
 
@@ -1325,21 +1371,49 @@ export const RaceView: React.FC<RaceViewProps> = ({
           physics.currentWeather,
           gfxPreset.id === 'ultra'
         );
+        const cond = physics.currentWeather.condition;
+        const targetWetness =
+          cond === 'heavy_rain' || cond === 'thunderstorm'
+            ? 0.95
+            : cond === 'rain'
+            ? 0.80
+            : cond === 'drizzle'
+            ? 0.55
+            : cond === 'snow' || cond === 'heavy_snow'
+            ? 0.30
+            : cond === 'fog'
+            ? 0.14
+            : 0.0;
+        currentRoadWetness += (targetWetness - currentRoadWetness) * Math.min(1, rawDelta * 0.8);
+        track.setRoadWetness?.(currentRoadWetness);
+        if (planarReflectionRT) {
+          const baseDry = gfxPreset.id === 'ultra' ? 0.22 : 0.14;
+          const wetBoost = gfxPreset.id === 'ultra' ? 0.92 : 0.58;
+          track.setReflectionTexture(
+            planarReflectionRT.texture,
+            THREE.MathUtils.lerp(baseDry, wetBoost, currentRoadWetness)
+          );
+        }
         const sprayState = physics.getTireSprayState();
         tireSpraySys?.update(carPos, heading, speed, sprayState, rawDelta);
         weatherAtmosphereSys?.update(carPos, physics.currentWeather, rawDelta);
         skyCelestialSys?.update(carPos, physics.currentWeather, rawDelta);
       }
 
+      const shadowWorldSpan = (isCityDrivingMode ? 95 : 85) * 2;
+      const texelSize = shadowWorldSpan / Math.max(256, gfxPreset.shadowMapSize);
+      const snapX = gfxPreset.shadowsEnabled ? Math.round(carPos.x / texelSize) * texelSize : carPos.x;
+      const snapZ = gfxPreset.shadowsEnabled ? Math.round(carPos.z / texelSize) * texelSize : carPos.z;
+      sunLight.target.position.set(snapX, carPos.y, snapZ);
+      sunLight.target.updateMatrixWorld();
+
       if (isCityDrivingMode && skyCelestialSys) {
         const sDir = skyCelestialSys.sunDirection;
         const sunElevY = Math.max(18, sDir.y * 95);
-        sunLight.position.set(carPos.x + sDir.x * 85, carPos.y + sunElevY, carPos.z + sDir.z * 85);
+        sunLight.position.set(snapX + sDir.x * 85, carPos.y + sunElevY, snapZ + sDir.z * 85);
       } else {
-        sunLight.position.set(carPos.x + 42, carPos.y + 76, carPos.z + 32);
+        sunLight.position.set(snapX + 42, carPos.y + 76, snapZ + 32);
       }
-      sunLight.target.position.copy(carPos);
-      sunLight.target.updateMatrixWorld();
 
       if (rimLight) {
         rimLight.position.set(carPos.x - 40, carPos.y + 38, carPos.z - 42);
@@ -1482,9 +1556,11 @@ export const RaceView: React.FC<RaceViewProps> = ({
         const prevBg = scene.background;
         const prevFog = scene.fog;
         const prevSkyVis = skyDomeMesh ? skyDomeMesh.visible : false;
-        scene.background = reflectionBgColor;
-        scene.fog = null;
-        if (skyDomeMesh) skyDomeMesh.visible = false;
+        if (!isCityDrivingMode) {
+          scene.background = reflectionBgColor;
+          scene.fog = null;
+          if (skyDomeMesh) skyDomeMesh.visible = false;
+        }
 
         const prevRenderTarget = renderer.getRenderTarget();
         renderer.setRenderTarget(planarReflectionRT);
@@ -1693,6 +1769,15 @@ export const RaceView: React.FC<RaceViewProps> = ({
         return;
       }
 
+      if (physicsRef.current?.cityPursuitStats.activeLockpickTarget) {
+        if (e.key === 'Escape' || e.code === 'Escape') {
+          e.preventDefault();
+          physicsRef.current.abortHouseLockpick();
+          setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
+        }
+        return;
+      }
+
       if (e.key === 'Escape' || e.code === 'Escape') {
         e.preventDefault();
         togglePause();
@@ -1888,6 +1973,13 @@ export const RaceView: React.FC<RaceViewProps> = ({
       window.removeEventListener('resize', handleResize);
       window.removeEventListener('keydown', handleKeyDown);
       soundEngine.stopAll();
+      track.dispose?.();
+      if (skyDomeMesh) {
+        skyDomeMesh.geometry.dispose();
+        const sMat = skyDomeMesh.material as THREE.MeshBasicMaterial;
+        sMat.map?.dispose();
+        sMat.dispose();
+      }
       tireSpraySys?.dispose();
       weatherAtmosphereSys?.dispose();
       skyCelestialSys?.dispose();
@@ -2378,7 +2470,11 @@ export const RaceView: React.FC<RaceViewProps> = ({
                   <div className="flex items-center gap-1.5">
                     <span className="px-2 py-0.5 rounded bg-emerald-400 text-black font-black text-[10px] uppercase">
                       {cityPursuitStats.nearbyHousePrompt.icon}{' '}
-                      {cityPursuitStats.nearbyHousePrompt.isOwned ? 'OWNED PROPERTY' : 'FOR SALE / ROBBABLE'}
+                      {cityPursuitStats.nearbyHousePrompt.isOwned
+                        ? 'OWNED PROPERTY'
+                        : cityPursuitStats.nearbyHousePrompt.price > 0
+                        ? 'FOR SALE / ROBBABLE'
+                        : 'RESIDENCE / ROBBABLE'}
                     </span>
                     <span className="text-xs font-black text-white truncate">
                       {cityPursuitStats.nearbyHousePrompt.name}
@@ -2389,7 +2485,7 @@ export const RaceView: React.FC<RaceViewProps> = ({
                       <>
                         Generating <strong className="text-emerald-400">+${Math.round(cityPursuitStats.nearbyHousePrompt.passiveIncomePerMin / 2).toLocaleString()} / 30s</strong> passive income!
                       </>
-                    ) : (
+                    ) : cityPursuitStats.nearbyHousePrompt.price > 0 ? (
                       <>
                         Buy <strong className="text-amber-300">${cityPursuitStats.nearbyHousePrompt.price.toLocaleString()}</strong> · Rent{' '}
                         <strong className="text-emerald-400">
@@ -2397,8 +2493,26 @@ export const RaceView: React.FC<RaceViewProps> = ({
                         </strong>
                         {!cityPursuitStats.isPoliceOnDuty && (
                           <>
-                            {' '}· Or <strong className="text-rose-400">[R] Rob +${(cityPursuitStats.nearbyHousePrompt.robPayoutCash / 1000).toFixed(1)}k</strong>
+                            {' '}· Or{' '}
+                            <strong className="text-rose-400">
+                              {cityPursuitStats.nearbyHousePrompt.hideRobPayout
+                                ? '[R] Rob (Loot: ???)'
+                                : `[R] Rob +$${(cityPursuitStats.nearbyHousePrompt.robPayoutCash / 1000).toFixed(1)}k`}
+                            </strong>
                           </>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        Suburban Residence ·{' '}
+                        {!cityPursuitStats.isPoliceOnDuty ? (
+                          <strong className="text-rose-400">
+                            {cityPursuitStats.nearbyHousePrompt.hideRobPayout
+                              ? '[R] Rob (Cash Unknown Until Inside)'
+                              : `[R] Rob +$${(cityPursuitStats.nearbyHousePrompt.robPayoutCash / 1000).toFixed(1)}k`}
+                          </strong>
+                        ) : (
+                          <span className="text-zinc-400">On Patrol</span>
                         )}
                       </>
                     )}
@@ -2426,26 +2540,30 @@ export const RaceView: React.FC<RaceViewProps> = ({
                     >
                       {cityPursuitStats.nearbyHousePrompt.robCooldownLeftSec > 0
                         ? `🔒 ${cityPursuitStats.nearbyHousePrompt.robCooldownLeftSec}s`
+                        : cityPursuitStats.nearbyHousePrompt.hideRobPayout
+                        ? '🏠 [R] Rob House (???)'
                         : `🏠 [R] Rob ($${(cityPursuitStats.nearbyHousePrompt.robPayoutCash / 1000).toFixed(1)}k)`}
                     </button>
                   )}
 
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (cityPursuitStats.nearbyHousePrompt) {
-                        physicsRef.current?.buyOrSelectCityHouse(cityPursuitStats.nearbyHousePrompt.houseId);
-                        if (physicsRef.current) {
-                          setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
+                  {(cityPursuitStats.nearbyHousePrompt.isOwned || cityPursuitStats.nearbyHousePrompt.price > 0) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (cityPursuitStats.nearbyHousePrompt) {
+                          physicsRef.current?.buyOrSelectCityHouse(cityPursuitStats.nearbyHousePrompt.houseId);
+                          if (physicsRef.current) {
+                            setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
+                          }
                         }
-                      }
-                    }}
-                    className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-emerald-400 to-teal-400 hover:from-emerald-300 hover:to-teal-300 text-black font-black text-xs uppercase tracking-wider shadow-lg cursor-pointer shrink-0"
-                  >
-                    {cityPursuitStats.nearbyHousePrompt.isOwned
-                      ? '🏡 Set Home'
-                      : `Buy ($${(cityPursuitStats.nearbyHousePrompt.price / 1000).toFixed(1)}k)`}
-                  </button>
+                      }}
+                      className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-emerald-400 to-teal-400 hover:from-emerald-300 hover:to-teal-300 text-black font-black text-xs uppercase tracking-wider shadow-lg cursor-pointer shrink-0"
+                    >
+                      {cityPursuitStats.nearbyHousePrompt.isOwned
+                        ? '🏡 Set Home'
+                        : `Buy ($${(cityPursuitStats.nearbyHousePrompt.price / 1000).toFixed(1)}k)`}
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -3279,6 +3397,17 @@ export const RaceView: React.FC<RaceViewProps> = ({
                 </span>
               </button>
 
+              {/* GOOGLE MAPS NAVIGATOR BUTTON */}
+              <button
+                type="button"
+                onClick={openGoogleMapsModal}
+                className="py-1.5 px-2.5 rounded-xl bg-sky-600/90 hover:bg-sky-500 text-white border border-sky-300/40 font-black text-[9px] uppercase cursor-pointer shadow-md flex items-center gap-1"
+                title="Open interactive Google Maps Navigator with live traffic & route search"
+              >
+                <span>🗺️</span>
+                <span>Maps</span>
+              </button>
+
               {/* CONTROLS & KEYBINDS BUTTON */}
               <button
                 type="button"
@@ -3332,6 +3461,14 @@ export const RaceView: React.FC<RaceViewProps> = ({
                 </div>
 
                 <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    type="button"
+                    onClick={openGoogleMapsModal}
+                    className="px-1.5 py-1 rounded-lg bg-sky-600/85 hover:bg-sky-500 text-white border border-sky-300/40 text-[9px] font-black cursor-pointer transition-colors"
+                    title="Open interactive Google Maps overlay"
+                  >
+                    🗺️ Maps
+                  </button>
                   <button
                     type="button"
                     onClick={() =>
@@ -5446,6 +5583,69 @@ export const RaceView: React.FC<RaceViewProps> = ({
           onAbort={() => {
             if (physicsRef.current) {
               physicsRef.current.abortBankHeistMinigame();
+              setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
+            }
+          }}
+        />
+      )}
+
+      {isCityDrivingMode && cityPursuitStats?.activeLockpickTarget && (
+        <LockpickMinigame
+          target={cityPursuitStats.activeLockpickTarget}
+          onUnlocked={() => {
+            const houseId = cityPursuitStats.activeLockpickTarget?.houseId;
+            if (houseId && physicsRef.current) {
+              physicsRef.current.completeHouseLockpick(houseId);
+              setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
+            }
+          }}
+          onTriggerAlarm={() => {
+            const houseId = cityPursuitStats.activeLockpickTarget?.houseId;
+            if (houseId && physicsRef.current) {
+              physicsRef.current.triggerHouseSecurityAlarm(houseId);
+              setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
+            }
+          }}
+          onAbort={() => {
+            if (physicsRef.current) {
+              physicsRef.current.abortHouseLockpick();
+              setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
+            }
+          }}
+        />
+      )}
+
+      {isCityDrivingMode && showGoogleMapsModal && (
+        <MarylandGoogleMapModal
+          isOpen={showGoogleMapsModal}
+          onClose={closeGoogleMapsModal}
+          playerWorldPos={
+            cityPursuitStats?.minimapData
+              ? {
+                  x: cityPursuitStats.minimapData.playerX,
+                  z: cityPursuitStats.minimapData.playerZ,
+                  heading: cityPursuitStats.minimapData.playerHeading,
+                }
+              : null
+          }
+          activeGpsLabel={cityPursuitStats?.minimapData?.gpsTarget?.label || null}
+          activeGpsCoords={
+            cityPursuitStats?.minimapData?.gpsTarget
+              ? {
+                  x: cityPursuitStats.minimapData.gpsTarget.x,
+                  z: cityPursuitStats.minimapData.gpsTarget.z,
+                }
+              : null
+          }
+          onSetInGameGpsTarget={(worldX, worldZ, label, color) => {
+            physicsRef.current?.setCityGpsTarget(worldX, worldZ, label, color || '#38bdf8');
+            if (physicsRef.current) {
+              setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
+            }
+          }}
+          onClearInGameGpsTarget={() => {
+            physicsRef.current?.clearCityGpsTarget();
+            if (physicsRef.current) {
               setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
             }
           }}

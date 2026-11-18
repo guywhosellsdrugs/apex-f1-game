@@ -7,6 +7,7 @@ export interface BankMinigameTargetInfo {
   payoutCash: number;
   streetLocation: string;
   icon: string;
+  hidePayoutUntilStolen?: boolean;
 }
 
 interface BankHeistMinigameProps {
@@ -267,6 +268,7 @@ export const BankHeistMinigame: React.FC<BankHeistMinigameProps> = ({
     vaultUnlocked: boolean;
     phase: 'playing' | 'knockout' | 'capture' | 'won';
     bannerText: string;
+    regenActive: boolean;
   }>({
     hp: 100,
     maxHp: 100,
@@ -275,6 +277,7 @@ export const BankHeistMinigame: React.FC<BankHeistMinigameProps> = ({
     vaultUnlocked: false,
     phase: 'playing',
     bannerText: `DESTROY ALL ${initialBotCount} SECURITY BOTS TO UNLOCK THE VAULT`,
+    regenActive: false,
   });
 
   useEffect(() => {
@@ -312,6 +315,7 @@ export const BankHeistMinigame: React.FC<BankHeistMinigameProps> = ({
       aimAngle: -Math.PI / 2,
       fireTimer: 0,
       hurtFlash: 0,
+      timeSinceHit: 99,
       walkCycle: 0,
       speed: 215,
     };
@@ -429,6 +433,7 @@ export const BankHeistMinigame: React.FC<BankHeistMinigameProps> = ({
           : vaultUnlocked
           ? '🔓 ALL SECURITY BOTS DESTROYED — ENTER THE TOP VAULT TO STEAL THE LOOT!'
           : `🤖 DESTROY ALL ${aliveCount} REMAINING SECURITY BOTS TO UNLOCK THE VAULT`;
+      const regenActive = phase === 'playing' && player.timeSinceHit >= 2.2 && player.hp < player.maxHp;
       setHudState({
         hp: Math.max(0, Math.ceil(player.hp)),
         maxHp: player.maxHp,
@@ -437,6 +442,7 @@ export const BankHeistMinigame: React.FC<BankHeistMinigameProps> = ({
         vaultUnlocked,
         phase,
         bannerText: bannerOverride || defaultBanner,
+        regenActive,
       });
     };
 
@@ -636,6 +642,12 @@ export const BankHeistMinigame: React.FC<BankHeistMinigameProps> = ({
       if (screenShake > 0) screenShake = Math.max(0, screenShake - dt * 18);
       if (lockedBounceFlash > 0) lockedBounceFlash = Math.max(0, lockedBounceFlash - dt);
       if (player.hurtFlash > 0) player.hurtFlash = Math.max(0, player.hurtFlash - dt);
+      if (phase === 'playing') {
+        player.timeSinceHit += dt;
+        if (player.timeSinceHit >= 2.2 && player.hp < player.maxHp) {
+          player.hp = Math.min(player.maxHp, player.hp + 11 * dt);
+        }
+      }
 
       // 1. Update Simulation
       if (phase === 'playing') {
@@ -839,6 +851,7 @@ export const BankHeistMinigame: React.FC<BankHeistMinigameProps> = ({
             if (Math.hypot(b.x - player.x, b.y - player.y) <= PLAYER_RADIUS + 3) {
               player.hp = Math.max(0, player.hp - 20);
               player.hurtFlash = 0.16;
+              player.timeSinceHit = 0;
               screenShake = Math.max(screenShake, 7);
               remove = true;
               spawnSparks(b.x, b.y, '#ef4444', 9, 135);
@@ -1216,7 +1229,10 @@ export const BankHeistMinigame: React.FC<BankHeistMinigameProps> = ({
             <div className="min-w-0">
               <div className="text-sm font-black text-white truncate">{target.name}</div>
               <div className="text-[10px] text-zinc-400 truncate">
-                {target.streetLocation} · Loot: +${target.payoutCash.toLocaleString()}
+                {target.streetLocation} ·{' '}
+                {target.hidePayoutUntilStolen && hudState.phase !== 'won'
+                  ? 'Loot Inside: ??? (Steal Vault/Safe to Reveal)'
+                  : `Loot: +$${target.payoutCash.toLocaleString()}`}
               </div>
             </div>
           </div>
@@ -1234,6 +1250,9 @@ export const BankHeistMinigame: React.FC<BankHeistMinigameProps> = ({
                 />
               </div>
               <span className="text-[10px] font-black text-white tabular-nums">{hudState.hp}%</span>
+              {hudState.regenActive && (
+                <span className="text-[9px] font-black text-emerald-400 animate-pulse">+REGEN</span>
+              )}
             </div>
 
             {/* Security Bots Counter */}

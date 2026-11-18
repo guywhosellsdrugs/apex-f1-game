@@ -112,7 +112,9 @@ export const GAITHERSBURG_ARTERY_ROADS: MarylandRoadSpec[] = [
     speedLimitMph: 40,
     region: 'gaithersburg',
     points: [
-      { x: gx(512), z: gz(1386) },
+      { x: gx(492), z: gz(1030) },
+      { x: gx(492), z: gz(1250) },
+      { x: gx(492), z: gz(1388) },
       { x: gx(480), z: gz(1480) },
       { x: gx(446), z: gz(1580) },
       { x: gx(416), z: gz(1665) },
@@ -316,16 +318,73 @@ export const GAITHERSBURG_ARTERY_ROADS: MarylandRoadSpec[] = [
 
 export const GAITHERSBURG_NEIGHBORHOOD_ROADS: MarylandRoadSpec[] = [
   {
-    id: 'emory_church_rd',
-    name: 'EMORY CHURCH RD (EMORY GROVE)',
-    width: 12.5,
+    id: 'emory_woods_ct',
+    name: 'EMORY WOODS CT (EMORY GROVE)',
+    width: 12.0,
     speedLimitMph: 25,
     isResidential: true,
+    culDeSacEndRadius: 8.5,
     region: 'gaithersburg',
     points: [
       { x: gx(356), z: gz(1845) },
       { x: gx(255), z: gz(1868) },
       { x: gx(160), z: gz(1900) },
+    ],
+  },
+  {
+    id: 'emory_grove_north',
+    name: 'EMORY GROVE RD (EMORY GROVE)',
+    width: 10.5,
+    speedLimitMph: 25,
+    isResidential: true,
+    region: 'gaithersburg',
+    points: [
+      { x: gx(215), z: gz(1816) },
+      { x: gx(310), z: gz(1816) },
+    ],
+  },
+  {
+    id: 'whetstone_way',
+    name: 'WHETSTONE DR (MONTGOMERY VILLAGE)',
+    width: 11.0,
+    speedLimitMph: 25,
+    isResidential: true,
+    region: 'gaithersburg',
+    points: [
+      { x: gx(-190), z: gz(1560) },
+      { x: gx(-48), z: gz(1560) },
+    ],
+  },
+  {
+    id: 'flower_hill_way',
+    name: 'FLOWER HILL WAY (GAITHERSBURG)',
+    width: 11.0,
+    speedLimitMph: 25,
+    isResidential: true,
+    region: 'gaithersburg',
+    points: [
+      { x: gx(245), z: gz(2275) },
+      { x: gx(395), z: gz(2275) },
+    ],
+  },
+
+  // --- EDINBURGH VILLAGE (Authentic Multi-Street 100-Home Community: Real Streets Only) ---
+  {
+    id: 'kildonan_dr',
+    name: 'KILDONAN DR (EDINBURGH VILLAGE)',
+    width: 11.5,
+    speedLimitMph: 25,
+    isResidential: true,
+    region: 'gaithersburg',
+    points: [
+      { x: gx(468), z: gz(1652) },
+      { x: gx(468), z: gz(1602) },
+      { x: gx(580), z: gz(1602) },
+      { x: gx(740), z: gz(1602) },
+      { x: gx(740), z: gz(1652) },
+      { x: gx(740), z: gz(1702) },
+      { x: gx(740), z: gz(1748) },
+      { x: gx(740), z: gz(1795) },
     ],
   },
   {
@@ -337,40 +396,77 @@ export const GAITHERSBURG_NEIGHBORHOOD_ROADS: MarylandRoadSpec[] = [
     region: 'gaithersburg',
     points: [
       { x: gx(416), z: gz(1665) },
-      { x: gx(458), z: gz(1666) },
-      { x: gx(494), z: gz(1668) },
-      { x: gx(526), z: gz(1664) },
-    ],
-  },
-  {
-    id: 'kildonan_dr',
-    name: 'KILDONAN DR (EDINBURGH VILLAGE)',
-    width: 11.5,
-    speedLimitMph: 25,
-    isResidential: true,
-    region: 'gaithersburg',
-    points: [
-      { x: gx(458), z: gz(1666) },
-      { x: gx(454), z: gz(1636) },
-      { x: gx(470), z: gz(1618) },
-      { x: gx(494), z: gz(1616) },
-      { x: gx(520), z: gz(1626) },
-      { x: gx(526), z: gz(1664) },
+      { x: gx(468), z: gz(1652) },
+      { x: gx(580), z: gz(1652) },
+      { x: gx(740), z: gz(1652) },
     ],
   },
   {
     id: 'tarfside_ln',
     name: 'TARFSIDE LN (EDINBURGH VILLAGE)',
-    width: 11.0,
+    width: 10.5,
     speedLimitMph: 25,
     isResidential: true,
-    culDeSacEndRadius: 8.0,
+    culDeSacEndRadius: 8.5,
     region: 'gaithersburg',
     points: [
-      { x: gx(494), z: gz(1668) },
-      { x: gx(494), z: gz(1692) },
+      { x: gx(512), z: gz(1652) },
+      { x: gx(512), z: gz(1688) },
     ],
   },
+  {
+    id: 'kilcreggan_way',
+    name: 'KILCREGGAN WAY (EDINBURGH VILLAGE)',
+    width: 11.5,
+    speedLimitMph: 25,
+    isResidential: true,
+    region: 'gaithersburg',
+    points: [
+      { x: gx(580), z: gz(1602) },
+      { x: gx(580), z: gz(1652) },
+      { x: gx(580), z: gz(1702) },
+      { x: gx(580), z: gz(1748) },
+      { x: gx(580), z: gz(1795) },
+    ],
+  },
+  {
+    id: 'kilcreggan_way_loop',
+    name: 'KILCREGGAN WAY (EDINBURGH VILLAGE)',
+    width: 10.5,
+    speedLimitMph: 25,
+    isResidential: true,
+    region: 'gaithersburg',
+    points: [
+      { x: gx(580), z: gz(1702) },
+      { x: gx(740), z: gz(1702) },
+    ],
+  },
+  {
+    id: 'kilcreggan_ter',
+    name: 'KILCREGGAN TER (EDINBURGH VILLAGE)',
+    width: 10.5,
+    speedLimitMph: 25,
+    isResidential: true,
+    region: 'gaithersburg',
+    points: [
+      { x: gx(580), z: gz(1748) },
+      { x: gx(740), z: gz(1748) },
+    ],
+  },
+  {
+    id: 'kilcreggan_ter_south',
+    name: 'KILCREGGAN TER (EDINBURGH VILLAGE)',
+    width: 10.5,
+    speedLimitMph: 25,
+    isResidential: true,
+    region: 'gaithersburg',
+    points: [
+      { x: gx(580), z: gz(1795) },
+      { x: gx(740), z: gz(1795) },
+    ],
+  },
+
+  // --- HADLEY FARMS (Massive 300-Home Master Community: Real Streets Only) ---
   {
     id: 'hadley_farms_dr',
     name: 'HADLEY FARMS DR',
@@ -380,105 +476,203 @@ export const GAITHERSBURG_NEIGHBORHOOD_ROADS: MarylandRoadSpec[] = [
     region: 'gaithersburg',
     points: [
       { x: gx(446), z: gz(1580) },
-      { x: gx(504), z: gz(1528) },
-      { x: gx(564), z: gz(1480) },
-      { x: gx(636), z: gz(1470) },
-      { x: gx(682), z: gz(1516) },
-      { x: gx(686), z: gz(1588) },
-      { x: gx(668), z: gz(1656) },
-      { x: gx(598), z: gz(1676) },
+      { x: gx(492), z: gz(1524) },
+      { x: gx(600), z: gz(1524) },
+      { x: gx(702), z: gz(1524) },
     ],
   },
   {
-    id: 'pompano_ter',
-    name: 'POMPANO TER (HADLEY FARMS)',
-    width: 10.5,
+    id: 'hadley_east_m_coll',
+    name: 'TYGART CT (HADLEY FARMS)',
+    width: 11.0,
     speedLimitMph: 25,
     isResidential: true,
-    culDeSacEndRadius: 8.4,
     region: 'gaithersburg',
     points: [
-      { x: gx(526), z: gz(1510) },
-      { x: gx(540), z: gz(1442) },
+      { x: gx(600), z: gz(1066) },
+      { x: gx(600), z: gz(1250) },
+      { x: gx(600), z: gz(1524) },
     ],
   },
   {
-    id: 'filbert_ter',
+    id: 'hadley_east_e_coll',
+    name: 'HADLEY FARMS CT (HADLEY FARMS)',
+    width: 11.0,
+    speedLimitMph: 25,
+    isResidential: true,
+    region: 'gaithersburg',
+    points: [
+      { x: gx(702), z: gz(1066) },
+      { x: gx(702), z: gz(1250) },
+      { x: gx(702), z: gz(1524) },
+    ],
+  },
+  {
+    id: 'hadley_east_far_coll',
     name: 'FILBERT TER (HADLEY FARMS)',
     width: 10.5,
     speedLimitMph: 25,
     isResidential: true,
-    culDeSacEndRadius: 8.4,
     region: 'gaithersburg',
     points: [
-      { x: gx(584), z: gz(1476) },
-      { x: gx(584), z: gz(1412) },
+      { x: gx(792), z: gz(1066) },
+      { x: gx(792), z: gz(1250) },
     ],
   },
+  // 10 Parallel E-W Streets of Hadley Farms East (46m exact spacing)
   {
-    id: 'cinnabar_ter',
-    name: 'CINNABAR TER (HADLEY FARMS)',
+    id: 'hadley_e_1066',
+    name: 'CLIFF PINE DR (HADLEY FARMS)',
     width: 10.5,
     speedLimitMph: 25,
     isResidential: true,
-    culDeSacEndRadius: 8.4,
     region: 'gaithersburg',
-    points: [
-      { x: gx(636), z: gz(1470) },
-      { x: gx(636), z: gz(1412) },
-    ],
+    points: [{ x: gx(492), z: gz(1066) }, { x: gx(600), z: gz(1066) }, { x: gx(702), z: gz(1066) }, { x: gx(792), z: gz(1066) }],
   },
   {
-    id: 'barcellona_dr',
+    id: 'hadley_e_1112',
     name: 'BARCELLONA DR (HADLEY FARMS)',
     width: 10.5,
     speedLimitMph: 25,
     isResidential: true,
-    culDeSacEndRadius: 8.4,
     region: 'gaithersburg',
-    points: [
-      { x: gx(636), z: gz(1470) },
-      { x: gx(676), z: gz(1442) },
-    ],
+    points: [{ x: gx(492), z: gz(1112) }, { x: gx(600), z: gz(1112) }, { x: gx(702), z: gz(1112) }, { x: gx(792), z: gz(1112) }],
   },
   {
-    id: 'plum_orchard_ct',
-    name: 'PLUM ORCHARD CT (HADLEY FARMS)',
-    width: 10.2,
+    id: 'hadley_e_1158',
+    name: 'TORRAN ROCKS WAY (HADLEY FARMS)',
+    width: 10.5,
     speedLimitMph: 25,
     isResidential: true,
-    culDeSacEndRadius: 8.2,
     region: 'gaithersburg',
-    points: [
-      { x: gx(686), z: gz(1588) },
-      { x: gx(648), z: gz(1588) },
-    ],
+    points: [{ x: gx(492), z: gz(1158) }, { x: gx(600), z: gz(1158) }, { x: gx(702), z: gz(1158) }, { x: gx(792), z: gz(1158) }],
   },
   {
-    id: 'elioak_ter',
+    id: 'hadley_e_1204',
+    name: 'CINNABAR TER (HADLEY FARMS)',
+    width: 10.5,
+    speedLimitMph: 25,
+    isResidential: true,
+    region: 'gaithersburg',
+    points: [{ x: gx(492), z: gz(1204) }, { x: gx(600), z: gz(1204) }, { x: gx(702), z: gz(1204) }, { x: gx(792), z: gz(1204) }],
+  },
+  {
+    id: 'hadley_e_1250',
     name: 'ELIOAK TER (HADLEY FARMS)',
     width: 10.5,
     speedLimitMph: 25,
     isResidential: true,
-    culDeSacEndRadius: 8.4,
     region: 'gaithersburg',
-    points: [
-      { x: gx(668), z: gz(1656) },
-      { x: gx(622), z: gz(1640) },
-    ],
+    points: [{ x: gx(492), z: gz(1250) }, { x: gx(600), z: gz(1250) }, { x: gx(702), z: gz(1250) }, { x: gx(792), z: gz(1250) }],
   },
   {
-    id: 'bitterroot_ct',
-    name: 'BITTERROOT CT (HADLEY FARMS)',
-    width: 10.2,
+    id: 'hadley_e_1296',
+    name: 'FILBERT TER (HADLEY FARMS)',
+    width: 10.5,
     speedLimitMph: 25,
     isResidential: true,
-    culDeSacEndRadius: 8.2,
     region: 'gaithersburg',
-    points: [
-      { x: gx(598), z: gz(1676) },
-      { x: gx(574), z: gz(1640) },
-    ],
+    points: [{ x: gx(492), z: gz(1296) }, { x: gx(600), z: gz(1296) }, { x: gx(702), z: gz(1296) }],
+  },
+  {
+    id: 'hadley_e_1342',
+    name: 'ELECTRA CT (HADLEY FARMS)',
+    width: 10.5,
+    speedLimitMph: 25,
+    isResidential: true,
+    region: 'gaithersburg',
+    points: [{ x: gx(492), z: gz(1342) }, { x: gx(600), z: gz(1342) }, { x: gx(702), z: gz(1342) }],
+  },
+  {
+    id: 'hadley_e_1388',
+    name: 'HARKNESS CT (HADLEY FARMS)',
+    width: 10.5,
+    speedLimitMph: 25,
+    isResidential: true,
+    region: 'gaithersburg',
+    points: [{ x: gx(492), z: gz(1388) }, { x: gx(600), z: gz(1388) }, { x: gx(702), z: gz(1388) }],
+  },
+  {
+    id: 'hadley_e_1434',
+    name: 'MAYHILL CT (HADLEY FARMS)',
+    width: 10.5,
+    speedLimitMph: 25,
+    isResidential: true,
+    region: 'gaithersburg',
+    points: [{ x: gx(486), z: gz(1434) }, { x: gx(600), z: gz(1434) }, { x: gx(702), z: gz(1434) }],
+  },
+  {
+    id: 'hadley_e_1480',
+    name: 'CINNABAR DR (HADLEY FARMS)',
+    width: 10.5,
+    speedLimitMph: 25,
+    isResidential: true,
+    region: 'gaithersburg',
+    points: [{ x: gx(480), z: gz(1480) }, { x: gx(600), z: gz(1480) }, { x: gx(702), z: gz(1480) }],
+  },
+  // Hadley Farms West Streets (266..480)
+  {
+    id: 'hadley_west_w_coll',
+    name: 'ELECTRA DR (HADLEY FARMS WEST)',
+    width: 10.5,
+    speedLimitMph: 25,
+    isResidential: true,
+    region: 'gaithersburg',
+    points: [{ x: gx(266), z: gz(1250) }, { x: gx(266), z: gz(1434) }],
+  },
+  {
+    id: 'hadley_west_m_coll',
+    name: 'MIDAS CT (HADLEY FARMS WEST)',
+    width: 10.5,
+    speedLimitMph: 25,
+    isResidential: true,
+    region: 'gaithersburg',
+    points: [{ x: gx(372), z: gz(1250) }, { x: gx(372), z: gz(1434) }],
+  },
+  {
+    id: 'hadley_w_1250',
+    name: 'FILBERT DR (HADLEY FARMS WEST)',
+    width: 10.5,
+    speedLimitMph: 25,
+    isResidential: true,
+    region: 'gaithersburg',
+    points: [{ x: gx(266), z: gz(1250) }, { x: gx(372), z: gz(1250) }, { x: gx(492), z: gz(1250) }],
+  },
+  {
+    id: 'hadley_w_1296',
+    name: 'BOXBERRY DR (HADLEY FARMS WEST)',
+    width: 10.5,
+    speedLimitMph: 25,
+    isResidential: true,
+    region: 'gaithersburg',
+    points: [{ x: gx(266), z: gz(1296) }, { x: gx(372), z: gz(1296) }, { x: gx(492), z: gz(1296) }],
+  },
+  {
+    id: 'hadley_w_1342',
+    name: 'MAYHILL TER (HADLEY FARMS WEST)',
+    width: 10.5,
+    speedLimitMph: 25,
+    isResidential: true,
+    region: 'gaithersburg',
+    points: [{ x: gx(266), z: gz(1342) }, { x: gx(372), z: gz(1342) }, { x: gx(492), z: gz(1342) }],
+  },
+  {
+    id: 'hadley_w_1388',
+    name: 'TYGART LN (HADLEY FARMS WEST)',
+    width: 10.5,
+    speedLimitMph: 25,
+    isResidential: true,
+    region: 'gaithersburg',
+    points: [{ x: gx(266), z: gz(1388) }, { x: gx(372), z: gz(1388) }, { x: gx(492), z: gz(1388) }],
+  },
+  {
+    id: 'hadley_w_1434',
+    name: 'MATTINGLY TER (HADLEY FARMS WEST)',
+    width: 10.5,
+    speedLimitMph: 25,
+    isResidential: true,
+    region: 'gaithersburg',
+    points: [{ x: gx(266), z: gz(1434) }, { x: gx(372), z: gz(1434) }, { x: gx(486), z: gz(1434) }],
   },
 ];
 
@@ -599,7 +793,8 @@ export const STATEWIDE_MARYLAND_ROADS: MarylandRoadSpec[] = [
     region: 'gaithersburg',
     points: [
       { x: -540, z: 20 },
-      { x: gx(512), z: gz(1386) }, // Joins Woodfield Rd north of Hadley Farms
+      { x: gx(240), z: gz(1030) },
+      { x: gx(492), z: gz(1030) }, // Joins Woodfield Rd cleanly north of Hadley Farms
     ],
   },
   {
@@ -609,16 +804,13 @@ export const STATEWIDE_MARYLAND_ROADS: MarylandRoadSpec[] = [
     speedLimitMph: 45,
     region: 'howard',
     points: [
-      { x: gx(512), z: gz(1386) }, // Woodfield Rd / Laytonsville Rd north of Hadley Farms
-      { x: gx(555), z: gz(1355) }, // North around Hadley Farms perimeter
-      { x: gx(716), z: gz(1355) }, // East clear of Hadley Farms & west of Columbia Mall
-      { x: gx(716), z: gz(1425) }, // East perimeter clear of Barcellona Dr
-      { x: gx(762), z: gz(1495) }, // East clear of Hadley Farms Dr & South of Columbia
-      { x: gx(768), z: gz(1740) }, // South-East past Edinburgh Village
-      { x: 120, z: 620 }, // Olney Town Center (MD-97 & MD-108)
-      { x: 240, z: 420 }, // Sandy Spring / Ashton
-      { x: 260, z: 220 }, // Clarksville
+      { x: gx(492), z: gz(1030) }, // Woodfield Rd north of Hadley Farms
+      { x: gx(820), z: gz(1030) }, // North around Hadley Farms East
+      { x: gx(820), z: gz(1240) }, // East clear of Hadley Farms & The Mall in Columbia
       { x: 280, z: 120 }, // Columbia Town Center
+      { x: 260, z: 220 }, // Clarksville
+      { x: 246, z: 598 }, // Sandy Spring / Ashton (cleanly East & South of Edinburgh Village)
+      { x: 120, z: 620 }, // Olney Town Center (MD-97 & MD-108)
     ],
   },
   {
@@ -1255,15 +1447,17 @@ export function getMarylandZoneAndSpeedAt(x: number, z: number): { limitMph: num
     return { limitMph: 20, zoneName: 'Islamic Society of Baltimore (6631 Johnnycake Rd)' };
   }
 
-  // Named Neighborhoods & Regional Landmarks
-  if (x >= gx(416) && x <= gx(555) && z >= gz(1592) && z <= gz(1720)) {
+  if (x >= gx(416) && x <= gx(764) && z >= gz(1585) && z <= gz(1820)) {
     return { limitMph: 25, zoneName: 'Edinburgh Village · Brenish Dr & Kildonan Dr (Gaithersburg)' };
   }
-  if (x >= gx(448) && x <= gx(720) && z >= gz(1390) && z <= gz(1705)) {
+  if (
+    (x >= gx(245) && x <= gx(495) && z >= gz(1235) && z <= gz(1515)) ||
+    (x >= gx(480) && x <= gx(812) && z >= gz(1045) && z <= gz(1580))
+  ) {
     return { limitMph: 25, zoneName: 'Hadley Farms · Resnik ES (Gaithersburg)' };
   }
   if (x >= gx(130) && x <= gx(320) && z >= gz(1845) && z <= gz(1945)) {
-    return { limitMph: 25, zoneName: 'Emory Grove & Emory Church Rd (Gaithersburg)' };
+    return { limitMph: 25, zoneName: 'Emory Grove & Emory Woods Ct (Gaithersburg)' };
   }
   if (Math.hypot(x - 1280, z - -120) < 160) {
     return { limitMph: 30, zoneName: 'Baltimore Inner Harbor · Pratt St & Aquarium' };
@@ -1389,7 +1583,7 @@ export function renderMarylandRoadSpecs(roads: MarylandRoadSpec[], ctx: Maryland
       roadMesh.rotation.y = angle;
       roadMesh.rotation.x = -Math.PI / 2;
       roadMesh.position.set(mx, roadY, mz);
-      roadMesh.receiveShadow = !isUltra && !isRetroPixel;
+      roadMesh.receiveShadow = isUltra;
       group.add(roadMesh);
       cityStreetRoadMeshes.push(roadMesh);
 

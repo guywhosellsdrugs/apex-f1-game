@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { MarylandGoogleMapModal } from './MarylandGoogleMapModal';
 import {
   CircuitInfo,
   SeasonState,
@@ -228,6 +229,7 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
   const [activeTab, setActiveTab] = useState<'weekend' | 'metrocity' | 'newsfeed' | 'analytics' | 'offseason' | 'contracts' | 'myteam' | 'standings' | 'calendar' | 'records' | 'devnotes' | 'patchnotes' | 'bugreports'>('weekend');
   const [citySave, setCitySave] = useState<MetroCitySaveState>(() => loadMetroCitySave());
   const [cityHubSubTab, setCityHubSubTab] = useState<'garage' | 'dealership' | 'missions'>('garage');
+  const [showGoogleMapsModal, setShowGoogleMapsModal] = useState<boolean>(false);
   const [selectedLaps, setSelectedLaps] = useState<number>(season.lapCount || 5);
   const [startingTireCompound, setStartingTireCompound] = useState<TireCompound>(getStoredStartingTireCompound());
   const [unitSystem, setUnitSystem] = useState<UnitSystem>(getStoredUnitSystem());
@@ -3345,6 +3347,14 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
                           title="Drive around a 7x7 Downtown City Grid with 49 Red/Yellow/Green traffic light intersections, civilian traffic, and active Police Interceptor pursuits"
                         >
                           <span>🏙️ CITY DRIVING & COPS</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setShowGoogleMapsModal(true)}
+                          className="w-full sm:w-auto px-5 py-4 bg-gradient-to-r from-cyan-600 to-sky-700 hover:from-cyan-500 hover:to-sky-600 text-white font-black text-sm tracking-wider uppercase rounded-xl border border-cyan-400/40 shadow-lg shadow-cyan-950/50 transition-all flex items-center justify-center gap-2 cursor-pointer whitespace-nowrap"
+                          title="Explore Maryland on real Google Maps, search addresses, view live traffic & calculate routes"
+                        >
+                          <span>🗺️ GOOGLE MAPS</span>
                         </button>
                         <button
                           onClick={() => onStartPractice(OPEN_FIELD_PROVING_GROUND_CIRCUIT, 99, season.difficulty, 0)}
@@ -9581,6 +9591,27 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
             </form>
           </div>
         </div>
+      )}
+
+      {showGoogleMapsModal && (
+        <MarylandGoogleMapModal
+          isOpen={showGoogleMapsModal}
+          onClose={() => setShowGoogleMapsModal(false)}
+          onLaunchMarylandDriveWithTarget={
+            onStartPractice
+              ? (worldX, worldZ, label) => {
+                  try {
+                    localStorage.setItem(
+                      'apex26_pending_md_gps',
+                      JSON.stringify({ x: worldX, z: worldZ, label })
+                    );
+                  } catch {}
+                  setShowGoogleMapsModal(false);
+                  onStartPractice(CITY_DRIVING_METRO_CIRCUIT, 99, season.difficulty, 0);
+                }
+              : undefined
+          }
+        />
       )}
     </div>
   );

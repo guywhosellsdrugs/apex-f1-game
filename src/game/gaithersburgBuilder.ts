@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { Reflector } from 'three/examples/jsm/objects/Reflector.js';
 import {
   ALL_MARYLAND_ROADS,
   GAITHERSBURG_SIGNAL_JUNCTIONS,
@@ -16,6 +17,7 @@ import {
   BuiltSuburbanHouse,
   buildSuburbanHouseMesh,
 } from './cityTrafficBuilder';
+import { SuburbanBatchBuilder } from './suburbanBatchBuilder';
 
 export interface GaithersburgBuilderContext {
   group: THREE.Group;
@@ -23,6 +25,9 @@ export interface GaithersburgBuilderContext {
   cityStreetRoadMeshes: THREE.Mesh[];
   cityBuildings: CityBuildingBox[];
   suburbanHouses: BuiltSuburbanHouse[];
+  suburbanBatch: SuburbanBatchBuilder;
+  disposables: { dispose: () => void }[];
+  reflectorToggleables: THREE.Object3D[];
   streetAsphaltMat: THREE.Material;
   whiteLineMat: THREE.Material;
   yellowLineMat: THREE.Material;
@@ -32,7 +37,7 @@ export interface GaithersburgBuilderContext {
   goldMat: THREE.Material;
   isUltra: boolean;
   isRetroPixel: boolean;
-  makeCityMat: (opts: { color?: number; map?: THREE.Texture; roughness?: number; metalness?: number }) => THREE.Material;
+  makeCityMat: (opts: { color?: number; map?: THREE.Texture; roughness?: number; metalness?: number; envMapIntensity?: number }) => THREE.Material;
   makeTextSignMat: (lines: string[], bgHex: string, fgHex: string, borderHex?: string) => THREE.Material;
   makeBrickFacadeMat: (
     brickHex: string,
@@ -47,7 +52,7 @@ export interface GaithersburgBuilderContext {
 }
 
 export function isOnGaithersburgPavedSurface(px: number, pz: number): boolean {
-  if (pz < gz(1470) || pz > gz(2500) || px < gx(-740) || px > gx(740)) return false;
+  if (pz < gz(1020) || pz > gz(2500) || px < gx(-740) || px > gx(860)) return false;
   return isOnMarylandPavedSurface(px, pz);
 }
 
@@ -56,6 +61,9 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
     sceneryGroup,
     cityBuildings,
     suburbanHouses,
+    suburbanBatch,
+    disposables,
+    reflectorToggleables,
     streetAsphaltMat,
     whiteLineMat,
     treeTrunkMat,
@@ -114,7 +122,7 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
     const lotMat = makeCityMat({ color: 0x1e2430, roughness: 0.85, metalness: 0.08 });
     const lotPlane = new THREE.Mesh(new THREE.PlaneGeometry(width, depth), lotMat);
     lotPlane.rotation.x = -Math.PI / 2;
-    lotPlane.receiveShadow = !isUltra && !isRetroPixel;
+    lotPlane.receiveShadow = isUltra;
     lotGroup.add(lotPlane);
 
     const stripeCount = Math.max(4, Math.floor(width / 6.0));
@@ -209,167 +217,7 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
     return makeCityMat({ map: tex, roughness: 0.68, metalness: 0.04 });
   };
 
-  const edSharedGrassMat = makeCityMat({ color: 0x26642b, roughness: 0.92 });
   const edSharedWhiteTrimMat = makeCityMat({ color: 0xf8fafc, roughness: 0.35 });
-  const edSharedConcreteMat = makeCityMat({ color: 0x94a3b8, roughness: 0.78 });
-  const edSharedFenceMat = makeCityMat({ color: 0x8d6e4c, roughness: 0.85 });
-  const edSharedGlassMat = makeCityMat({ color: 0x1e3a5f, roughness: 0.16, metalness: 0.76 });
-  const edSharedBrickAccMat = makeBrickFacadeMat('#8b3728', '#d6c8b8', '#0f172a', 4, 1, false);
-  const edSharedMasonryMat = makeCityMat({ color: 0x8b3728, roughness: 0.78 });
-
-  const buildEdinburghSingleFamilyHome = (opts: {
-    x: number;
-    z: number;
-    rotY: number;
-    houseNum: string;
-    street: string;
-    style: 'colonial' | 'split';
-    sidingHex: string;
-    roofColor: number;
-    shutterColor: number;
-    doorColor: number;
-    brickFront?: boolean;
-  }) => {
-    const hGroup = new THREE.Group();
-    hGroup.position.set(opts.x, 0.25, opts.z);
-    hGroup.rotation.y = opts.rotY;
-
-    const sidingMat = makeSidingMat(opts.sidingHex);
-    const roofMat = makeCityMat({ color: opts.roofColor, roughness: 0.78 });
-    const shutterMat = makeCityMat({ color: opts.shutterColor, roughness: 0.55 });
-    const doorMat = makeCityMat({ color: opts.doorColor, roughness: 0.45 });
-
-    const lawn = new THREE.Mesh(new THREE.BoxGeometry(17.5, 0.02, 17.5), edSharedGrassMat);
-    lawn.position.set(0, -0.02, 0);
-    hGroup.add(lawn);
-
-    const driveway = new THREE.Mesh(new THREE.BoxGeometry(5.6, 0.02, 8.8), edSharedConcreteMat);
-    driveway.position.set(3.8, -0.016, 4.4);
-    hGroup.add(driveway);
-
-    const walkPath = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.02, 7.2), edSharedConcreteMat);
-    walkPath.position.set(-2.5, -0.016, 5.4);
-    hGroup.add(walkPath);
-
-    const isSplit = opts.style === 'split';
-    const bodyW = 9.0;
-    const bodyH = isSplit ? 4.7 : 5.7;
-    const bodyD = 8.0;
-
-    const mainBody = new THREE.Mesh(new THREE.BoxGeometry(bodyW, bodyH, bodyD), sidingMat);
-    mainBody.position.set(-2.4, bodyH * 0.5 + 0.06, -1.6);
-    mainBody.castShadow = !isRetroPixel;
-    hGroup.add(mainBody);
-
-    if (opts.brickFront) {
-      const brickLower = new THREE.Mesh(new THREE.BoxGeometry(bodyW + 0.12, 2.7, 0.26), edSharedMasonryMat);
-      brickLower.position.set(-2.4, 1.4, -1.6 + bodyD * 0.5 + 0.08);
-      hGroup.add(brickLower);
-    }
-
-    const mainRoof = buildPitchedRoofGroup(bodyW + 0.3, bodyD + 0.3, 2.65, sidingMat, roofMat, 'x');
-    mainRoof.position.set(-2.4, bodyH + 0.06, -1.6);
-    hGroup.add(mainRoof);
-
-    const chimney = new THREE.Mesh(new THREE.BoxGeometry(1.05, 4.2, 1.25), edSharedMasonryMat);
-    chimney.position.set(-7.25, bodyH + 1.15, -1.6);
-    hGroup.add(chimney);
-
-    const garW = 5.9;
-    const garH = 3.5;
-    const garD = 7.2;
-    const garageBox = new THREE.Mesh(new THREE.BoxGeometry(garW, garH, garD), sidingMat);
-    garageBox.position.set(3.9, garH * 0.5 + 0.06, -1.0);
-    garageBox.castShadow = !isRetroPixel;
-    hGroup.add(garageBox);
-
-    const garRoof = buildPitchedRoofGroup(garW + 0.3, garD + 0.3, 2.0, sidingMat, roofMat, 'z');
-    garRoof.position.set(3.9, garH + 0.06, -1.0);
-    hGroup.add(garRoof);
-
-    const gDoorZ = -1.0 + garD * 0.5;
-    const garageDoor = new THREE.Mesh(new THREE.BoxGeometry(4.9, 2.5, 0.16), edSharedWhiteTrimMat);
-    garageDoor.position.set(3.9, 1.3, gDoorZ + 0.04);
-    hGroup.add(garageDoor);
-    const gWindowStrip = new THREE.Mesh(new THREE.BoxGeometry(4.3, 0.36, 0.18), edSharedGlassMat);
-    gWindowStrip.position.set(3.9, 2.2, gDoorZ + 0.06);
-    hGroup.add(gWindowStrip);
-
-    const frontZ = -1.6 + bodyD * 0.5;
-    const porchRoof = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.26, 1.8), roofMat);
-    porchRoof.position.set(-2.4, 3.0, frontZ + 0.85);
-    hGroup.add(porchRoof);
-    for (const px of [-3.75, -1.05]) {
-      const col = new THREE.Mesh(new THREE.BoxGeometry(0.22, 2.7, 0.22), edSharedWhiteTrimMat);
-      col.position.set(px, 1.5, frontZ + 1.55);
-      hGroup.add(col);
-    }
-    const porchStoop = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.3, 1.8), edSharedConcreteMat);
-    porchStoop.position.set(-2.4, 0.15, frontZ + 0.85);
-    hGroup.add(porchStoop);
-
-    const entryDoor = new THREE.Mesh(new THREE.BoxGeometry(1.1, 2.2, 0.14), doorMat);
-    entryDoor.position.set(-2.4, 1.2, frontZ + 0.05);
-    hGroup.add(entryDoor);
-
-    const winPositions: [number, number][] = isSplit
-      ? [[-4.9, 2.8], [0.1, 2.8]]
-      : [[-4.9, 1.6], [0.1, 1.6], [-4.9, 4.25], [-2.4, 4.25], [0.1, 4.25]];
-    for (const [wx, wy] of winPositions) {
-      const wFrame = new THREE.Mesh(new THREE.BoxGeometry(1.3, 1.45, 0.1), edSharedWhiteTrimMat);
-      wFrame.position.set(wx, wy + 0.06, frontZ + 0.03);
-      hGroup.add(wFrame);
-      const wGlass = new THREE.Mesh(new THREE.BoxGeometry(1.04, 1.18, 0.13), edSharedGlassMat);
-      wGlass.position.set(wx, wy + 0.06, frontZ + 0.05);
-      hGroup.add(wGlass);
-      for (const shSide of [-1, 1]) {
-        const shutter = new THREE.Mesh(new THREE.BoxGeometry(0.4, 1.42, 0.09), shutterMat);
-        shutter.position.set(wx + shSide * 0.84, wy + 0.06, frontZ + 0.04);
-        hGroup.add(shutter);
-      }
-    }
-
-    if (!isRetroPixel) {
-      const backFence = new THREE.Mesh(new THREE.BoxGeometry(17.2, 1.7, 0.2), edSharedFenceMat);
-      backFence.position.set(0, 0.9, -7.8);
-      hGroup.add(backFence);
-    }
-
-    // Realistic compact curbside mailbox (replaces giant yard/garage text sign spam)
-    const mbPost = new THREE.Mesh(new THREE.BoxGeometry(0.1, 1.05, 0.1), edSharedWhiteTrimMat);
-    mbPost.position.set(0.7, 0.52, 8.6);
-    hGroup.add(mbPost);
-    const mbBoxMat = makeCityMat({ color: 0x1e293b, roughness: 0.55, metalness: 0.35 });
-    const mbBox = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.24, 0.52), mbBoxMat);
-    mbBox.position.set(0.7, 1.12, 8.6);
-    hGroup.add(mbBox);
-
-    sceneryGroup.add(hGroup);
-    const dLocal = new THREE.Vector3(3.8, 0, 7.6);
-    dLocal.applyAxisAngle(new THREE.Vector3(0, 1, 0), opts.rotY);
-
-    const fullAddress = `${opts.houseNum} ${opts.street}`;
-    const cRot = Math.cos(opts.rotY);
-    const sRot = Math.sin(opts.rotY);
-    const halfExtX = Math.abs(8.2 * cRot) + Math.abs(7.2 * sRot);
-    const halfExtZ = Math.abs(8.2 * sRot) + Math.abs(7.2 * cRot);
-    const collider = {
-      minX: opts.x - halfExtX,
-      maxX: opts.x + halfExtX,
-      minZ: opts.z - halfExtZ,
-      maxZ: opts.z + halfExtZ,
-      height: 9.5,
-      name: fullAddress,
-    };
-    suburbanHouses.push({
-      group: hGroup,
-      collider,
-      drivewayTarget: { x: opts.x + dLocal.x, z: opts.z + dLocal.z },
-      drivewayCoord: { x: opts.x + dLocal.x, z: opts.z + dLocal.z },
-      address: fullAddress,
-    });
-    cityBuildings.push(collider);
-  };
 
   // =========================================================================================
   // 4. ISLAMIC CENTER OF MARYLAND (19411 Woodfield Rd) — EAST SIDE OF DIAGONAL WOODFIELD RD
@@ -409,7 +257,7 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
     musalla.add(mBase);
     const mWalls = new THREE.Mesh(new THREE.BoxGeometry(18.5, 4.4, 16.5), icmStuccoWallMat);
     mWalls.position.set(0, 3.6, 0);
-    mWalls.castShadow = !isRetroPixel;
+    mWalls.castShadow = isUltra;
     musalla.add(mWalls);
     const mGable = buildPitchedRoofGroup(18.8, 16.8, 3.4, icmStuccoWallMat, icmSlateRoofMat, 'x');
     mGable.position.set(0, 5.8, 0);
@@ -491,7 +339,7 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
     // 4C. Bigger 2-Story Sand-Beige Back Main Center Building (Academy, Multipurpose Hall, Clinic — NO dome)
     const backBody = new THREE.Mesh(new THREE.BoxGeometry(58, 12.6, 54), boxWithRoofMat(icmStuccoWallMat, flatRoofMat));
     backBody.position.set(138, 6.8, 6);
-    backBody.castShadow = !isRetroPixel;
+    backBody.castShadow = isUltra;
     icmGroup.add(backBody);
     const backSkirt = new THREE.Mesh(new THREE.BoxGeometry(58.3, 4.2, 54.3), icmSandBrickMat);
     backSkirt.position.set(138, 2.6, 6);
@@ -583,7 +431,7 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
 
     const redAudit = new THREE.Mesh(new THREE.BoxGeometry(58, 13.8, 48), boxWithRoofMat(redBeigeBrickMat, flatRoofMat));
     redAudit.position.set(126, 6.9, 2);
-    redAudit.castShadow = !isRetroPixel;
+    redAudit.castShadow = isUltra;
     redGroup.add(redAudit);
     const redClerestory = new THREE.Mesh(new THREE.BoxGeometry(50, 3.0, 40), redStonePanelMat);
     redClerestory.position.set(130, 15.0, 2);
@@ -626,9 +474,47 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
   }
 
   // =========================================================================================
-  // 6. EMORY GROVE & EMORY CHURCH RD
+  // 6. EMORY GROVE, WHETSTONE (MONTGOMERY VILLAGE) & FLOWER HILL SUBDIVISIONS
   // =========================================================================================
   {
+    const paletteCycle = [
+      { siding: '#e7dec8', roof: 0x1e293b, shutter: 0x14532d, door: 0x7f1d1d, brick: true },
+      { siding: '#cbd5e1', roof: 0x292524, shutter: 0x0f172a, door: 0x1e3a8a, brick: false },
+      { siding: '#d6ccb8', roof: 0x3b2f2f, shutter: 0x1e3a8a, door: 0x14532d, brick: true },
+      { siding: '#f1f5f9', roof: 0x1f2937, shutter: 0x7f1d1d, door: 0x7f1d1d, brick: false },
+      { siding: '#94a3b8', roof: 0x0f172a, shutter: 0x1e293b, door: 0x7c2d12, brick: true },
+      { siding: '#e2d9c8', roof: 0x292524, shutter: 0x14532d, door: 0x1e3a8a, brick: false },
+    ];
+    const addSuburbanSlot = (
+      x: number,
+      z: number,
+      rotY: number,
+      houseNum: string,
+      street: string,
+      idx: number
+    ) => {
+      const p = paletteCycle[idx % paletteCycle.length];
+      return suburbanBatch.addHouse(
+        {
+          x,
+          z,
+          rotY,
+          houseNum,
+          street,
+          cityTag: 'Gaithersburg',
+          style: idx % 3 === 0 ? 'split' : 'colonial',
+          sidingHex: p.siding,
+          roofColor: p.roof,
+          shutterColor: p.shutter,
+          doorColor: p.door,
+          brickFront: p.brick,
+        },
+        suburbanHouses,
+        cityBuildings
+      );
+    };
+
+    // 6A. Emory Grove Rd & Emory Woods Ct (~18 detached homes with real 20877 ranges)
     const railWoodMat = makeCityMat({ color: 0x6b4c35, roughness: 0.88 });
     for (const [fx, fz] of [[gx(338), gz(1808)], [gx(314), gz(1884)]] as [number, number][]) {
       const fTop = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.18, 24), railWoodMat);
@@ -636,36 +522,42 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
       fTop.position.set(fx, 1.2, fz);
       sceneryGroup.add(fTop);
     }
-    const emoryPlots: [number, number, number][] = [
-      [gx(304), gz(1826), -0.24],
-      [gx(252), gz(1840), -0.24],
-      [gx(204), gz(1854), -0.24],
-      [gx(296), gz(1888), Math.PI - 0.24],
-      [gx(246), gz(1900), Math.PI - 0.24],
-      [gx(196), gz(1914), Math.PI - 0.24],
-    ];
-    emoryPlots.forEach(([ex, ez, rotY], idx) => {
-      buildEdinburghSingleFamilyHome({
-        x: ex,
-        z: ez,
-        rotY,
-        houseNum: `${7204 + idx * 4}`,
-        street: 'Emory Church Rd',
-        style: idx % 2 === 0 ? 'colonial' : 'split',
-        sidingHex: ['#e7dec8', '#cbd5e1', '#d6ccb8'][idx % 3],
-        roofColor: 0x292524,
-        shutterColor: 0x14532d,
-        doorColor: 0x7f1d1d,
-        brickFront: idx % 2 === 0,
-      });
-    });
-    addStreetNamePost(gx(326), gz(1860), 'EMORY CHURCH RD', 0);
-  }
+    let emIdx = 0;
+    for (let k = 0; k < 5; k++) {
+      const ex = gx(228 + k * 17);
+      addSuburbanSlot(ex, gz(1800.5), 0, `${9402 + k * 6}`, 'Emory Grove Rd', emIdx++);
+    }
+    for (let k = 0; k < 5; k++) {
+      const ex = gx(220 + k * 17);
+      addSuburbanSlot(ex, gz(1831.5), Math.PI, `${9403 + k * 6}`, 'Emory Grove Rd', emIdx++);
+    }
+    for (let k = 0; k < 4; k++) {
+      const t = 0.14 + k * 0.18;
+      const rx = gx(255 + (160 - 255) * t);
+      const rz = gz(1868 + (1900 - 1868) * t);
+      // Perpendicular to Emory Woods Ct (-95, 32): North normal ~ (-0.319, -0.948)
+      addSuburbanSlot(rx - 0.319 * 15.5, rz - 0.948 * 15.5, -0.32, `${18402 + k * 4}`, 'Emory Woods Ct', emIdx++);
+      addSuburbanSlot(rx + 0.319 * 15.5, rz + 0.948 * 15.5, Math.PI - 0.32, `${18403 + k * 4}`, 'Emory Woods Ct', emIdx++);
+    }
+    addStreetNamePost(gx(326), gz(1860), 'EMORY WOODS CT', 0);
 
-  // =========================================================================================
-  // 7. EDINBURGH VILLAGE (Compact Pocket Community: ~9 Detached 1986-1988 Homes — ZERO Townhomes)
-  // =========================================================================================
-  {
+    // 6B. Whetstone Dr (Montgomery Village: 14 homes, real range 9500-9768)
+    for (let k = 0; k < 7; k++) {
+      const wx = gx(-172 + k * 16);
+      addSuburbanSlot(wx, gz(1544.5), 0, `${9702 + k * 6}`, 'Whetstone Dr', k);
+      addSuburbanSlot(wx, gz(1575.5), Math.PI, `${9703 + k * 6}`, 'Whetstone Dr', k + 7);
+    }
+
+    // 6C. Flower Hill Way (Flower Hill neighborhood: 16 homes, real range 18400-18520)
+    for (let k = 0; k < 8; k++) {
+      const fx = gx(264 + k * 17);
+      addSuburbanSlot(fx, gz(2259.5), 0, `${18402 + k * 6}`, 'Flower Hill Way', k);
+      addSuburbanSlot(fx, gz(2290.5), Math.PI, `${18403 + k * 6}`, 'Flower Hill Way', k + 8);
+    }
+
+    // =======================================================================================
+    // 7. EDINBURGH VILLAGE (100-Home Real-Street Community — Including 19624 Kildonan Dr)
+    // =======================================================================================
     const edBrickMat = makeCityMat({ color: 0x8f3a2e, roughness: 0.65 });
     for (const [px, pz] of [[gx(434), gz(1656)], [gx(430), gz(1672)]] as [number, number][]) {
       const p = new THREE.Mesh(new THREE.BoxGeometry(1.4, 1.9, 1.4), edBrickMat);
@@ -681,34 +573,97 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
     sceneryGroup.add(edSignFace);
 
     const totMulch = new THREE.Mesh(new THREE.BoxGeometry(10, 0.02, 8), makeCityMat({ color: 0x78350f, roughness: 0.95 }));
-    totMulch.position.set(gx(490), 0.232, gz(1642));
+    totMulch.position.set(gx(526), 0.232, gz(1628.5));
     sceneryGroup.add(totMulch);
     const pergolaRoof = new THREE.Mesh(new THREE.ConeGeometry(2.8, 1.5, 4), makeCityMat({ color: 0x0ea5e9, roughness: 0.5 }));
     pergolaRoof.rotation.y = Math.PI / 4;
-    pergolaRoof.position.set(gx(490), 3.2, gz(1642));
+    pergolaRoof.position.set(gx(526), 3.2, gz(1628.5));
     sceneryGroup.add(pergolaRoof);
 
-    const edinburghDetachedHomes: Parameters<typeof buildEdinburghSingleFamilyHome>[0][] = [
-      { x: gx(468), z: gz(1599), rotY: 0, houseNum: '19620', street: 'Kildonan Dr', style: 'colonial', sidingHex: '#94a3b8', roofColor: 0x1e293b, shutterColor: 0x1e3a8a, doorColor: 0x1e3a8a, brickFront: true },
-      { x: gx(492), z: gz(1598), rotY: 0, houseNum: '19622', street: 'Kildonan Dr', style: 'colonial', sidingHex: '#cbd5e1', roofColor: 0x1e293b, shutterColor: 0x0f172a, doorColor: 0x7f1d1d, brickFront: true },
-      { x: gx(516), z: gz(1602), rotY: -0.25, houseNum: '19628', street: 'Kildonan Dr', style: 'split', sidingHex: '#e7dec8', roofColor: 0x3b2f2f, shutterColor: 0x14532d, doorColor: 0x14532d },
-      { x: gx(543), z: gz(1632), rotY: -Math.PI / 2, houseNum: '19615', street: 'Kildonan Dr', style: 'split', sidingHex: '#e2d9c8', roofColor: 0x3f2e21, shutterColor: 0x14532d, doorColor: 0x14532d, brickFront: true },
-      { x: gx(544), z: gz(1656), rotY: -Math.PI / 2, houseNum: '19611', street: 'Kildonan Dr', style: 'colonial', sidingHex: '#cbd5e1', roofColor: 0x0f172a, shutterColor: 0x1e293b, doorColor: 0x7f1d1d },
+    let edinburghCount = 0;
+    const EDINBURGH_TARGET = 100;
+    const addEdinburghLot = (x: number, z: number, rotY: number, houseNum: string, street: string) => {
+      if (edinburghCount >= EDINBURGH_TARGET) return;
+      if (addSuburbanSlot(x, z, rotY, houseNum, street, edinburghCount)) {
+        edinburghCount++;
+      }
+    };
 
-      { x: gx(448), z: gz(1685), rotY: Math.PI, houseNum: '7421', street: 'Brenish Dr', style: 'colonial', sidingHex: '#e5dec9', roofColor: 0x3b2f2f, shutterColor: 0x14532d, doorColor: 0x14532d },
-      { x: gx(472), z: gz(1685), rotY: Math.PI, houseNum: '7508', street: 'Brenish Dr', style: 'colonial', sidingHex: '#b8c4d0', roofColor: 0x1e293b, shutterColor: 0x1e3a8a, doorColor: 0x1e3a8a },
-      { x: gx(515), z: gz(1687), rotY: -Math.PI / 2, houseNum: '7528', street: 'Tarfside Ln', style: 'split', sidingHex: '#d6ccb8', roofColor: 0x292524, shutterColor: 0x0f172a, doorColor: 0x7f1d1d, brickFront: true },
-      { x: gx(494), z: gz(1711), rotY: Math.PI, houseNum: '7530', street: 'Tarfside Ln', style: 'colonial', sidingHex: '#f1f5f9', roofColor: 0x1e293b, shutterColor: 0x1e3a8a, doorColor: 0x1e3a8a, brickFront: true },
-    ];
-    for (const eh of edinburghDetachedHomes) buildEdinburghSingleFamilyHome(eh);
+    // Place 19624 Kildonan Dr explicitly at the corner of Kildonan Dr (x=gx(468)) & Brenish Dr (z=gz(1652))
+    addEdinburghLot(gx(484), gz(1636.5), 0, '19624', 'Kildonan Dr');
+
+    const edWestCols = [486, 500, 514, 528, 542, 556]; // 6 cols clear of Kildonan W (468) & Kilcreggan Way (580)
+    const edEastCols = [598, 612, 626, 640, 654, 668, 682, 696, 710]; // 9 cols clear of Kilcreggan Way (580) & Kildonan E (740)
+
+    // 7A. Kildonan Dr (real range 19301-19709): 30 North E-W lots + 8 East N-S lots (+ 19624 corner = 39 total)
+    let kilEven = 19600;
+    let kilOdd = 19601;
+    const nextKilEven = () => {
+      kilEven += 2;
+      if (kilEven === 19624) kilEven += 2;
+      return String(kilEven);
+    };
+    const nextKilOdd = () => {
+      kilOdd += 2;
+      return String(kilOdd);
+    };
+    for (const xOff of [...edWestCols, ...edEastCols]) {
+      addEdinburghLot(gx(xOff), gz(1586.5), 0, nextKilEven(), 'Kildonan Dr');
+      addEdinburghLot(gx(xOff), gz(1617.5), Math.PI, nextKilOdd(), 'Kildonan Dr');
+    }
+    const kilEastLegZs = [1620, 1635, 1669, 1684, 1718, 1733, 1766, 1781];
+    for (const kz of kilEastLegZs) {
+      addEdinburghLot(gx(755.5), gz(kz), -Math.PI / 2, nextKilEven(), 'Kildonan Dr');
+    }
+
+    // 7B. Brenish Dr (real range 7320-7545): North cols (skipping 484 corner) + South cols = 26 homes
+    let brEven = 7320;
+    let brOdd = 7321;
+    for (const xOff of [500, 514, 528, 542, 556, ...edEastCols]) {
+      brEven += 4;
+      addEdinburghLot(gx(xOff), gz(1636.5), 0, String(brEven), 'Brenish Dr');
+    }
+    for (const xOff of [534, 548, 562, ...edEastCols]) {
+      brOdd += 4;
+      addEdinburghLot(gx(xOff), gz(1667.5), Math.PI, String(brOdd), 'Brenish Dr');
+    }
+
+    // 7C. Tarfside Ln (real range 7300-7418): 4 homes branching south off Brenish Dr
+    addEdinburghLot(gx(496.5), gz(1686), Math.PI / 2, '7402', 'Tarfside Ln');
+    addEdinburghLot(gx(512), gz(1703.5), Math.PI, '7408', 'Tarfside Ln');
+    addEdinburghLot(gx(527.5), gz(1686), -Math.PI / 2, '7412', 'Tarfside Ln');
+    addEdinburghLot(gx(527.5), gz(1703), -Math.PI / 2, '7416', 'Tarfside Ln');
+
+    // 7D. Kilcreggan Way (real range 19500-19630): E-W loop at z=1702 (18 homes) + N-S west-side lots (5 homes)
+    let kwNum = 19500;
+    for (const xOff of edEastCols) {
+      kwNum += 4;
+      addEdinburghLot(gx(xOff), gz(1686.5), 0, String(kwNum), 'Kilcreggan Way');
+      kwNum += 2;
+      addEdinburghLot(gx(xOff), gz(1717.5), Math.PI, String(kwNum), 'Kilcreggan Way');
+    }
+    for (const mz of [1718, 1733, 1766, 1781]) {
+      kwNum += 4;
+      addEdinburghLot(gx(564.5), gz(mz), Math.PI / 2, String(kwNum), 'Kilcreggan Way');
+    }
+
+    // 7E. Kilcreggan Ter (real range 7400-7437): E-W streets at z=1748 & z=1795 (fills exact 100-home total)
+    let ktNum = 7400;
+    for (const xOff of edEastCols) {
+      ktNum += 1;
+      addEdinburghLot(gx(xOff), gz(1732.5), 0, String(ktNum), 'Kilcreggan Ter');
+      ktNum += 1;
+      addEdinburghLot(gx(xOff), gz(1763.5), Math.PI, String(ktNum), 'Kilcreggan Ter');
+    }
+    for (const xOff of edEastCols) {
+      ktNum += 1;
+      addEdinburghLot(gx(xOff), gz(1779.5), 0, String(ktNum), 'Kilcreggan Ter');
+    }
     addStreetNamePost(gx(426), gz(1660), 'BRENISH DR', 0);
-  }
 
-  // =========================================================================================
-  // 8. HADLEY FARMS (Expansive Master Community: 25 Detached Homes, 5 Brick Townhome Rows,
-  //    Judith A. Resnik Elementary School, Community Pool & Tennis Courts)
-  // =========================================================================================
-  {
+    // =======================================================================================
+    // 8. HADLEY FARMS (Expansive 300-Home Real-Street Community + Townhomes + Resnik ES + Pool)
+    // =======================================================================================
     const hfBrickMat = makeCityMat({ color: 0x8f3a2e, roughness: 0.65 });
     for (const [px, pz] of [[gx(464), gz(1572)], [gx(470), gz(1564)]] as [number, number][]) {
       const p = new THREE.Mesh(new THREE.BoxGeometry(1.5, 2.0, 1.5), hfBrickMat);
@@ -723,34 +678,36 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
     hfSign.position.set(gx(467), 1.25, gz(1568));
     sceneryGroup.add(hfSign);
 
-    const tennis = new THREE.Mesh(new THREE.BoxGeometry(14, 0.02, 14), makeCityMat({ color: 0x15803d, roughness: 0.88 }));
-    tennis.position.set(gx(526), 0.232, gz(1532));
+    const tennis = new THREE.Mesh(new THREE.BoxGeometry(14, 0.02, 12), makeCityMat({ color: 0x15803d, roughness: 0.88 }));
+    tennis.position.set(gx(526), 0.232, gz(1539));
     sceneryGroup.add(tennis);
     const clubWallMat = makeSidingMat('#e6decb');
     const clubRoofMat = makeCityMat({ color: 0x292524, roughness: 0.78 });
     const clubHouse = new THREE.Mesh(new THREE.BoxGeometry(16, 4.8, 10), clubWallMat);
-    clubHouse.position.set(gx(526), 2.65, gz(1552));
+    clubHouse.position.set(gx(526), 2.65, gz(1553));
+    clubHouse.castShadow = isUltra;
     sceneryGroup.add(clubHouse);
     const clubRoof = buildPitchedRoofGroup(16.4, 10.4, 2.2, clubWallMat, clubRoofMat, 'x');
-    clubRoof.position.set(gx(526), 5.05, gz(1552));
+    clubRoof.position.set(gx(526), 5.05, gz(1553));
     sceneryGroup.add(clubRoof);
-    const poolWater = new THREE.Mesh(new THREE.PlaneGeometry(14, 14), makeCityMat({ color: 0x0ea5e9, roughness: 0.14, metalness: 0.45 }));
+    const poolWater = new THREE.Mesh(new THREE.PlaneGeometry(14, 12), makeCityMat({ color: 0x0ea5e9, roughness: 0.14, metalness: 0.45 }));
     poolWater.rotation.x = -Math.PI / 2;
-    poolWater.position.set(gx(526), 0.28, gz(1568));
+    poolWater.position.set(gx(526), 0.28, gz(1569));
     sceneryGroup.add(poolWater);
-    cityBuildings.push({ minX: gx(518), maxX: gx(534), minZ: gz(1546), maxZ: gz(1558), height: 7, name: 'Hadley Farms Community Pool & Clubhouse' });
+    cityBuildings.push({ minX: gx(518), maxX: gx(534), minZ: gz(1547), maxZ: gz(1559), height: 7, name: 'Hadley Farms Community Pool & Clubhouse' });
 
     drawGaithParkingLot(gx(578), gz(1554), 22, 34, 0);
     const schGroup = new THREE.Group();
-    schGroup.position.set(gx(610), 0.25, gz(1552));
+    schGroup.position.set(gx(610), 0.25, gz(1554));
     const schBrickMat = makeBrickFacadeMat('#9b3b2c', '#e5e7eb', '#1e3a5f', 7, 2, false);
     const schTrimMat = makeCityMat({ color: 0xede5d4, roughness: 0.58 });
     const mainWing = new THREE.Mesh(new THREE.BoxGeometry(30, 7.4, 20), boxWithRoofMat(schBrickMat, flatRoofMat));
     mainWing.position.set(0, 3.7, -3);
-    mainWing.castShadow = !isRetroPixel;
+    mainWing.castShadow = isUltra;
     schGroup.add(mainWing);
     const gymWing = new THREE.Mesh(new THREE.BoxGeometry(20, 8.8, 14), schTrimMat);
     gymWing.position.set(-5, 4.4, 11);
+    gymWing.castShadow = isUltra;
     schGroup.add(gymWing);
     const schSign = new THREE.Mesh(
       new THREE.BoxGeometry(0.3, 1.2, 9.6),
@@ -759,61 +716,96 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
     schSign.position.set(-15.4, 4.6, -3);
     schGroup.add(schSign);
     sceneryGroup.add(schGroup);
-    cityBuildings.push({ minX: gx(594), maxX: gx(626), minZ: gz(1538), maxZ: gz(1572), height: 10, name: 'Judith A. Resnik Elementary School (7301 Hadley Farms Dr)' });
+    cityBuildings.push({ minX: gx(594), maxX: gx(626), minZ: gz(1540), maxZ: gz(1574), height: 10, name: 'Judith A. Resnik Elementary School (7301 Hadley Farms Dr)' });
 
-    const hadleyHomes: Parameters<typeof buildEdinburghSingleFamilyHome>[0][] = [
-      // Pompano Ter
-      { x: gx(514), z: gz(1476), rotY: Math.PI / 2, houseNum: '19702', street: 'Pompano Ter', style: 'colonial', sidingHex: '#e7dec8', roofColor: 0x1e293b, shutterColor: 0x14532d, doorColor: 0x14532d, brickFront: true },
-      { x: gx(520), z: gz(1444), rotY: Math.PI / 2, houseNum: '19708', street: 'Pompano Ter', style: 'split', sidingHex: '#cbd5e1', roofColor: 0x292524, shutterColor: 0x0f172a, doorColor: 0x7f1d1d },
-      { x: gx(544), z: gz(1420), rotY: 0, houseNum: '19714', street: 'Pompano Ter', style: 'colonial', sidingHex: '#f1f5f9', roofColor: 0x1e293b, shutterColor: 0x1e3a8a, doorColor: 0x1e3a8a, brickFront: true },
-      { x: gx(558), z: gz(1452), rotY: -Math.PI / 2, houseNum: '19711', street: 'Pompano Ter', style: 'colonial', sidingHex: '#d6ccb8', roofColor: 0x3b2f2f, shutterColor: 0x14532d, doorColor: 0x7c2d12 },
-      // Filbert Ter
-      { x: gx(584), z: gz(1391), rotY: 0, houseNum: '7312', street: 'Filbert Ter', style: 'colonial', sidingHex: '#f1f5f9', roofColor: 0x292524, shutterColor: 0x1e3a8a, doorColor: 0x1e3a8a, brickFront: true },
-      { x: gx(600), z: gz(1416), rotY: -Math.PI / 2, houseNum: '7315', street: 'Filbert Ter', style: 'split', sidingHex: '#e2d9c8', roofColor: 0x3b2f2f, shutterColor: 0x14532d, doorColor: 0x14532d },
-      { x: gx(600), z: gz(1444), rotY: -Math.PI / 2, houseNum: '7319', street: 'Filbert Ter', style: 'colonial', sidingHex: '#b8c4d0', roofColor: 0x1e293b, shutterColor: 0x0f172a, doorColor: 0x7f1d1d, brickFront: true },
-      // Cinnabar Ter
-      { x: gx(621), z: gz(1428), rotY: Math.PI / 2, houseNum: '19708', street: 'Cinnabar Ter', style: 'split', sidingHex: '#cbd5e1', roofColor: 0x292524, shutterColor: 0x0f172a, doorColor: 0x7f1d1d },
-      { x: gx(638), z: gz(1391), rotY: 0, houseNum: '19712', street: 'Cinnabar Ter', style: 'colonial', sidingHex: '#d6ccb8', roofColor: 0x1e293b, shutterColor: 0x1e3a8a, doorColor: 0x1e3a8a, brickFront: true },
-      { x: gx(654), z: gz(1416), rotY: -Math.PI / 2, houseNum: '19715', street: 'Cinnabar Ter', style: 'colonial', sidingHex: '#f1f5f9', roofColor: 0x1f2937, shutterColor: 0x7f1d1d, doorColor: 0x7f1d1d, brickFront: true },
-      // Barcellona Dr
-      { x: gx(674), z: gz(1422), rotY: 0, houseNum: '19808', street: 'Barcellona Dr', style: 'split', sidingHex: '#e5dec9', roofColor: 0x3b2f2f, shutterColor: 0x14532d, doorColor: 0x14532d },
-      { x: gx(694), z: gz(1445), rotY: -Math.PI / 2, houseNum: '19812', street: 'Barcellona Dr', style: 'colonial', sidingHex: '#f1f5f9', roofColor: 0x1e293b, shutterColor: 0x1e3a8a, doorColor: 0x7f1d1d, brickFront: true },
-      // Hadley Farms Dr (Outer East & South Perimeter)
-      { x: gx(698), z: gz(1498), rotY: -Math.PI / 2, houseNum: '7310', street: 'Hadley Farms Dr', style: 'colonial', sidingHex: '#cbd5e1', roofColor: 0x1e293b, shutterColor: 0x0f172a, doorColor: 0x1e3a8a, brickFront: true },
-      { x: gx(704), z: gz(1528), rotY: -Math.PI / 2, houseNum: '7314', street: 'Hadley Farms Dr', style: 'colonial', sidingHex: '#f1f5f9', roofColor: 0x1f2937, shutterColor: 0x111827, doorColor: 0x7f1d1d, brickFront: true },
-      { x: gx(704), z: gz(1562), rotY: -Math.PI / 2, houseNum: '7318', street: 'Hadley Farms Dr', style: 'split', sidingHex: '#d9d0be', roofColor: 0x292524, shutterColor: 0x78350f, doorColor: 0x7c2d12 },
-      { x: gx(704), z: gz(1602), rotY: -Math.PI / 2, houseNum: '7322', street: 'Hadley Farms Dr', style: 'split', sidingHex: '#e2d9c8', roofColor: 0x3b2f2f, shutterColor: 0x14532d, doorColor: 0x14532d },
-      { x: gx(694), z: gz(1642), rotY: -Math.PI / 2, houseNum: '7326', street: 'Hadley Farms Dr', style: 'colonial', sidingHex: '#94a3b8', roofColor: 0x1e293b, shutterColor: 0x0f172a, doorColor: 0x7f1d1d, brickFront: true },
-      { x: gx(672), z: gz(1682), rotY: Math.PI, houseNum: '7330', street: 'Hadley Farms Dr', style: 'colonial', sidingHex: '#e7dec8', roofColor: 0x292524, shutterColor: 0x14532d, doorColor: 0x14532d, brickFront: true },
-      { x: gx(642), z: gz(1692), rotY: Math.PI, houseNum: '7334', street: 'Hadley Farms Dr', style: 'split', sidingHex: '#cbd5e1', roofColor: 0x1e293b, shutterColor: 0x7f1d1d, doorColor: 0x7f1d1d },
-      { x: gx(612), z: gz(1695), rotY: Math.PI, houseNum: '7338', street: 'Hadley Farms Dr', style: 'colonial', sidingHex: '#f1f5f9', roofColor: 0x1e293b, shutterColor: 0x1e3a8a, doorColor: 0x1e3a8a, brickFront: true },
-      { x: gx(582), z: gz(1690), rotY: Math.PI, houseNum: '7342', street: 'Hadley Farms Dr', style: 'colonial', sidingHex: '#d6ccb8', roofColor: 0x3b2f2f, shutterColor: 0x14532d, doorColor: 0x7c2d12 },
-      // Bitterroot Ct & Elioak Ter cul-de-sac homes
-      { x: gx(588), z: gz(1608), rotY: 0, houseNum: '19705', street: 'Bitterroot Ct', style: 'colonial', sidingHex: '#ede6d8', roofColor: 0x1e293b, shutterColor: 0x14532d, doorColor: 0x14532d, brickFront: true },
-      { x: gx(606), z: gz(1653), rotY: -Math.PI / 2, houseNum: '19709', street: 'Elioak Ter', style: 'split', sidingHex: '#93a8bd', roofColor: 0x292524, shutterColor: 0x0f172a, doorColor: 0x1e3a8a },
-    ];
-    for (const hh of hadleyHomes) buildEdinburghSingleFamilyHome(hh);
+    // 8A. 300 Batched Single-Family Homes across Hadley Farms East & West (ONLY real Hadley Farms streets & ranges)
+    let hadleyCount = 0;
+    const HADLEY_TARGET = 300;
+    const addHadleyLot = (x: number, z: number, rotY: number, houseNum: string, street: string) => {
+      if (hadleyCount >= HADLEY_TARGET) return;
+      if (addSuburbanSlot(x, z, rotY, houseNum, street, hadleyCount + 100)) {
+        hadleyCount++;
+      }
+    };
 
+    // Hadley Farms West (5 streets x 2 sides x 10 houses = 100 homes)
+    const hfWestCols = [286, 302.2, 318.4, 334.6, 350.8, 392, 408.5, 425, 441.5, 458];
+    for (const [stName, stZ, baseNum] of [
+      ['Filbert Dr', 1250, 19700],
+      ['Boxberry Dr', 1296, 19701],
+      ['Mayhill Ter', 1342, 19702],
+      ['Tygart Ln', 1388, 19901],
+      ['Mattingly Ter', 1434, 20001],
+    ] as [string, number, number][]) {
+      let n = baseNum;
+      for (const xOff of hfWestCols) {
+        n += 2;
+        addHadleyLot(gx(xOff), gz(stZ - 15.5), 0, String(n), stName);
+        n += 2;
+        addHadleyLot(gx(xOff), gz(stZ + 15.5), Math.PI, String(n), stName);
+      }
+    }
+
+    // Hadley Farms East (10 streets: up to 200 more homes -> 300 total)
+    const hfEastBayA = [524, 537.5, 551, 564.5, 578];
+    const hfEastBayB = [620, 635.2, 650.4, 665.6, 680.8];
+    const hfEastBayC = [722, 738.2, 754.4, 770.6];
+    for (const [stName, stZ, baseNum, hasBayC] of [
+      ['Cliff Pine Dr', 1066, 7100, true],
+      ['Barcellona Dr', 1112, 7200, true],
+      ['Torran Rocks Way', 1158, 7300, true],
+      ['Cinnabar Ter', 1204, 7404, true],
+      ['Elioak Ter', 1250, 7400, true],
+      ['Filbert Ter', 1296, 7500, false],
+      ['Electra Ct', 1342, 7400, false],
+      ['Harkness Ct', 1388, 19600, false],
+      ['Mayhill Ct', 1434, 19700, false],
+      ['Cinnabar Dr', 1480, 19800, false],
+    ] as [string, number, number, boolean][]) {
+      let n = baseNum;
+      const cols = hasBayC ? [...hfEastBayA, ...hfEastBayB, ...hfEastBayC] : [...hfEastBayA, ...hfEastBayB];
+      for (const xOff of cols) {
+        n += 2;
+        addHadleyLot(gx(xOff), gz(stZ - 15.5), 0, String(n), stName);
+        if (stZ < 1480) {
+          n += 2;
+          addHadleyLot(gx(xOff), gz(stZ + 15.5), Math.PI, String(n), stName);
+        }
+      }
+    }
+    // Fill remaining Hadley Farms slots on south edge of Hadley Farms Dr East of Resnik ES
+    for (const [hx, hz, rotY, hNum, hSt] of [
+      [gx(654), gz(1539.5), Math.PI, '7310', 'Hadley Farms Dr'],
+      [gx(672), gz(1539.5), Math.PI, '7314', 'Hadley Farms Dr'],
+      [gx(690), gz(1539.5), Math.PI, '7318', 'Hadley Farms Dr'],
+    ] as [number, number, number, string, string][]) {
+      addHadleyLot(hx, hz, rotY, hNum, hSt);
+    }
+
+    // 5 Brick Townhome Rows in Hadley Farms South Plaza (real street names, clear of roads & Resnik ES)
     const hfThBrick = makeBrickFacadeMat('#8b3728', '#f1f5f9', '#1e293b', 6, 3, false);
     const hfThRoof = makeCityMat({ color: 0x1e293b, roughness: 0.75 });
     for (const [tx, tz, rotY, label] of [
-      [gx(674), gz(1474), 0, 'Barcellona Dr Townhomes (Hadley Farms)'],
-      [gx(656), gz(1556), 0, 'Plum Orchard Ct Townhomes (Hadley Farms)'],
-      [gx(614), gz(1622), 0, 'Elioak Terrace Townhomes (Hadley Farms)'],
-      [gx(554), gz(1614), 0, 'Hadley Farms Village Townhomes'],
-      [gx(564), gz(1510), 0, 'Hadley Farms North Townhomes'],
+      [gx(656), gz(1558), 0, 'Barcellona Dr Townhomes (Hadley Farms)'],
+      [gx(656), gz(1576), 0, 'Filbert Ter Townhomes (Hadley Farms)'],
+      [gx(690), gz(1558), 0, 'Elioak Ter Townhomes (Hadley Farms)'],
+      [gx(690), gz(1576), 0, 'Hadley Farms Dr Townhomes'],
+      [gx(498), gz(1558), Math.PI / 2, 'Torran Rocks Way Townhomes'],
     ] as [number, number, number, string][]) {
       const thGrp = new THREE.Group();
       thGrp.position.set(tx, 0.25, tz);
       thGrp.rotation.y = rotY;
       const thRow = new THREE.Mesh(new THREE.BoxGeometry(22, 8.0, 10), boxWithRoofMat(hfThBrick, flatRoofMat));
       thRow.position.set(0, 4.0, 0);
+      thRow.castShadow = isUltra;
       thGrp.add(thRow);
       const thRoof = buildPitchedRoofGroup(22.4, 10.4, 2.8, hfThBrick, hfThRoof, 'x');
       thRoof.position.set(0, 8.0, 0);
       thGrp.add(thRoof);
       sceneryGroup.add(thGrp);
-      cityBuildings.push({ minX: tx - 12, maxX: tx + 12, minZ: tz - 6, maxZ: tz + 6, height: 11, name: label });
+      const halfX = Math.abs(Math.cos(rotY)) > 0.5 ? 12 : 6;
+      const halfZ = Math.abs(Math.cos(rotY)) > 0.5 ? 6 : 12;
+      cityBuildings.push({ minX: tx - halfX, maxX: tx + halfX, minZ: tz - halfZ, maxZ: tz + halfZ, height: 11, name: label });
     }
     addStreetNamePost(gx(466), gz(1548), 'HADLEY FARMS DR', 0);
   }
@@ -862,7 +854,7 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
     const fhCanopyMat = makeCityMat({ color: 0x064e3b, roughness: 0.55 });
     const fhPlaza = new THREE.Mesh(new THREE.BoxGeometry(68, 11, 24), boxWithRoofMat(fhBrick, flatRoofMat));
     fhPlaza.position.set(gx(174), 5.75, gz(2142));
-    fhPlaza.castShadow = !isRetroPixel;
+    fhPlaza.castShadow = isUltra;
     sceneryGroup.add(fhPlaza);
     const fhParapet = new THREE.Mesh(new THREE.BoxGeometry(69, 1.1, 25), fhTrimMat);
     fhParapet.position.set(gx(174), 11.4, gz(2142));
@@ -1011,37 +1003,170 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
     sceneryGroup.add(nistSign);
     cityBuildings.push({ minX: gx(-552), maxX: gx(-492), minZ: gz(2023), maxZ: gz(2067), height: 24, name: 'NIST Federal Research Campus' });
 
-    const rioX = gx(-466);
-    const rioZ = gz(2292);
-    const rioLake = new THREE.Mesh(new THREE.PlaneGeometry(102, 68), waterMat);
-    rioLake.rotation.x = -Math.PI / 2;
-    rioLake.position.set(rioX, 0.232, rioZ + 22);
-    sceneryGroup.add(rioLake);
-    const rioBoardwalk = new THREE.Mesh(new THREE.BoxGeometry(100, 0.45, 10), makeCityMat({ color: 0x7c4a26, roughness: 0.8 }));
-    rioBoardwalk.position.set(rioX, 0.45, rioZ - 14);
+    // RIO Lakefront: Genuine Planar Reflective Water, Small Visible Perimeter Barrier & Waterfront Stores
+    const rioX = gx(-464);
+    const rioLakeZ = gz(2304);
+    const lakeW = 78;
+    const lakeD = 48;
+
+    if (!isRetroPixel) {
+      const lakeGeo = new THREE.PlaneGeometry(lakeW, lakeD);
+      disposables.push(lakeGeo);
+      const rioReflector = new Reflector(lakeGeo, {
+        clipBias: 0.003,
+        textureWidth: isUltra ? 1024 : 512,
+        textureHeight: isUltra ? 1024 : 512,
+        color: 0x3b6e8c,
+      });
+      rioReflector.rotation.x = -Math.PI / 2;
+      rioReflector.position.set(rioX, 0.236, rioLakeZ);
+      sceneryGroup.add(rioReflector);
+      reflectorToggleables.push(rioReflector);
+      disposables.push(rioReflector);
+
+      const rioTintOverlay = new THREE.Mesh(
+        new THREE.PlaneGeometry(lakeW, lakeD),
+        new THREE.MeshStandardMaterial({
+          color: 0x0e7490,
+          transparent: true,
+          opacity: 0.24,
+          roughness: 0.08,
+          metalness: 0.42,
+        })
+      );
+      rioTintOverlay.rotation.x = -Math.PI / 2;
+      rioTintOverlay.position.set(rioX, 0.244, rioLakeZ);
+      sceneryGroup.add(rioTintOverlay);
+    } else {
+      const rioLake = new THREE.Mesh(new THREE.PlaneGeometry(lakeW, lakeD), waterMat);
+      rioLake.rotation.x = -Math.PI / 2;
+      rioLake.position.set(rioX, 0.236, rioLakeZ);
+      sceneryGroup.add(rioLake);
+    }
+
+    // Small Visible Wrought-Iron & Stone Bollard Perimeter Barrier around all 4 sides of RIO Lake
+    const barHalfW = lakeW * 0.5 + 0.45;
+    const barHalfD = lakeD * 0.5 + 0.45;
+    const ironRailMat = makeCityMat({ color: 0x1e293b, roughness: 0.35, metalness: 0.72 });
+    const bollardMat = makeCityMat({ color: 0x94a3b8, roughness: 0.65, metalness: 0.12 });
+    for (const [bx, bz, bw, bd, label] of [
+      [rioX, rioLakeZ - barHalfD, lakeW + 1.2, 0.24, 'North'],
+      [rioX, rioLakeZ + barHalfD, lakeW + 1.2, 0.24, 'South'],
+      [rioX - barHalfW, rioLakeZ, 0.24, lakeD + 1.2, 'West'],
+      [rioX + barHalfW, rioLakeZ, 0.24, lakeD + 1.2, 'East'],
+    ] as [number, number, number, number, string][]) {
+      const topRail = new THREE.Mesh(new THREE.BoxGeometry(bw, 0.14, bd), ironRailMat);
+      topRail.position.set(bx, 1.05, bz);
+      sceneryGroup.add(topRail);
+      const midRail = new THREE.Mesh(new THREE.BoxGeometry(bw, 0.1, bd), ironRailMat);
+      midRail.position.set(bx, 0.72, bz);
+      sceneryGroup.add(midRail);
+      cityBuildings.push({
+        minX: bx - Math.max(0.65, bw * 0.5),
+        maxX: bx + Math.max(0.65, bw * 0.5),
+        minZ: bz - Math.max(0.65, bd * 0.5),
+        maxZ: bz + Math.max(0.65, bd * 0.5),
+        height: 1.5,
+        name: `RIO Lakefront ${label} Barrier`,
+      });
+    }
+    const postPositions: [number, number][] = [];
+    for (let px = -barHalfW; px <= barHalfW + 0.1; px += 6.5) {
+      postPositions.push([rioX + Math.min(barHalfW, px), rioLakeZ - barHalfD]);
+      postPositions.push([rioX + Math.min(barHalfW, px), rioLakeZ + barHalfD]);
+    }
+    for (let pz = -barHalfD + 6; pz <= barHalfD - 5.9; pz += 6.0) {
+      postPositions.push([rioX - barHalfW, rioLakeZ + pz]);
+      postPositions.push([rioX + barHalfW, rioLakeZ + pz]);
+    }
+    const postGeo = new THREE.BoxGeometry(0.42, 1.15, 0.42);
+    const postInst = new THREE.InstancedMesh(postGeo, bollardMat, postPositions.length);
+    const pDummy = new THREE.Object3D();
+    postPositions.forEach(([px, pz], idx) => {
+      pDummy.position.set(px, 0.25 + 0.575, pz);
+      pDummy.updateMatrix();
+      postInst.setMatrixAt(idx, pDummy.matrix);
+    });
+    postInst.instanceMatrix.needsUpdate = true;
+    postInst.computeBoundingSphere();
+    sceneryGroup.add(postInst);
+
+    // Timber Boardwalk & Carousel Pier along North Shore
+    const rioBoardwalk = new THREE.Mesh(new THREE.BoxGeometry(92, 0.42, 10), makeCityMat({ color: 0x7c4a26, roughness: 0.8 }));
+    rioBoardwalk.position.set(rioX, 0.42, rioLakeZ - 30);
+    rioBoardwalk.receiveShadow = isUltra;
     sceneryGroup.add(rioBoardwalk);
-    const carouselPier = new THREE.Mesh(new THREE.CylinderGeometry(10.5, 10.5, 0.6, 18), makeCityMat({ color: 0x7c4a26, roughness: 0.8 }));
-    carouselPier.position.set(rioX, 0.55, rioZ + 14);
+    const carouselPier = new THREE.Mesh(new THREE.CylinderGeometry(8.8, 8.8, 0.55, 18), makeCityMat({ color: 0x7c4a26, roughness: 0.8 }));
+    carouselPier.position.set(rioX, 0.52, rioLakeZ - 15);
     sceneryGroup.add(carouselPier);
-    const carouselCanopy = new THREE.Mesh(new THREE.ConeGeometry(8.8, 4.8, 16), makeCityMat({ color: 0xef4444, roughness: 0.45 }));
-    carouselCanopy.position.set(rioX, 6.8, rioZ + 14);
+    const carouselCanopy = new THREE.Mesh(new THREE.ConeGeometry(7.6, 4.4, 16), makeCityMat({ color: 0xef4444, roughness: 0.45 }));
+    carouselCanopy.position.set(rioX, 6.4, rioLakeZ - 15);
     sceneryGroup.add(carouselCanopy);
-    const rioCinema = new THREE.Mesh(new THREE.BoxGeometry(74, 15, 26), boxWithRoofMat(makeBrickFacadeMat('#9a3412', '#fef3c7', '#fbbf24', 8, 3, false), flatRoofMat));
-    rioCinema.position.set(rioX, 7.75, rioZ - 38);
-    sceneryGroup.add(rioCinema);
-    const rioMarquee = new THREE.Mesh(new THREE.BoxGeometry(46, 1.0, 5.2), campusDarkMat);
-    rioMarquee.position.set(rioX, 5.6, rioZ - 22.5);
-    sceneryGroup.add(rioMarquee);
-    const rioCrown = new THREE.Mesh(new THREE.BoxGeometry(75.5, 1.3, 27.5), campusTrimMat);
-    rioCrown.position.set(rioX, 15.6, rioZ - 38);
-    sceneryGroup.add(rioCrown);
-    const rioSign = new THREE.Mesh(
-      new THREE.BoxGeometry(54, 3.4, 0.5),
-      makeTextSignMat(['RIO LAKEFRONT · WASHINGTONIAN', 'AMC DINE-IN · BOARDWALK CAROUSEL'], '#0f172a', '#fde047', '#38bdf8')
-    );
-    rioSign.position.set(rioX, 13.5, rioZ - 24.6);
-    sceneryGroup.add(rioSign);
-    cityBuildings.push({ minX: rioX - 38, maxX: rioX + 38, minZ: rioZ - 52, maxZ: rioZ - 24, height: 17, name: 'RIO Lakefront AMC & Promenade' });
+
+    // Waterfront Stores & Restaurants surrounding all 4 sides of RIO Lake
+    const rioStores: {
+      x: number;
+      z: number;
+      w: number;
+      h: number;
+      d: number;
+      brickHex: string;
+      winHex: string;
+      signLines?: string[];
+      signSide?: 'N' | 'S' | 'E' | 'W';
+      name: string;
+    }[] = [
+      // North Row (facing lake)
+      { x: gx(-464), z: gz(2244), w: 42, h: 15, d: 20, brickHex: '#9a3412', winHex: '#fbbf24', signLines: ['RIO LAKEFRONT · WASHINGTONIAN', 'AMC DINE-IN 18 · BOARDWALK'], signSide: 'S', name: 'RIO Lakefront AMC Dine-In 18' },
+      { x: gx(-502), z: gz(2248), w: 24, h: 12, d: 18, brickHex: '#b91c1c', winHex: '#f8fafc', signLines: ['TARGET · DICK\'S SPORTING GOODS', 'RIO WASHINGTONIAN CENTER'], signSide: 'S', name: 'RIO Target & Dick\'s Sporting Goods' },
+      { x: gx(-426), z: gz(2248), w: 24, h: 11.5, d: 18, brickHex: '#78350f', winHex: '#fde68a', signLines: ['BARNES & NOBLE · COPPER CANYON', 'WATERFRONT SHOPS'], signSide: 'S', name: 'RIO Barnes & Noble & Copper Canyon' },
+      // West Row (facing lake East)
+      { x: gx(-516), z: gz(2289), w: 14, h: 10.5, d: 22, brickHex: '#a16207', winHex: '#fef08a', signLines: ['UNCLE JULIO\'S RIO'], signSide: 'E', name: 'Uncle Julio\'s Rio Grande Cafe' },
+      { x: gx(-516), z: gz(2317), w: 14, h: 10.0, d: 22, brickHex: '#475569', winHex: '#bae6fd', signLines: ['TRUE FOOD KITCHEN · BOUTIQUES'], signSide: 'E', name: 'True Food Kitchen & RIO Shops' },
+      // East Row (facing lake West)
+      { x: gx(-412), z: gz(2290), w: 14, h: 10.5, d: 20, brickHex: '#7c2d12', winHex: '#fde68a', signLines: ['GUAPO\'S CANTINA · PATIO'], signSide: 'W', name: 'Guapo\'s Cantina RIO' },
+      { x: gx(-404), z: gz(2320), w: 14, h: 10.0, d: 20, brickHex: '#334155', winHex: '#38bdf8', signLines: ['SILVER DINER · LAKEFRONT'], signSide: 'W', name: 'Silver Diner RIO Lakefront' },
+      // South Row (facing lake North)
+      { x: gx(-486), z: gz(2344), w: 20, h: 9.5, d: 11, brickHex: '#8b3a2b', winHex: '#fef3c7', signLines: ['CHARLEY PRIME FOODS'], signSide: 'N', name: 'Charley Prime Foods RIO' },
+      { x: gx(-458), z: gz(2344), w: 20, h: 9.5, d: 11, brickHex: '#57534e', winHex: '#bae6fd', signLines: ['YARD HOUSE · LAKEFRONT PATIO'], signSide: 'N', name: 'Yard House RIO' },
+      { x: gx(-430), z: gz(2344), w: 20, h: 9.5, d: 11, brickHex: '#1e3a5f', winHex: '#fde047', signLines: ['LAKESIDE BISTRO & GELATO'], signSide: 'N', name: 'Lakeside Bistro & Shops' },
+    ];
+    for (const st of rioStores) {
+      const mat = makeBrickFacadeMat(st.brickHex, '#f1f5f9', st.winHex, 6, 2, true);
+      const bMesh = new THREE.Mesh(new THREE.BoxGeometry(st.w, st.h, st.d), boxWithRoofMat(mat, flatRoofMat));
+      bMesh.position.set(st.x, st.h * 0.5 + 0.25, st.z);
+      bMesh.castShadow = isUltra;
+      bMesh.receiveShadow = isUltra;
+      sceneryGroup.add(bMesh);
+      const crown = new THREE.Mesh(new THREE.BoxGeometry(st.w + 1.0, 0.9, st.d + 1.0), campusTrimMat);
+      crown.position.set(st.x, st.h + 0.7, st.z);
+      sceneryGroup.add(crown);
+      if (st.signLines) {
+        const signFaceW = st.signSide === 'N' || st.signSide === 'S' ? Math.min(st.w - 3, 28) : Math.min(st.d - 3, 18);
+        const sMesh = new THREE.Mesh(
+          new THREE.BoxGeometry(signFaceW, 2.4, 0.35),
+          makeTextSignMat(st.signLines, '#0f172a', '#fde047', '#38bdf8')
+        );
+        if (st.signSide === 'S') sMesh.position.set(st.x, st.h - 1.6, st.z + st.d * 0.5 + 0.25);
+        else if (st.signSide === 'N') sMesh.position.set(st.x, st.h - 1.6, st.z - st.d * 0.5 - 0.25);
+        else if (st.signSide === 'E') {
+          sMesh.rotation.y = Math.PI / 2;
+          sMesh.position.set(st.x + st.w * 0.5 + 0.25, st.h - 1.6, st.z);
+        } else {
+          sMesh.rotation.y = -Math.PI / 2;
+          sMesh.position.set(st.x - st.w * 0.5 - 0.25, st.h - 1.6, st.z);
+        }
+        sceneryGroup.add(sMesh);
+      }
+      cityBuildings.push({
+        minX: st.x - st.w * 0.5 - 0.6,
+        maxX: st.x + st.w * 0.5 + 0.6,
+        minZ: st.z - st.d * 0.5 - 0.6,
+        maxZ: st.z + st.d * 0.5 + 0.6,
+        height: st.h + 2,
+        name: st.name,
+      });
+    }
 
     const crownBrickMat = makeBrickFacadeMat('#57534e', '#e2e8f0', '#fde047', 7, 3, false);
     const crownBlock = new THREE.Mesh(new THREE.BoxGeometry(64, 16, 36), boxWithRoofMat(crownBrickMat, flatRoofMat));
@@ -1095,12 +1220,12 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
       { x: gx(-510), z: gz(1898), rotY: 0, addr: '112 Clopper Rd', col: 0xe2e8f0, roof: 0x1e293b, tier: 'regular' as const },
       { x: gx(-598), z: gz(1898), rotY: Math.PI / 2, addr: '118 Lakelands Dr', col: 0x881337, roof: 0x1e1b4b, tier: 'luxury' as const },
       { x: gx(-530), z: gz(2175), rotY: 0, addr: '208 Kentlands Blvd', col: 0xd97706, roof: 0x451a03, tier: 'luxury' as const },
-      { x: gx(-472), z: gz(2352), rotY: Math.PI, addr: '308 Kent Oaks Way', col: 0xe2e8f0, roof: 0x0f172a, tier: 'luxury' as const },
-      { x: gx(-340), z: gz(1596), rotY: 0, addr: '19104 Whetstone Dr', col: 0x881337, roof: 0x1e1b4b, tier: 'regular' as const },
-      { x: gx(176), z: gz(1602), rotY: -Math.PI / 2, addr: '19116 Centerway Rd', col: 0xe2e8f0, roof: 0x1e293b, tier: 'regular' as const },
-      { x: gx(245), z: gz(1602), rotY: Math.PI / 2, addr: '19128 Shadow Oak Dr', col: 0x78716c, roof: 0x292524, tier: 'regular' as const },
-      { x: gx(255), z: gz(2236), rotY: Math.PI, addr: '412 Muncaster Mill Rd', col: 0xe2e8f0, roof: 0x1e293b, tier: 'luxury' as const },
-      { x: gx(330), z: gz(2225), rotY: Math.PI, addr: '420 Redland Rd', col: 0x78716c, roof: 0x292524, tier: 'regular' as const },
+      { x: gx(-472), z: gz(2408), rotY: 0, addr: '308 Kent Oaks Way', col: 0xe2e8f0, roof: 0x0f172a, tier: 'luxury' as const },
+      { x: gx(-340), z: gz(1596), rotY: 0, addr: '9768 Whetstone Dr', col: 0x881337, roof: 0x1e1b4b, tier: 'regular' as const },
+      { x: gx(176), z: gz(1602), rotY: -Math.PI / 2, addr: '9085 Centerway Rd', col: 0xe2e8f0, roof: 0x1e293b, tier: 'regular' as const },
+      { x: gx(245), z: gz(1602), rotY: Math.PI / 2, addr: '9722 Shadow Oak Dr', col: 0x78716c, roof: 0x292524, tier: 'regular' as const },
+      { x: gx(255), z: gz(2236), rotY: Math.PI, addr: '7212 Muncaster Mill Rd', col: 0xe2e8f0, roof: 0x1e293b, tier: 'luxury' as const },
+      { x: gx(330), z: gz(2225), rotY: Math.PI, addr: '15920 Redland Rd', col: 0x78716c, roof: 0x292524, tier: 'regular' as const },
       { x: gx(40), z: gz(2242), rotY: Math.PI, addr: '312 E Deer Park Dr', col: 0xd97706, roof: 0x451a03, tier: 'regular' as const },
     ];
     for (const gH of gaithSuburbs) {
@@ -1139,10 +1264,12 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
       }
       if (nearRoadOrFeature) continue;
       if (
-        (tx >= gx(360) && tx <= gx(735) && tz >= gz(1375) && tz <= gz(1925)) ||
+        (tx >= gx(245) && tx <= gx(805) && tz >= gz(1045) && tz <= gz(1925)) ||
+        (tx >= gx(-205) && tx <= gx(-35) && tz >= gz(1530) && tz <= gz(1600)) ||
+        (tx >= gx(235) && tx <= gx(410) && tz >= gz(2240) && tz <= gz(2315)) ||
         (tx >= gx(95) && tx <= gx(255) && tz >= gz(1940) && tz <= gz(2105)) ||
         (tx >= gx(-365) && tx <= gx(-265) && tz >= gz(1655) && tz <= gz(1735)) ||
-        (tx >= gx(-510) && tx <= gx(-365) && tz >= gz(2225) && tz <= gz(2345)) ||
+        (tx >= gx(-535) && tx <= gx(-365) && tz >= gz(2225) && tz <= gz(2360)) ||
         (tx >= gx(-665) && tx <= gx(-555) && tz >= gz(2245) && tz <= gz(2335)) ||
         (tx >= gx(-205) && tx <= gx(-95) && tz >= gz(1825) && tz <= gz(1920))
       ) {

@@ -9,12 +9,14 @@ import {
   BuiltSuburbanHouse,
   buildSuburbanHouseMesh,
 } from './cityTrafficBuilder';
+import { SuburbanBatchBuilder } from './suburbanBatchBuilder';
 
 export interface BaltimoreBuilderContext {
   group: THREE.Group;
   sceneryGroup: THREE.Group;
   cityBuildings: CityBuildingBox[];
   suburbanHouses: BuiltSuburbanHouse[];
+  suburbanBatch: SuburbanBatchBuilder;
   streetAsphaltMat: THREE.Material;
   whiteLineMat: THREE.Material;
   sidewalkMat: THREE.Material;
@@ -23,7 +25,7 @@ export interface BaltimoreBuilderContext {
   goldMat: THREE.Material;
   isUltra: boolean;
   isRetroPixel: boolean;
-  makeCityMat: (opts: { color?: number; map?: THREE.Texture; roughness?: number; metalness?: number }) => THREE.Material;
+  makeCityMat: (opts: { color?: number; map?: THREE.Texture; roughness?: number; metalness?: number; envMapIntensity?: number }) => THREE.Material;
   makeTextSignMat: (
     lines: string[],
     bgHex: string,
@@ -52,6 +54,7 @@ export function buildBaltimoreDistrict(ctx: BaltimoreBuilderContext): {
     sceneryGroup,
     cityBuildings,
     suburbanHouses,
+    suburbanBatch,
     streetAsphaltMat,
     whiteLineMat,
     sidewalkMat,
@@ -135,7 +138,7 @@ export function buildBaltimoreDistrict(ctx: BaltimoreBuilderContext): {
     const wtcZ = -118;
     const wtcTower = new THREE.Mesh(new THREE.CylinderGeometry(18, 18, 96, 5), [wtcWallMat, flatRoofMat, flatRoofMat]);
     wtcTower.position.set(wtcX, 0.4 + 48, wtcZ);
-    wtcTower.castShadow = !isUltra && !isRetroPixel;
+    wtcTower.castShadow = isUltra;
     sceneryGroup.add(wtcTower);
 
     const wtcCrown = new THREE.Mesh(new THREE.CylinderGeometry(18.8, 18.8, 4.5, 5), limestoneMat);
@@ -262,7 +265,7 @@ export function buildBaltimoreDistrict(ctx: BaltimoreBuilderContext): {
     const domBrickMat = makeBrickFacadeMat('#7f1d1d', '#94a3b8', '#fbbf24', 8, 5, false);
     const refinery = new THREE.Mesh(new THREE.BoxGeometry(60, 26, 30), boxWithRoofMat(domBrickMat, flatRoofMat));
     refinery.position.set(domX, 0.35 + 13, domZ);
-    refinery.castShadow = !isUltra && !isRetroPixel;
+    refinery.castShadow = isUltra;
     sceneryGroup.add(refinery);
 
     for (const sx of [-22, -10]) {
@@ -412,7 +415,7 @@ export function buildBaltimoreDistrict(ctx: BaltimoreBuilderContext): {
 
     const warehouse = new THREE.Mesh(new THREE.BoxGeometry(12, 28, 68), boxWithRoofMat(boBrickMat, flatRoofMat));
     warehouse.position.set(camX + 32, 0.35 + 14, camZ);
-    warehouse.castShadow = !isUltra && !isRetroPixel;
+    warehouse.castShadow = isUltra;
     sceneryGroup.add(warehouse);
     const boRoof = buildPitchedRoofGroup(12.4, 68, 3.2, boBrickMat, darkSlateRoofMat, 'z');
     boRoof.position.set(camX + 32, 0.35 + 28, camZ);
@@ -520,7 +523,7 @@ export function buildBaltimoreDistrict(ctx: BaltimoreBuilderContext): {
     const bZ = -278;
     const bankBody = new THREE.Mesh(new THREE.BoxGeometry(32, 24, 26), marbleMat);
     bankBody.position.set(bX, 0.35 + 12, bZ);
-    bankBody.castShadow = !isUltra && !isRetroPixel;
+    bankBody.castShadow = isUltra;
     sceneryGroup.add(bankBody);
 
     const bankSteps = new THREE.Mesh(new THREE.BoxGeometry(26, 1.2, 6), limestoneMat);
@@ -555,7 +558,7 @@ export function buildBaltimoreDistrict(ctx: BaltimoreBuilderContext): {
     const pZ = -278;
     const precinctBody = new THREE.Mesh(new THREE.BoxGeometry(30, 26, 26), boxWithRoofMat(limestoneOfficeMat, flatRoofMat));
     precinctBody.position.set(pX, 0.35 + 13, pZ);
-    precinctBody.castShadow = !isUltra && !isRetroPixel;
+    precinctBody.castShadow = isUltra;
     sceneryGroup.add(precinctBody);
 
     const blueStrip = new THREE.Mesh(new THREE.BoxGeometry(30.5, 1.0, 26.5), policeBlueMat);
@@ -629,7 +632,7 @@ export function buildBaltimoreDistrict(ctx: BaltimoreBuilderContext): {
     const boaZ = -202;
     const boaLower = new THREE.Mesh(new THREE.BoxGeometry(24, 66, 24), boxWithRoofMat(limestoneOfficeMat, flatRoofMat));
     boaLower.position.set(boaX, 0.35 + 33, boaZ);
-    boaLower.castShadow = !isUltra && !isRetroPixel;
+    boaLower.castShadow = isUltra;
     sceneryGroup.add(boaLower);
     const boaSetback = new THREE.Mesh(new THREE.BoxGeometry(17, 20, 17), boxWithRoofMat(limestoneOfficeMat, flatRoofMat));
     boaSetback.position.set(boaX, 0.35 + 66 + 10, boaZ);
@@ -662,7 +665,7 @@ export function buildBaltimoreDistrict(ctx: BaltimoreBuilderContext): {
       sceneryGroup.add(podium);
       const box = new THREE.Mesh(new THREE.BoxGeometry(tw.w, tw.h, tw.d), boxWithRoofMat(tw.mat, flatRoofMat));
       box.position.set(tw.x, 0.35 + tw.h * 0.5, tw.z);
-      box.castShadow = !isUltra && !isRetroPixel;
+      box.castShadow = isUltra;
       sceneryGroup.add(box);
       const crown = new THREE.Mesh(new THREE.BoxGeometry(tw.w * 0.78, 8, tw.d * 0.78), limestoneMat);
       crown.position.set(tw.x, 0.35 + tw.h + 4, tw.z);
@@ -921,13 +924,15 @@ export function buildBaltimoreDistrict(ctx: BaltimoreBuilderContext): {
 
     const rowhomeStrips = [
       // Bolton Hill / Midtown (between MLK & Cathedral St)
-      { startX: 1112, startZ: -380, count: 6, stepZ: 17.5, dirStoop: -1, label: 'Bolton Hill Rowhomes' },
+      { startX: 1112, startZ: -440, count: 9, stepZ: 17.5, dirStoop: -1, label: 'Bolton Hill Rowhomes' },
       // Charles Village (along N Charles St north of Penn Station)
-      { startX: 1188, startZ: -640, count: 6, stepZ: 17.5, dirStoop: 1, label: 'Charles Village Rowhomes' },
+      { startX: 1188, startZ: -740, count: 9, stepZ: 17.5, dirStoop: 1, label: 'Charles Village Rowhomes' },
       // Canton / Butcher's Hill (between Fayette & Pratt east of JHH)
-      { startX: 1412, startZ: -242, count: 4, stepZ: 16.5, dirStoop: -1, label: 'Canton Brick Rowhomes' },
+      { startX: 1412, startZ: -244, count: 4, stepZ: 16.5, dirStoop: -1, label: 'Canton Brick Rowhomes' },
+      // Highlandtown / East Baltimore strip east of Patterson Park
+      { startX: 1595, startZ: -380, count: 6, stepZ: 17.5, dirStoop: 1, label: 'Highlandtown Brick Rowhomes' },
       // Federal Hill residential west of Light St
-      { startX: 1222, startZ: -22, count: 3, stepZ: 16.0, dirStoop: 1, label: 'Federal Hill Rowhomes' },
+      { startX: 1218, startZ: -38, count: 4, stepZ: 16.0, dirStoop: 1, label: 'Federal Hill Rowhomes' },
     ];
 
     for (const strip of rowhomeStrips) {
@@ -942,7 +947,7 @@ export function buildBaltimoreDistrict(ctx: BaltimoreBuilderContext): {
 
           const unit = new THREE.Mesh(new THREE.BoxGeometry(15.2, rH, 7.6), boxWithRoofMat(unitMat, flatRoofMat));
           unit.position.set(rx, 0.3 + rH * 0.5, rz);
-          unit.castShadow = !isUltra && !isRetroPixel;
+          unit.castShadow = isUltra;
           sceneryGroup.add(unit);
 
           const cornice = new THREE.Mesh(new THREE.BoxGeometry(15.7, 0.85, 7.8), corniceMat);
@@ -1002,7 +1007,7 @@ export function buildBaltimoreDistrict(ctx: BaltimoreBuilderContext): {
     const masjidZ = -6;
     const masjidBody = new THREE.Mesh(new THREE.BoxGeometry(36, 15, 34), boxWithRoofMat(isbBrickMat, flatRoofMat));
     masjidBody.position.set(masjidX, 7.5, masjidZ);
-    masjidBody.castShadow = !isUltra && !isRetroPixel;
+    masjidBody.castShadow = isUltra;
     isbGroup.add(masjidBody);
 
     const masjidBand = new THREE.Mesh(new THREE.BoxGeometry(36.6, 1.3, 34.6), isbLimestoneMat);
@@ -1164,10 +1169,10 @@ export function buildBaltimoreDistrict(ctx: BaltimoreBuilderContext): {
     // Woodbridge Valley / Catonsville Detached Homes along N Rolling Rd & Ingleside Ave
     const catonsvilleHomes = [
       { x: 726, z: -245, rotY: -Math.PI / 2, addr: '6604 Johnnycake Rd', col: 0x881337, roof: 0x1e293b },
-      { x: 726, z: -200, rotY: -Math.PI / 2, addr: '6612 Ingleside Ave', col: 0x78716c, roof: 0x292524 },
-      { x: 730, z: -115, rotY: 0, addr: '1205 Woodbridge Valley', col: 0x334155, roof: 0x0f172a },
-      { x: 798, z: -108, rotY: 0, addr: '1211 Rolling Rd (Catonsville)', col: 0xe2e8f0, roof: 0x1e293b },
-      { x: 796, z: -78, rotY: Math.PI, addr: '6308 Frederick Rd', col: 0x8b3a2b, roof: 0x292524 },
+      { x: 726, z: -200, rotY: -Math.PI / 2, addr: '1412 Ingleside Ave', col: 0x78716c, roof: 0x292524 },
+      { x: 730, z: -115, rotY: 0, addr: '1205 Woodbridge Rd', col: 0x334155, roof: 0x0f172a },
+      { x: 798, z: -108, rotY: 0, addr: '812 S Rolling Rd (Catonsville)', col: 0xe2e8f0, roof: 0x1e293b },
+      { x: 796, z: -78, rotY: Math.PI, addr: '814 Frederick Rd', col: 0x8b3a2b, roof: 0x292524 },
     ];
     for (const ch of catonsvilleHomes) {
       const built = buildSuburbanHouseMesh(ch.x, ch.z, ch.rotY, {
@@ -1180,6 +1185,58 @@ export function buildBaltimoreDistrict(ctx: BaltimoreBuilderContext): {
       suburbanHouses.push(built);
       cityBuildings.push(built.collider);
     }
+
+    // Expanded Catonsville, Woodlawn & Towson Suburban Neighborhood Clusters
+    const baltSuburbSpecs: { x: number; z: number; rotY: number; num: string; st: string; city: string }[] = [
+      // Woodlawn North (north of Security Blvd -450 and Security Square -525)
+      { x: 742, z: -560, rotY: 0, num: '6702', st: 'Windsor Mill Rd', city: 'Woodlawn' },
+      { x: 760, z: -560, rotY: 0, num: '6706', st: 'Windsor Mill Rd', city: 'Woodlawn' },
+      { x: 778, z: -560, rotY: 0, num: '6710', st: 'Windsor Mill Rd', city: 'Woodlawn' },
+      { x: 796, z: -560, rotY: 0, num: '6714', st: 'Windsor Mill Rd', city: 'Woodlawn' },
+      { x: 742, z: -592, rotY: Math.PI, num: '6703', st: 'Windsor Mill Rd', city: 'Woodlawn' },
+      { x: 760, z: -592, rotY: Math.PI, num: '6707', st: 'Windsor Mill Rd', city: 'Woodlawn' },
+      { x: 778, z: -592, rotY: Math.PI, num: '6711', st: 'Windsor Mill Rd', city: 'Woodlawn' },
+      { x: 796, z: -592, rotY: Math.PI, num: '6715', st: 'Windsor Mill Rd', city: 'Woodlawn' },
+      // Catonsville / Woodbridge Valley East
+      { x: 850, z: -185, rotY: 0, num: '6204', st: 'Edmondson Ave', city: 'Catonsville' },
+      { x: 868, z: -185, rotY: 0, num: '6208', st: 'Edmondson Ave', city: 'Catonsville' },
+      { x: 886, z: -185, rotY: 0, num: '6212', st: 'Edmondson Ave', city: 'Catonsville' },
+      { x: 850, z: -152, rotY: Math.PI, num: '6205', st: 'Edmondson Ave', city: 'Catonsville' },
+      { x: 868, z: -152, rotY: Math.PI, num: '6209', st: 'Edmondson Ave', city: 'Catonsville' },
+      { x: 886, z: -152, rotY: Math.PI, num: '6213', st: 'Edmondson Ave', city: 'Catonsville' },
+      // Gwynn Oak / Howard Park
+      { x: 910, z: -360, rotY: 0, num: '4402', st: 'Liberty Heights Ave', city: 'Baltimore' },
+      { x: 928, z: -360, rotY: 0, num: '4406', st: 'Liberty Heights Ave', city: 'Baltimore' },
+      { x: 946, z: -360, rotY: 0, num: '4410', st: 'Liberty Heights Ave', city: 'Baltimore' },
+      { x: 910, z: -392, rotY: Math.PI, num: '4403', st: 'Liberty Heights Ave', city: 'Baltimore' },
+      { x: 928, z: -392, rotY: Math.PI, num: '4407', st: 'Liberty Heights Ave', city: 'Baltimore' },
+      { x: 946, z: -392, rotY: Math.PI, num: '4411', st: 'Liberty Heights Ave', city: 'Baltimore' },
+      // Towson / Rodgers Forge West of N Charles St
+      { x: 1096, z: -760, rotY: 0, num: '512', st: 'York Rd', city: 'Towson' },
+      { x: 1114, z: -760, rotY: 0, num: '516', st: 'York Rd', city: 'Towson' },
+      { x: 1132, z: -760, rotY: 0, num: '520', st: 'York Rd', city: 'Towson' },
+      { x: 1150, z: -760, rotY: 0, num: '524', st: 'York Rd', city: 'Towson' },
+    ];
+    baltSuburbSpecs.forEach((b, idx) => {
+      suburbanBatch.addHouse(
+        {
+          x: b.x,
+          z: b.z,
+          rotY: b.rotY,
+          houseNum: b.num,
+          street: b.st,
+          cityTag: b.city,
+          style: idx % 2 === 0 ? 'colonial' : 'split',
+          sidingHex: ['#e7dec8', '#cbd5e1', '#d6ccb8', '#f1f5f9'][idx % 4],
+          roofColor: [0x1e293b, 0x292524, 0x3b2f2f][idx % 3],
+          shutterColor: [0x14532d, 0x0f172a, 0x7f1d1d][idx % 3],
+          doorColor: [0x7f1d1d, 0x1e3a8a, 0x14532d][idx % 3],
+          brickFront: idx % 2 === 0,
+        },
+        suburbanHouses,
+        cityBuildings
+      );
+    });
 
     // White Lane Stripes inside Parking Lot Helper sanity signposts around Woodlawn/ISB
     void whiteLineMat;

@@ -51,6 +51,7 @@ import {
   buildPoliceInterceptorMesh,
   updateVehicleLighting,
 } from './cityTrafficBuilder';
+import type { LockpickTargetInfo } from '../components/LockpickMinigame';
 import {
   fetchLiveGaithersburgWeather,
   getOverriddenWeather,
@@ -412,6 +413,8 @@ export class PhysicsEngine {
   private civHornCooldowns: Map<string, number> = new Map();
   public isMinigamePaused: boolean = false;
   private bankMinigameGraceTimer: number = 0;
+  private pickedHouseIds: Set<string> = new Set();
+  private houseLootSalt: number = Math.floor(Math.random() * 100000);
   public cityPursuitStats: {
     wantedStars: number;
     pursuitState: 'CLEAR' | 'PURSUIT' | 'COOLDOWN' | 'BUSTED';
@@ -498,6 +501,7 @@ export class PhysicsEngine {
       distMeters: number;
       robPayoutCash: number;
       robCooldownLeftSec: number;
+      hideRobPayout?: boolean;
     } | null;
     activeRegularJob: {
       jobId: string;
@@ -620,7 +624,9 @@ export class PhysicsEngine {
       payoutCash: number;
       streetLocation: string;
       icon: string;
+      hidePayoutUntilStolen?: boolean;
     } | null;
+    activeLockpickTarget: LockpickTargetInfo | null;
   } = {
     wantedStars: 0,
     pursuitState: 'CLEAR',
@@ -703,6 +709,7 @@ export class PhysicsEngine {
     heistDebtAmount: 0,
     completedMissionIds: [],
     activeBankMinigameTarget: null,
+    activeLockpickTarget: null,
   };
 
   public currentWeather: GaithersburgWeather = (() => {
@@ -4139,10 +4146,25 @@ export class PhysicsEngine {
       const road = ALL_MARYLAND_ROADS[rIdx];
       const pts = road.points;
       if (pts.length < 2) continue;
-      // Skip tiny residential cul-de-sac loops so neighborhood streets stay calm & realistic
-      if (road.isResidential && road.id !== 'edinburgh_brenish_dr' && road.id !== 'hadley_farms_dr') continue;
 
-      const carsOnRoad = road.isHighway ? 4 : road.region === 'gaithersburg' || road.region === 'baltimore' ? 2 : 2;
+      let carsOnRoad = 4;
+      if (road.isHighway) {
+        carsOnRoad = 8;
+      } else if (road.isResidential) {
+        const isMainCollector =
+          road.width >= 11 ||
+          road.id === 'brenish_dr' ||
+          road.id === 'kildonan_dr' ||
+          road.id === 'hadley_farms_dr' ||
+          road.id === 'kilcreggan_way' ||
+          road.id === 'filbert_dr' ||
+          road.id === 'boxberry_dr';
+        carsOnRoad = isMainCollector ? 2 : 1;
+      } else if (road.region === 'gaithersburg' || road.region === 'baltimore') {
+        carsOnRoad = 5;
+      } else {
+        carsOnRoad = 4;
+      }
       for (let slot = 0; slot < carsOnRoad; slot++) {
         const segIdx = Math.min(pts.length - 2, Math.floor(((slot + 0.5) / carsOnRoad) * (pts.length - 1)));
         const routeDir: 1 | -1 = slot % 2 === 0 ? 1 : -1;
@@ -4245,7 +4267,7 @@ export class PhysicsEngine {
       }
     }
 
-    // Spawn 10 Maryland State & County Police Interceptors patrolling across all MD regions
+    // Spawn 16 Maryland State & County Police Interceptors patrolling across all MD regions
     const patrolRoadIds = [
       'woodfield_rd',
       'md_355',
@@ -4257,6 +4279,12 @@ export class PhysicsEngine {
       'us50_east',
       'i70_md',
       'oc_coastal_hwy',
+      'goshen_rd',
+      'snouffer_school_rd',
+      'i370_metro',
+      'baltimore_harbor_blvd',
+      'us40_national_pike',
+      'md2_solomons',
     ];
 
     for (let pIdx = 0; pIdx < patrolRoadIds.length; pIdx++) {
@@ -5267,6 +5295,35 @@ export class PhysicsEngine {
     return Math.round(Math.max(4500, Math.min(34000, house.price * 0.22)));
   }
 
+  private computeSuburbanHousePayout(idx: number): number {
+    // Wide randomized cash inside suburban houses: from very little ($350-$1,850) up to surprise big safes ($38k-$95k)
+    const raw = Math.imul((idx + 17) ^ this.houseLootSalt, 2654435761) >>> 0;
+    const pct = (raw % 1000) / 1000;
+    const sub = ((raw >>> 10) % 1000) / 1000;
+    if (pct < 0.34) {
+      return Math.round((350 + sub * 1500) / 50) * 50;
+    } else if (pct < 0.68) {
+      return Math.round((2200 + sub * 6300) / 100) * 100;
+    } else if (pct < 0.9) {
+      return Math.round((11000 + sub * 17000) / 500) * 500;
+    } else {
+      return Math.round((38000 + sub * 57000) / 1000) * 1000;
+    }
+  }
+
+  private getHouseLockProfile(houseId: string): { isLocked: boolean; hasSecuritySystem: boolean; pinCount: number } {
+    let h = 2166136261;
+    for (let i = 0; i < houseId.length; i++) {
+      h ^= houseId.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    const u = Math.abs(h);
+    const isLocked = u % 100 < 62;
+    const hasSecuritySystem = isLocked && ((u >>> 4) % 100) < 42;
+    const pinCount = 3 + ((u >>> 8) % 2);
+    return { isLocked, hasSecuritySystem, pinCount };
+  }
+
   private resolveMinigameTargetSpec(targetId: string): CityHeistTargetSpec | undefined {
     const direct = CITY_HEIST_TARGETS_CATALOG.find((h) => h.id === targetId);
     if (direct) return direct;
@@ -5291,12 +5348,33 @@ export class PhysicsEngine {
           description: house.description,
         };
       }
+      if (houseId.startsWith('suburban_')) {
+        const idx = Number(houseId.slice('suburban_'.length));
+        const sub = Number.isFinite(idx) ? this.track.suburbanHouses?.[idx] : undefined;
+        if (sub) {
+          return {
+            id: targetId,
+            name: sub.address,
+            category: 'HOUSE',
+            icon: '🏠',
+            x: sub.drivewayTarget.x,
+            z: sub.drivewayTarget.z,
+            streetLocation: sub.address,
+            payoutCash: this.computeSuburbanHousePayout(idx),
+            robDurationSec: 3.0,
+            wantedStarsTriggered: 5,
+            cooldownSec: 70,
+            badgeColor: '#22c55e',
+            description: 'Suburban residence robbery target.',
+          };
+        }
+      }
     }
     return undefined;
   }
 
   /**
-   * Rob an unowned real-estate house directly at its driveway
+   * Rob an unowned real-estate house directly at its driveway (with lockpicking + home security system alarm checks)
    */
   public triggerHouseRobbery(houseId: string) {
     if (!this.isCityMode) return;
@@ -5305,6 +5383,63 @@ export class PhysicsEngine {
       soundEngine.playCrash(0.25);
       this.cityPursuitStats.activeAlertBanner = `❌ SWORN OFFICER: Officers of the law protect Maryland and cannot rob residences!`;
       this.cityPursuitStats.activeAlertTimer = 4.5;
+      return;
+    }
+
+    if (houseId.startsWith('suburban_')) {
+      const idx = Number(houseId.slice('suburban_'.length));
+      const sub = Number.isFinite(idx) ? this.track.suburbanHouses?.[idx] : undefined;
+      if (!sub) return;
+
+      const dist = Math.hypot(
+        sub.drivewayTarget.x - this.playerPos.x,
+        sub.drivewayTarget.z - this.playerPos.z
+      );
+      if (dist > 32) {
+        this.setCityGpsTarget(sub.drivewayTarget.x, sub.drivewayTarget.z, `🏠 ${sub.address}`, '#22c55e');
+        this.cityPursuitStats.activeAlertBanner = `📍 GPS SET TO ${sub.address.toUpperCase()} (${Math.round(dist)}M AWAY) — DRIVE THERE TO ROB IT!`;
+        this.cityPursuitStats.activeAlertTimer = 4.0;
+        return;
+      }
+
+      const robTargetId = `house_rob_${houseId}`;
+      const cd = this.cityPursuitStats.heistCooldowns[robTargetId] || 0;
+      if (cd > 0) {
+        this.cityPursuitStats.activeAlertBanner = `🔒 ${sub.address.toUpperCase()} ALARM IS ON LOCKDOWN (${Math.ceil(cd)}S REMAINING)`;
+        this.cityPursuitStats.activeAlertTimer = 3.5;
+        return;
+      }
+
+      const lockProfile = this.getHouseLockProfile(houseId);
+      if (lockProfile.isLocked && !this.pickedHouseIds.has(houseId)) {
+        this.activeRobberyState = null;
+        this.playerSpeedKmh = 0;
+        this.isMinigamePaused = true;
+        this.cityPursuitStats.activeLockpickTarget = {
+          houseId,
+          name: sub.address,
+          hasSecuritySystem: lockProfile.hasSecuritySystem,
+          alarmTriggered: false,
+          pinCount: lockProfile.pinCount,
+        };
+        soundEngine.playStartLightBeep(false);
+        return;
+      }
+
+      const payoutCash = this.computeSuburbanHousePayout(idx);
+      this.activeRobberyState = null;
+      this.playerSpeedKmh = 0;
+      this.isMinigamePaused = true;
+      this.cityPursuitStats.activeBankMinigameTarget = {
+        id: robTargetId,
+        name: sub.address,
+        category: 'HOUSE',
+        payoutCash,
+        streetLocation: sub.address,
+        icon: '🏠',
+        hidePayoutUntilStolen: true,
+      };
+      soundEngine.playStartLightBeep(true);
       return;
     }
 
@@ -5333,6 +5468,22 @@ export class PhysicsEngine {
       return;
     }
 
+    const lockProfile = this.getHouseLockProfile(house.id);
+    if (lockProfile.isLocked && !this.pickedHouseIds.has(house.id)) {
+      this.activeRobberyState = null;
+      this.playerSpeedKmh = 0;
+      this.isMinigamePaused = true;
+      this.cityPursuitStats.activeLockpickTarget = {
+        houseId: house.id,
+        name: house.name,
+        hasSecuritySystem: lockProfile.hasSecuritySystem,
+        alarmTriggered: false,
+        pinCount: lockProfile.pinCount,
+      };
+      soundEngine.playStartLightBeep(false);
+      return;
+    }
+
     this.activeRobberyState = null;
     this.playerSpeedKmh = 0;
     this.isMinigamePaused = true;
@@ -5343,8 +5494,62 @@ export class PhysicsEngine {
       payoutCash: this.computeHouseRobPayout(house),
       streetLocation: house.streetLocation,
       icon: '🏠',
+      hidePayoutUntilStolen: true,
     };
     soundEngine.playStartLightBeep(true);
+  }
+
+  public completeHouseLockpick(houseId: string) {
+    this.pickedHouseIds.add(houseId);
+    this.cityPursuitStats.activeLockpickTarget = null;
+    this.triggerHouseRobbery(houseId);
+  }
+
+  public triggerHouseSecurityAlarm(_houseId: string) {
+    if (!this.isCityMode || this.cityPursuitStats.isPoliceOnDuty) return;
+    this.cityPursuitStats.wantedStars = Math.max(this.cityPursuitStats.wantedStars, 3);
+    this.cityPursuitStats.pursuitState = 'PURSUIT';
+    this.cityPursuitStats.escapeProgress = 0;
+    this.cityPursuitStats.bustProgress = 0;
+    if (this.cityPursuitStats.activeLockpickTarget) {
+      this.cityPursuitStats.activeLockpickTarget = {
+        ...this.cityPursuitStats.activeLockpickTarget,
+        alarmTriggered: true,
+      };
+    }
+    // Dispatch two closest police units toward player's neighborhood (at safe perimeter distance ~135m-170m) if very far
+    const sortedCops = [...this.cityPoliceCars].sort(
+      (a, b) =>
+        Math.hypot(a.pos.x - this.playerPos.x, a.pos.z - this.playerPos.z) -
+        Math.hypot(b.pos.x - this.playerPos.x, b.pos.z - this.playerPos.z)
+    );
+    for (let i = 0; i < Math.min(2, sortedCops.length); i++) {
+      const cop = sortedCops[i];
+      const d = Math.hypot(cop.pos.x - this.playerPos.x, cop.pos.z - this.playerPos.z);
+      if (d > 240) {
+        const ang = i === 0 ? 0.35 : 3.5;
+        const spawnDist = 140 + i * 35;
+        cop.pos.set(
+          this.playerPos.x + Math.cos(ang) * spawnDist,
+          0.25,
+          this.playerPos.z + Math.sin(ang) * spawnDist
+        );
+        cop.speedKmh = 115;
+      }
+      cop.built.setSirenActive(true, this.raceTimer);
+    }
+    this.addCityViolationAlert(
+      `🚨 HOME SECURITY SYSTEM TRIPPED! POLICE DISPATCHED TO ARREST YOU!`,
+      `Triggered Burglar Alarm while Lockpicking — ★${this.cityPursuitStats.wantedStars} Police Response`,
+      0,
+      0
+    );
+  }
+
+  public abortHouseLockpick() {
+    this.isMinigamePaused = false;
+    this.cityPursuitStats.activeLockpickTarget = null;
+    this.bankMinigameGraceTimer = 3.0;
   }
 
   /**
@@ -5389,6 +5594,23 @@ export class PhysicsEngine {
           this.triggerHouseRobbery(nearbyUnownedHouse.id);
           return;
         }
+        const subHouses = this.track.suburbanHouses;
+        if (subHouses && subHouses.length > 0) {
+          let bestSubDist = 22;
+          let bestSubIdx = -1;
+          for (let i = 0; i < subHouses.length; i++) {
+            const sub = subHouses[i];
+            const d = Math.hypot(sub.drivewayTarget.x - this.playerPos.x, sub.drivewayTarget.z - this.playerPos.z);
+            if (d < bestSubDist) {
+              bestSubDist = d;
+              bestSubIdx = i;
+            }
+          }
+          if (bestSubIdx >= 0) {
+            this.triggerHouseRobbery(`suburban_${bestSubIdx}`);
+            return;
+          }
+        }
       }
     }
 
@@ -5424,6 +5646,7 @@ export class PhysicsEngine {
       payoutCash: target.payoutCash,
       streetLocation: target.streetLocation,
       icon: target.icon,
+      hidePayoutUntilStolen: target.category === 'HOUSE',
     };
     soundEngine.playStartLightBeep(true);
     return;
@@ -5450,13 +5673,15 @@ export class PhysicsEngine {
       this.cityPursuitStats.heistCooldowns[target.id] = target.cooldownSec;
     }
 
-    // Same Federal Restitution Bust Penalty as getting caught fleeing after robbing a bank!
+    // Caught attempting/carrying robbery loot: return stolen loot + pay 2x stolen/targeted amount!
+    const priorTrunkLoot = this.pendingHeistLoot ? this.pendingHeistLoot.amount : 0;
+    const stolenOrAttempted = priorTrunkLoot + (target?.payoutCash || 5000);
     this.pendingHeistLoot = null;
     this.cityPursuitStats.pendingHeistLoot = null;
 
     const priorBusts = this.citySave.bankRobberyBustCount || 0;
     this.citySave.bankRobberyBustCount = priorBusts + 1;
-    const fineTaken = 500000 + priorBusts * 250000;
+    const fineTaken = stolenOrAttempted * 2;
     this.citySave.streetCash -= fineTaken;
 
     saveMetroCitySave(this.citySave);
@@ -5476,7 +5701,7 @@ export class PhysicsEngine {
     const debtStr = this.citySave.streetCash < 0
       ? ` | IN DEBT: -$${Math.abs(this.citySave.streetCash).toLocaleString()}`
       : '';
-    this.cityPursuitStats.activeAlertBanner = `🤖 KNOCKED OUT & CAPTURED BY SECURITY BOTS! Treated as Caught in Heist Chase — -$${fineTaken.toLocaleString()} RESTITUTION FINE! (Bust Record: #${this.citySave.bankRobberyBustCount}${debtStr})`;
+    this.cityPursuitStats.activeAlertBanner = `🤖 CAUGHT ROBBING $${stolenOrAttempted.toLocaleString()}! Returned stolen loot + paid 2× fine (-$${fineTaken.toLocaleString()})! (Bust #${this.citySave.bankRobberyBustCount}${debtStr})`;
     this.cityPursuitStats.activeAlertTimer = 7.0;
     this.playerPos.set(ICM_PLAYER_SPAWN.x, ICM_PLAYER_SPAWN.y, ICM_PLAYER_SPAWN.z);
     this.playerHeading = ICM_PLAYER_SPAWN.heading;
@@ -5678,9 +5903,44 @@ export class PhysicsEngine {
         distMeters: Math.round(closestHouseDist),
         robPayoutCash: this.computeHouseRobPayout(closestHouse),
         robCooldownLeftSec: Math.ceil(this.cityPursuitStats.heistCooldowns[robId] || 0),
+        hideRobPayout: true,
       };
     } else {
-      this.cityPursuitStats.nearbyHousePrompt = null;
+      const subHouses = this.track.suburbanHouses;
+      let bestSubIdx = -1;
+      let bestSubDist = 18.0;
+      if (subHouses && subHouses.length > 0) {
+        const px = this.playerPos.x;
+        const pz = this.playerPos.z;
+        for (let i = 0; i < subHouses.length; i++) {
+          const sub = subHouses[i];
+          if (Math.abs(sub.drivewayTarget.x - px) > 22 || Math.abs(sub.drivewayTarget.z - pz) > 22) continue;
+          const dDrive = Math.hypot(sub.drivewayTarget.x - px, sub.drivewayTarget.z - pz);
+          if (dDrive < bestSubDist) {
+            bestSubDist = dDrive;
+            bestSubIdx = i;
+          }
+        }
+      }
+      if (bestSubIdx >= 0 && subHouses) {
+        const bestSub = subHouses[bestSubIdx];
+        const subId = `suburban_${bestSubIdx}`;
+        const robId = `house_rob_${subId}`;
+        this.cityPursuitStats.nearbyHousePrompt = {
+          houseId: subId,
+          name: bestSub.address,
+          icon: '🏠',
+          price: 0,
+          isOwned: false,
+          passiveIncomePerMin: 0,
+          distMeters: Math.round(bestSubDist),
+          robPayoutCash: this.computeSuburbanHousePayout(bestSubIdx),
+          robCooldownLeftSec: Math.ceil(this.cityPursuitStats.heistCooldowns[robId] || 0),
+          hideRobPayout: true,
+        };
+      } else {
+        this.cityPursuitStats.nearbyHousePrompt = null;
+      }
     }
 
     // 1. Solid Skyscraper / Building Footprint Collision Check for Player
@@ -6492,30 +6752,33 @@ export class PhysicsEngine {
         this.resolveBuildingCollision(civ.pos, 2.2);
       }
 
-      civ.built.setWheelSpin(civ.speedKmh, dt);
       civ.built.root.position.copy(civ.pos);
       civ.built.root.rotation.y = civ.heading;
-
-      // Animate civilian vehicle lighting (signals, hazards, brake lights)
-      civ.built.setTurnSignals?.(
-        Boolean(civ.leftSignalActive || civ.hazardActive),
-        Boolean(civ.rightSignalActive || civ.hazardActive),
-        Boolean(civ.hazardActive),
-        this.raceTimer
-      );
-      updateVehicleLighting(
-        civ.built.root,
-        this.raceTimer,
-        civ.speedKmh > 0 && Boolean(civ.built.root.userData?.isBraking),
-        civ.leftSignalActive || civ.hazardActive,
-        civ.rightSignalActive || civ.hazardActive,
-        false
-      );
 
       // Player-to-Civilian Car Distance & Near-Miss / Collision Check
       const dx = this.playerPos.x - civ.pos.x;
       const dz = this.playerPos.z - civ.pos.z;
-      const dist = Math.hypot(dx, dz);
+      const distSq = dx * dx + dz * dz;
+
+      if (distSq < 280 * 280) {
+        civ.built.setWheelSpin(civ.speedKmh, dt);
+        civ.built.setTurnSignals?.(
+          Boolean(civ.leftSignalActive || civ.hazardActive),
+          Boolean(civ.rightSignalActive || civ.hazardActive),
+          Boolean(civ.hazardActive),
+          this.raceTimer
+        );
+        updateVehicleLighting(
+          civ.built.root,
+          this.raceTimer,
+          civ.speedKmh > 0 && Boolean(civ.built.root.userData?.isBraking),
+          civ.leftSignalActive || civ.hazardActive,
+          civ.rightSignalActive || civ.hazardActive,
+          false
+        );
+      }
+
+      const dist = Math.sqrt(distSq);
 
       // Street Driving Near-Miss Overtake Bonus (+$150)
       if (dist >= 3.95 && dist < 5.35 && Math.abs(this.playerSpeedKmh) > 95) {
@@ -7042,18 +7305,20 @@ export class PhysicsEngine {
         this.cityPursuitStats.bustProgress = Math.min(100, this.cityPursuitStats.bustProgress + 28 * dt);
         this.cityPursuitStats.escapeProgress = Math.max(0, this.cityPursuitStats.escapeProgress - 25 * dt);
         if (this.cityPursuitStats.bustProgress >= 100) {
-          const isHeistBust = Boolean(this.pendingHeistLoot) || this.cityPursuitStats.wantedStars >= 4;
           const confiscatedLoot = this.pendingHeistLoot ? this.pendingHeistLoot.amount : 0;
+          const isHeistBust = confiscatedLoot > 0 || this.cityPursuitStats.wantedStars >= 4;
           this.pendingHeistLoot = null;
           this.cityPursuitStats.pendingHeistLoot = null;
 
           let fineTaken = 0;
-          if (isHeistBust) {
-            const priorBusts = this.citySave.bankRobberyBustCount || 0;
-            this.citySave.bankRobberyBustCount = priorBusts + 1;
-            // Federal restitution penalty: $500k base + $250k per prior bust ($500k, $750k, $1M, $1.25M...)
-            fineTaken = 500000 + priorBusts * 250000;
-            // Plunge balance directly into debt if player does not have enough money!
+          if (confiscatedLoot > 0) {
+            this.citySave.bankRobberyBustCount = (this.citySave.bankRobberyBustCount || 0) + 1;
+            // Return stolen loot (confiscated above) + pay 2x the stolen amount
+            fineTaken = confiscatedLoot * 2;
+            this.citySave.streetCash -= fineTaken;
+          } else if (isHeistBust) {
+            this.citySave.bankRobberyBustCount = (this.citySave.bankRobberyBustCount || 0) + 1;
+            fineTaken = 25000;
             this.citySave.streetCash -= fineTaken;
           } else {
             fineTaken = Math.min(this.citySave.streetCash, 2500 * this.cityPursuitStats.wantedStars);
@@ -7074,11 +7339,16 @@ export class PhysicsEngine {
           this.cityPursuitStats.escapeProgress = 0;
           this.playerSpeedKmh = 0;
 
-          if (isHeistBust) {
+          if (confiscatedLoot > 0) {
             const debtStr = this.citySave.streetCash < 0
               ? ` | IN DEBT: -$${Math.abs(this.citySave.streetCash).toLocaleString()}`
               : '';
-            this.cityPursuitStats.activeAlertBanner = `🚨 BUSTED BY FBI/SWAT! Stolen loot confiscated + -$${fineTaken.toLocaleString()} RESTITUTION FINE! (Bust Record: #${this.citySave.bankRobberyBustCount}${debtStr})`;
+            this.cityPursuitStats.activeAlertBanner = `🚨 BUSTED! Returned $${confiscatedLoot.toLocaleString()} stolen loot + paid 2× fine (-$${fineTaken.toLocaleString()})! (Bust #${this.citySave.bankRobberyBustCount}${debtStr})`;
+          } else if (isHeistBust) {
+            const debtStr = this.citySave.streetCash < 0
+              ? ` | IN DEBT: -$${Math.abs(this.citySave.streetCash).toLocaleString()}`
+              : '';
+            this.cityPursuitStats.activeAlertBanner = `🚨 ARRESTED ON ALARM RESPONSE! Paid -$${fineTaken.toLocaleString()} bail fine! (Bust #${this.citySave.bankRobberyBustCount}${debtStr})`;
           } else {
             this.cityPursuitStats.activeAlertBanner = `🚓 BUSTED BY METRO PD! BAIL FINE: -$${fineTaken.toLocaleString()}`;
           }

@@ -23,6 +23,7 @@ export default defineConfig(({ mode }) => {
       'process.env.FIREBASE_APP_ID': JSON.stringify(env.VITE_FIREBASE_APP_ID || env.FIREBASE_APP_ID || ''),
       'process.env.FIREBASE_DATABASE_ID': JSON.stringify(env.VITE_FIREBASE_DATABASE_ID || env.FIREBASE_DATABASE_ID || ''),
       'process.env.FIREBASE_DATABASE_URL': JSON.stringify(env.VITE_FIREBASE_DATABASE_URL || env.FIREBASE_DATABASE_URL || ''),
+      'process.env.GOOGLE_MAPS_API_KEY': JSON.stringify(env.VITE_GOOGLE_MAPS_API_KEY || env.GOOGLE_MAPS_API_KEY || ''),
     },
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.

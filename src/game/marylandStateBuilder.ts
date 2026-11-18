@@ -11,12 +11,14 @@ import {
   BuiltSuburbanHouse,
   buildSuburbanHouseMesh,
 } from './cityTrafficBuilder';
+import { SuburbanBatchBuilder } from './suburbanBatchBuilder';
 
 export interface MarylandStateBuilderContext {
   group: THREE.Group;
   sceneryGroup: THREE.Group;
   cityBuildings: CityBuildingBox[];
   suburbanHouses: BuiltSuburbanHouse[];
+  suburbanBatch: SuburbanBatchBuilder;
   streetAsphaltMat: THREE.Material;
   whiteLineMat: THREE.Material;
   treeTrunkMat: THREE.Material;
@@ -24,7 +26,7 @@ export interface MarylandStateBuilderContext {
   goldMat: THREE.Material;
   isUltra: boolean;
   isRetroPixel: boolean;
-  makeCityMat: (opts: { color?: number; map?: THREE.Texture; roughness?: number; metalness?: number }) => THREE.Material;
+  makeCityMat: (opts: { color?: number; map?: THREE.Texture; roughness?: number; metalness?: number; envMapIntensity?: number }) => THREE.Material;
   makeTextSignMat: (
     lines: string[],
     bgHex: string,
@@ -50,6 +52,7 @@ export function buildMarylandStateDistrict(ctx: MarylandStateBuilderContext): vo
     sceneryGroup,
     cityBuildings,
     suburbanHouses,
+    suburbanBatch,
     streetAsphaltMat,
     whiteLineMat,
     treeTrunkMat,
@@ -254,6 +257,7 @@ export function buildMarylandStateDistrict(ctx: MarylandStateBuilderContext): vo
     // Wisp Timber Mountain Lodge
     const lodge = new THREE.Mesh(new THREE.BoxGeometry(36, 10, 22), timberMat);
     lodge.position.set(wispX + 20, 0.35 + 5, wispZ + 44);
+    lodge.castShadow = isUltra;
     sceneryGroup.add(lodge);
     const lodgeRoof = buildPitchedRoofGroup(36.6, 22.6, 5.2, timberMat, darkSlateRoofMat, 'x');
     lodgeRoof.position.set(wispX + 20, 0.35 + 10, wispZ + 44);
@@ -409,7 +413,7 @@ export function buildMarylandStateDistrict(ctx: MarylandStateBuilderContext): vo
       });
     }
 
-    const fredHome = buildSuburbanHouseMesh(-1112, -332, Math.PI / 2, {
+    const fredHome = buildSuburbanHouseMesh(-1136, -328, Math.PI / 2, {
       wallColor: 0x8b2e24,
       roofColor: 0x1e293b,
       address: '214 N Market St (Frederick)',
@@ -452,6 +456,7 @@ export function buildMarylandStateDistrict(ctx: MarylandStateBuilderContext): vo
     sceneryGroup.add(colPlaza);
     const colMall = new THREE.Mesh(new THREE.BoxGeometry(44, 12, 30), boxWithRoofMat(georgianBrickMat, flatRoofMat));
     colMall.position.set(colMallX, 0.35 + 6, colMallZ);
+    colMall.castShadow = isUltra;
     sceneryGroup.add(colMall);
     const colCrown = new THREE.Mesh(new THREE.BoxGeometry(45.2, 1.1, 31.2), whiteTrimMat);
     colCrown.position.set(colMallX, 0.35 + 12.4, colMallZ);
@@ -626,6 +631,7 @@ export function buildMarylandStateDistrict(ctx: MarylandStateBuilderContext): vo
       sceneryGroup.add(podium);
       const bMesh = new THREE.Mesh(new THREE.BoxGeometry(bt.w, bt.h, bt.d), boxWithRoofMat(bt.mat, flatRoofMat));
       bMesh.position.set(bt.x, 0.35 + bt.h * 0.5, bt.z);
+      bMesh.castShadow = isUltra;
       sceneryGroup.add(bMesh);
       const crown = new THREE.Mesh(new THREE.BoxGeometry(bt.w * 0.72, 6.5, bt.d * 0.72), whiteTrimMat);
       crown.position.set(bt.x, 0.35 + bt.h + 3.25, bt.z);
@@ -858,6 +864,7 @@ export function buildMarylandStateDistrict(ctx: MarylandStateBuilderContext): vo
     // Maryland State House (1772 Georgian Brick + Iconic Tall White Wooden Dome + Acorn Spire)
     const shBody = new THREE.Mesh(new THREE.BoxGeometry(34, 13, 24), boxWithRoofMat(georgianBrickMat, flatRoofMat));
     shBody.position.set(annX, 0.35 + 6.5, annZ);
+    shBody.castShadow = isUltra;
     sceneryGroup.add(shBody);
     const shRoof = buildPitchedRoofGroup(34.5, 24.5, 4.2, georgianBrickMat, darkSlateRoofMat, 'x');
     shRoof.position.set(annX, 0.35 + 13, annZ);
@@ -1038,6 +1045,228 @@ export function buildMarylandStateDistrict(ctx: MarylandStateBuilderContext): vo
     sceneryGroup.add(ocHome.group);
     suburbanHouses.push(ocHome);
     cityBuildings.push(ocHome.collider);
+
+    // Expanded Town Neighborhoods Across Statewide Maryland (Deep Creek, Cumberland, Hagerstown,
+    // Frederick, Columbia, Olney, Rockville, Bethesda, Silver Spring, College Park, Annapolis, Ocean City)
+    const stateClusters: {
+      city: string;
+      street: string;
+      baseNum: number;
+      houses: { x: number; z: number; rotY: number }[];
+    }[] = [
+      {
+        city: 'Deep Creek Lake',
+        street: 'Glendale Rd',
+        baseNum: 100,
+        houses: [
+          { x: -2305, z: -470, rotY: -Math.PI / 2 },
+          { x: -2305, z: -446, rotY: -Math.PI / 2 },
+          { x: -2305, z: -422, rotY: -Math.PI / 2 },
+          { x: -2305, z: -398, rotY: -Math.PI / 2 },
+          { x: -2305, z: -374, rotY: -Math.PI / 2 },
+          { x: -2305, z: -350, rotY: -Math.PI / 2 },
+          { x: -2365, z: -315, rotY: Math.PI },
+          { x: -2345, z: -315, rotY: Math.PI },
+          { x: -2325, z: -315, rotY: Math.PI },
+          { x: -2305, z: -315, rotY: Math.PI },
+        ],
+      },
+      {
+        city: 'Cumberland',
+        street: 'Greene St',
+        baseNum: 300,
+        houses: Array.from({ length: 8 }, (_, k) => ({ x: -2140 + k * 18, z: -480, rotY: Math.PI })).concat([
+          { x: -2120, z: -446, rotY: 0 },
+          { x: -2102, z: -446, rotY: 0 },
+        ]),
+      },
+      {
+        city: 'Hagerstown',
+        street: 'Oak Hill Ave',
+        baseNum: 800,
+        houses: Array.from({ length: 8 }, (_, k) => ({ x: -1575 + k * 17, z: -556, rotY: Math.PI })).concat([
+          { x: -1558, z: -586, rotY: 0 },
+          { x: -1540, z: -586, rotY: 0 },
+        ]),
+      },
+      {
+        city: 'Frederick',
+        street: 'N Bentz St',
+        baseNum: 400,
+        houses: [
+          { x: -1208, z: -440, rotY: Math.PI / 2 },
+          { x: -1208, z: -418, rotY: Math.PI / 2 },
+          { x: -1208, z: -396, rotY: Math.PI / 2 },
+          { x: -1208, z: -374, rotY: Math.PI / 2 },
+          { x: -1208, z: -352, rotY: Math.PI / 2 },
+          { x: -1208, z: -330, rotY: Math.PI / 2 },
+          { x: -1020, z: -312, rotY: 0 },
+          { x: -1002, z: -312, rotY: 0 },
+          { x: -984, z: -312, rotY: 0 },
+          { x: -966, z: -312, rotY: 0 },
+        ],
+      },
+      {
+        city: 'Columbia',
+        street: 'Hickory Ridge Rd',
+        baseNum: 10430,
+        houses: [
+          { x: 404, z: 64, rotY: Math.PI / 2 },
+          { x: 404, z: 88, rotY: Math.PI / 2 },
+          { x: 404, z: 112, rotY: Math.PI / 2 },
+          { x: 404, z: 136, rotY: Math.PI / 2 },
+          { x: 404, z: 160, rotY: Math.PI / 2 },
+          { x: 404, z: 184, rotY: Math.PI / 2 },
+          { x: 434, z: 64, rotY: -Math.PI / 2 },
+          { x: 434, z: 88, rotY: -Math.PI / 2 },
+          { x: 434, z: 112, rotY: -Math.PI / 2 },
+          { x: 434, z: 136, rotY: -Math.PI / 2 },
+        ],
+      },
+      {
+        city: 'Olney',
+        street: 'Prince Philip Dr',
+        baseNum: 18100,
+        houses: [
+          { x: 218, z: 648, rotY: 0 },
+          { x: 236, z: 648, rotY: 0 },
+          { x: 254, z: 648, rotY: 0 },
+          { x: 272, z: 648, rotY: 0 },
+          { x: 290, z: 648, rotY: 0 },
+          { x: 218, z: 684, rotY: Math.PI },
+          { x: 236, z: 684, rotY: Math.PI },
+          { x: 254, z: 684, rotY: Math.PI },
+          { x: 272, z: 684, rotY: Math.PI },
+          { x: 290, z: 684, rotY: Math.PI },
+        ],
+      },
+      {
+        city: 'Rockville',
+        street: 'N Adams St',
+        baseNum: 100,
+        houses: [
+          { x: -454, z: 1390, rotY: 0 },
+          { x: -436, z: 1390, rotY: 0 },
+          { x: -418, z: 1390, rotY: 0 },
+          { x: -400, z: 1390, rotY: 0 },
+          { x: -382, z: 1390, rotY: 0 },
+          { x: -454, z: 1445, rotY: Math.PI },
+          { x: -436, z: 1445, rotY: Math.PI },
+          { x: -418, z: 1445, rotY: Math.PI },
+          { x: -400, z: 1445, rotY: Math.PI },
+          { x: -382, z: 1445, rotY: Math.PI },
+        ],
+      },
+      {
+        city: 'Bethesda',
+        street: 'Cordell Ave',
+        baseNum: 4800,
+        houses: [
+          { x: -412, z: 1724, rotY: 0 },
+          { x: -394, z: 1724, rotY: 0 },
+          { x: -376, z: 1724, rotY: 0 },
+          { x: -358, z: 1724, rotY: 0 },
+          { x: -340, z: 1724, rotY: 0 },
+          { x: -412, z: 1770, rotY: Math.PI },
+          { x: -394, z: 1770, rotY: Math.PI },
+          { x: -376, z: 1770, rotY: Math.PI },
+          { x: -358, z: 1770, rotY: Math.PI },
+          { x: -340, z: 1770, rotY: Math.PI },
+        ],
+      },
+      {
+        city: 'Silver Spring',
+        street: 'Ellsworth Dr',
+        baseNum: 850,
+        houses: [
+          { x: -98, z: 1720, rotY: 0 },
+          { x: -80, z: 1720, rotY: 0 },
+          { x: -62, z: 1720, rotY: 0 },
+          { x: -44, z: 1720, rotY: 0 },
+          { x: -26, z: 1720, rotY: 0 },
+          { x: -98, z: 1766, rotY: Math.PI },
+          { x: -80, z: 1766, rotY: Math.PI },
+          { x: -62, z: 1766, rotY: Math.PI },
+          { x: -44, z: 1766, rotY: Math.PI },
+          { x: -26, z: 1766, rotY: Math.PI },
+        ],
+      },
+      {
+        city: 'College Park',
+        street: 'Knox Rd',
+        baseNum: 4400,
+        houses: [
+          { x: 224, z: 1435, rotY: 0 },
+          { x: 242, z: 1435, rotY: 0 },
+          { x: 260, z: 1435, rotY: 0 },
+          { x: 278, z: 1435, rotY: 0 },
+          { x: 296, z: 1435, rotY: 0 },
+          { x: 224, z: 1472, rotY: Math.PI },
+          { x: 242, z: 1472, rotY: Math.PI },
+          { x: 260, z: 1472, rotY: Math.PI },
+          { x: 278, z: 1472, rotY: Math.PI },
+          { x: 296, z: 1472, rotY: Math.PI },
+        ],
+      },
+      {
+        city: 'Annapolis',
+        street: 'Duke of Gloucester St',
+        baseNum: 110,
+        houses: [
+          { x: 1356, z: 786, rotY: 0 },
+          { x: 1374, z: 786, rotY: 0 },
+          { x: 1392, z: 786, rotY: 0 },
+          { x: 1410, z: 786, rotY: 0 },
+          { x: 1428, z: 786, rotY: 0 },
+          { x: 1356, z: 818, rotY: Math.PI },
+          { x: 1374, z: 818, rotY: Math.PI },
+          { x: 1392, z: 818, rotY: Math.PI },
+          { x: 1410, z: 818, rotY: Math.PI },
+          { x: 1428, z: 818, rotY: Math.PI },
+        ],
+      },
+      {
+        city: 'Ocean City',
+        street: 'Baltimore Ave',
+        baseNum: 200,
+        houses: [
+          { x: 2452, z: 940, rotY: Math.PI / 2 },
+          { x: 2452, z: 964, rotY: Math.PI / 2 },
+          { x: 2452, z: 988, rotY: Math.PI / 2 },
+          { x: 2452, z: 1012, rotY: Math.PI / 2 },
+          { x: 2452, z: 1094, rotY: Math.PI / 2 },
+          { x: 2452, z: 1118, rotY: Math.PI / 2 },
+          { x: 2426, z: 940, rotY: -Math.PI / 2 },
+          { x: 2426, z: 964, rotY: -Math.PI / 2 },
+          { x: 2426, z: 988, rotY: -Math.PI / 2 },
+          { x: 2426, z: 1012, rotY: -Math.PI / 2 },
+        ],
+      },
+    ];
+    let stCounter = 0;
+    for (const cluster of stateClusters) {
+      cluster.houses.forEach((h, i) => {
+        suburbanBatch.addHouse(
+          {
+            x: h.x,
+            z: h.z,
+            rotY: h.rotY,
+            houseNum: String(cluster.baseNum + i * 2),
+            street: cluster.street,
+            cityTag: cluster.city,
+            style: stCounter % 2 === 0 ? 'colonial' : 'split',
+            sidingHex: ['#e7dec8', '#cbd5e1', '#bae6fd', '#f1f5f9', '#d6ccb8'][stCounter % 5],
+            roofColor: [0x1e293b, 0x292524, 0x3b2f2f][stCounter % 3],
+            shutterColor: [0x14532d, 0x1e3a8a, 0x7f1d1d][stCounter % 3],
+            doorColor: [0x7f1d1d, 0x1e3a8a, 0x14532d][stCounter % 3],
+            brickFront: stCounter % 2 === 0,
+          },
+          suburbanHouses,
+          cityBuildings
+        );
+        stCounter++;
+      });
+    }
 
     void drawParkingLotBay;
     void addStreetNamePost;

@@ -18,6 +18,7 @@ import {
 import { buildGaithersburgDistrict } from './gaithersburgBuilder';
 import { buildBaltimoreDistrict } from './baltimoreBuilder';
 import { buildMarylandStateDistrict } from './marylandStateBuilder';
+import { SuburbanBatchBuilder } from './suburbanBatchBuilder';
 
 export interface SurfaceInfo {
   offTrack: boolean;
@@ -51,11 +52,13 @@ export interface GeneratedTrack {
   setStartLights: (lightsLitCount: number, lightsOut: boolean) => void;
   setReflectionTexture: (tex: THREE.Texture | null, intensity?: number) => void;
   setReflectionPassMode: (active: boolean) => void;
+  setRoadWetness?: (wetness: number) => void;
   getTrackPointAtProgress: (t: number) => { position: THREE.Vector3; tangent: THREE.Vector3; normal: THREE.Vector3 };
   getTargetCornerSpeedKmh: (t: number) => number;
   checkSurfaceType: (pos: THREE.Vector3, hintProgress?: number) => SurfaceInfo;
   updateInfiniteRoadOrigin?: (playerX: number, playerZ: number) => void;
   updateCityTrafficLights?: (timeSec: number, playerX: number, playerZ: number) => void;
+  dispose?: () => void;
 }
 
 /**
@@ -134,6 +137,72 @@ function attachBlackScreenRoadReflectionShader(
           // Painted markings have lower specular polish than the bare stone
           marbleReflFactor *= (1.0 - isMarking * 0.55);
           gl_FragColor.rgb += reflColor * marbleReflFactor;
+        }`
+      );
+  };
+  mat.needsUpdate = true;
+}
+
+/**
+ * Attaches realistic planar Fresnel sheen onto Maryland city asphalt without replacing its charcoal aggregate surface.
+ */
+function attachCityRoadReflectionShader(
+  mat: THREE.Material,
+  reflectionUniforms: {
+    uPlanarReflectionMap: { value: THREE.Texture | null };
+    uReflectionIntensity: { value: number };
+    uRoadWetness: { value: number };
+  },
+  isUltra: boolean
+) {
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uPlanarReflectionMap = reflectionUniforms.uPlanarReflectionMap;
+    shader.uniforms.uReflectionIntensity = reflectionUniforms.uReflectionIntensity;
+    shader.uniforms.uRoadWetness = reflectionUniforms.uRoadWetness;
+
+    shader.vertexShader =
+      `varying vec4 vCityReflClipPos;\nvarying vec3 vCityReflWorldPos;\n` +
+      shader.vertexShader.replace(
+        '#include <project_vertex>',
+        `#include <project_vertex>
+        vCityReflClipPos = gl_Position;
+        vCityReflWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;`
+      );
+
+    shader.fragmentShader =
+      `uniform sampler2D uPlanarReflectionMap;\nuniform float uReflectionIntensity;\nuniform float uRoadWetness;\nvarying vec4 vCityReflClipPos;\nvarying vec3 vCityReflWorldPos;\n` +
+      shader.fragmentShader.replace(
+        '#include <dithering_fragment>',
+        `#include <dithering_fragment>
+        float wet = clamp(uRoadWetness, 0.0, 1.0);
+        if (wet > 0.02) {
+          float patchNoise = sin(vCityReflWorldPos.x * 0.14) * cos(vCityReflWorldPos.z * 0.14) * 0.5 + 0.5;
+          float wetDarken = mix(0.90, 0.68, patchNoise);
+          gl_FragColor.rgb *= mix(1.0, wetDarken, wet);
+        }
+        if (uReflectionIntensity > 0.001) {
+          vec2 reflUV = (vCityReflClipPos.xy / max(0.0001, vCityReflClipPos.w)) * 0.5 + 0.5;
+          reflUV.x = 1.0 - reflUV.x;
+          float rippleAmp = mix(0.0006, 0.0022, wet);
+          vec2 microJitter = sin(vCityReflWorldPos.xz * 18.0) * rippleAmp;
+          vec2 uvS = clamp(reflUV + microJitter, 0.004, 0.996);
+          vec2 bStep = mix(vec2(0.0038, 0.0044), vec2(0.0016, 0.0021), wet);
+          vec3 reflSample = texture2D(uPlanarReflectionMap, uvS).rgb * 0.44
+            + texture2D(uPlanarReflectionMap, clamp(uvS + vec2(bStep.x, 0.0), 0.004, 0.996)).rgb * 0.14
+            + texture2D(uPlanarReflectionMap, clamp(uvS - vec2(bStep.x, 0.0), 0.004, 0.996)).rgb * 0.14
+            + texture2D(uPlanarReflectionMap, clamp(uvS + vec2(0.0, bStep.y), 0.004, 0.996)).rgb * 0.14
+            + texture2D(uPlanarReflectionMap, clamp(uvS - vec2(0.0, bStep.y), 0.004, 0.996)).rgb * 0.14;
+          vec3 viewDir = normalize(cameraPosition - vCityReflWorldPos);
+          float ndotv = clamp(abs(viewDir.y), 0.0, 1.0);
+          // Dry asphalt uses high Fresnel & minimal grazing sheen; wet/rainy asphalt reflects noticeably across lanes
+          float dryFresnel = pow(1.0 - ndotv, ${isUltra ? '4.4' : '4.8'});
+          float wetFresnel = pow(1.0 - ndotv, ${isUltra ? '1.9' : '2.4'});
+          float dryFactor = ${isUltra ? '0.015 + 0.065 * dryFresnel' : '0.008 + 0.035 * dryFresnel'};
+          float wetFactor = ${isUltra ? '0.20 + 0.62 * wetFresnel' : '0.10 + 0.36 * wetFresnel'};
+          float puddleVar = mix(0.82, 1.18, sin(vCityReflWorldPos.x * 0.11 + vCityReflWorldPos.z * 0.09) * 0.5 + 0.5);
+          float combinedFactor = mix(dryFactor, wetFactor * puddleVar, wet);
+          float reflWeight = clamp(uReflectionIntensity * combinedFactor, 0.0, mix(${isUltra ? '0.032' : '0.018'}, ${isUltra ? '0.38' : '0.20'}, wet));
+          gl_FragColor.rgb += reflSample * reflWeight;
         }`
       );
   };
@@ -522,7 +591,7 @@ export function generateTrack(circuit: CircuitInfo, quality?: GraphicsQuality): 
   }
 
   const trackMesh = new THREE.Mesh(trackGeom, trackMat);
-  trackMesh.receiveShadow = false;
+  trackMesh.receiveShadow = preset.shadowsEnabled;
   group.add(trackMesh);
 
   // Curbs with DoubleSide (Glossy painted finish in Ultra Realistic)
@@ -1758,7 +1827,13 @@ function generateCityDrivingTrack(circuit: CircuitInfo, quality?: GraphicsQualit
   const up = new THREE.Vector3(0, 1, 0);
 
   // Fast Lambert material builder for Retro Pixel '92 mode (avoids expensive PBR per-fragment math)
-  const makeCityMat = (opts: { color?: number; map?: THREE.Texture; roughness?: number; metalness?: number }): THREE.Material =>
+  const makeCityMat = (opts: {
+    color?: number;
+    map?: THREE.Texture;
+    roughness?: number;
+    metalness?: number;
+    envMapIntensity?: number;
+  }): THREE.Material =>
     isRetroPixel
       ? new THREE.MeshLambertMaterial({ color: opts.color ?? 0xffffff, map: opts.map })
       : new THREE.MeshStandardMaterial({
@@ -1766,11 +1841,17 @@ function generateCityDrivingTrack(circuit: CircuitInfo, quality?: GraphicsQualit
           map: opts.map,
           roughness: opts.roughness ?? 0.8,
           metalness: opts.metalness ?? 0.05,
+          envMapIntensity: opts.envMapIntensity ?? (isUltra ? 0.95 : 0.6),
         });
+
+  const disposables: { dispose: () => void }[] = [];
+  const reflectorToggleables: THREE.Object3D[] = [];
+  const suburbanBatch = new SuburbanBatchBuilder();
 
   const reflectionUniforms = {
     uPlanarReflectionMap: { value: null as THREE.Texture | null },
     uReflectionIntensity: { value: 0.0 },
+    uRoadWetness: { value: 0.0 },
   };
 
   const points = circuit.trackPoints.map((p) => new THREE.Vector3(p.x, 0.25, p.z));
@@ -1819,7 +1900,7 @@ function generateCityDrivingTrack(circuit: CircuitInfo, quality?: GraphicsQualit
   const baseRoadMesh = new THREE.Mesh(new THREE.PlaneGeometry(8000, 8000), baseAsphaltMat);
   baseRoadMesh.rotation.x = -Math.PI / 2;
   baseRoadMesh.position.y = 0.22;
-  baseRoadMesh.receiveShadow = !isUltra && !isRetroPixel;
+  baseRoadMesh.receiveShadow = isUltra;
   group.add(baseRoadMesh);
 
   // 2. Authentic American Charcoal Asphalt Texture (Matte Aggregate, Tire-Worn Sheen)
@@ -1855,9 +1936,13 @@ function generateCityDrivingTrack(circuit: CircuitInfo, quality?: GraphicsQualit
 
   const streetAsphaltMat = makeCityMat({
     map: streetAsphaltTex,
-    roughness: 0.80,
-    metalness: 0.06,
+    roughness: isUltra ? 0.78 : 0.84,
+    metalness: isUltra ? 0.04 : 0.03,
+    envMapIntensity: isUltra ? 0.45 : 0.35,
   });
+  if (!isRetroPixel && (isUltra || preset.id === 'high')) {
+    attachCityRoadReflectionShader(streetAsphaltMat, reflectionUniforms, isUltra);
+  }
   const yellowLineMat = new THREE.MeshBasicMaterial({ color: 0xfacc15, side: THREE.DoubleSide });
   const whiteLineMat = new THREE.MeshBasicMaterial({ color: 0xf8fafc, side: THREE.DoubleSide });
   const stopBarMat = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide });
@@ -2101,7 +2186,7 @@ function generateCityDrivingTrack(circuit: CircuitInfo, quality?: GraphicsQualit
     const lotMat = new THREE.MeshStandardMaterial({ color: 0x1e2430, roughness: 0.85, metalness: 0.08 });
     const lotPlane = new THREE.Mesh(new THREE.PlaneGeometry(width, depth), lotMat);
     lotPlane.rotation.x = -Math.PI / 2;
-    lotPlane.receiveShadow = !isUltra;
+    lotPlane.receiveShadow = isUltra;
     lotGroup.add(lotPlane);
 
     const stripeCount = Math.max(4, Math.floor(width / 5.5));
@@ -2158,6 +2243,7 @@ function generateCityDrivingTrack(circuit: CircuitInfo, quality?: GraphicsQualit
     addStreetNamePost,
     addLandscapedTree,
     drawParkingLotBay,
+    suburbanBatch,
   });
   const bankPosition = baltimoreInfo.bankPosition;
   const policeStationPosition = baltimoreInfo.policeStationPosition;
@@ -2185,6 +2271,9 @@ function generateCityDrivingTrack(circuit: CircuitInfo, quality?: GraphicsQualit
     makeBrickFacadeMat,
     addStreetNamePost,
     addLandscapedTree,
+    suburbanBatch,
+    disposables,
+    reflectorToggleables,
   });
 
   // =========================================================================================
@@ -2208,7 +2297,11 @@ function generateCityDrivingTrack(circuit: CircuitInfo, quality?: GraphicsQualit
     addStreetNamePost,
     addLandscapedTree,
     drawParkingLotBay,
+    suburbanBatch,
   });
+
+  // Commit all batched suburban houses + 2048x2048 street-facing address plaque atlases
+  suburbanBatch.commit(sceneryGroup, { isUltra, isRetroPixel, makeCityMat }, disposables);
 
   // 4. Statewide Maryland Signalized Intersections (Cantilever Traffic Light Gantries)
   const trafficLightGantries: CityTrafficLightGantry[] = [];
@@ -2436,10 +2529,22 @@ function generateCityDrivingTrack(circuit: CircuitInfo, quality?: GraphicsQualit
     reflectionUniforms.uPlanarReflectionMap.value = tex;
     reflectionUniforms.uReflectionIntensity.value = tex ? intensity : 0.0;
   };
+  const setRoadWetness = (wetness: number) => {
+    const w = Math.max(0, Math.min(1, wetness));
+    reflectionUniforms.uRoadWetness.value = w;
+    if (streetAsphaltMat instanceof THREE.MeshStandardMaterial) {
+      streetAsphaltMat.roughness = isUltra ? 0.78 - 0.56 * w : 0.84 - 0.46 * w;
+      streetAsphaltMat.metalness = isUltra ? 0.04 + 0.18 * w : 0.03 + 0.12 * w;
+      streetAsphaltMat.envMapIntensity = isUltra ? 0.45 + 0.95 * w : 0.35 + 0.55 * w;
+    }
+  };
   const setReflectionPassMode = (active: boolean) => {
     baseRoadMesh.visible = !active;
     for (let i = 0; i < cityStreetRoadMeshes.length; i++) {
       cityStreetRoadMeshes[i].visible = !active;
+    }
+    for (let i = 0; i < reflectorToggleables.length; i++) {
+      reflectorToggleables[i].visible = !active;
     }
   };
 
@@ -2460,11 +2565,17 @@ function generateCityDrivingTrack(circuit: CircuitInfo, quality?: GraphicsQualit
     setStartLights,
     setReflectionTexture,
     setReflectionPassMode,
+    setRoadWetness,
     getTrackPointAtProgress,
     getTargetCornerSpeedKmh,
     checkSurfaceType,
     updateInfiniteRoadOrigin,
     updateCityTrafficLights,
+    dispose: () => {
+      for (let i = 0; i < disposables.length; i++) {
+        disposables[i].dispose();
+      }
+    },
   };
 }
 
