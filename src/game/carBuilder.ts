@@ -197,17 +197,17 @@ export function buildF1Car(team: Team, driver?: Driver, quality?: GraphicsQualit
     : preset.usePhysicalClearcoat
     ? new THREE.MeshPhysicalMaterial({
         color: primaryColor,
-        metalness: isUltra ? 0.46 : 0.32,
-        roughness: isUltra ? 0.25 : 0.22,
+        metalness: isUltra ? 0.56 : 0.42,
+        roughness: isUltra ? 0.18 : 0.2,
         normalMap: flakeNormalTex || undefined,
-        normalScale: isUltra ? new THREE.Vector2(0.011, 0.011) : undefined,
+        normalScale: isUltra ? new THREE.Vector2(0.015, 0.015) : undefined,
         clearcoat: 1.0,
-        clearcoatRoughness: isUltra ? 0.14 : 0.13,
-        ior: 1.5,
-        reflectivity: 0.9,
-        sheen: isUltra ? 0.14 : 0.08,
+        clearcoatRoughness: isUltra ? 0.035 : 0.055,
+        ior: 1.52,
+        reflectivity: 1.0,
+        sheen: isUltra ? 0.16 : 0.08,
         sheenColor: primaryColor.clone().lerp(new THREE.Color(0xffffff), 0.35),
-        envMapIntensity: isUltra ? 0.84 : 0.72,
+        envMapIntensity: isUltra ? 1.55 : 1.15,
       })
     : new THREE.MeshStandardMaterial({
         color: primaryColor,
@@ -226,12 +226,12 @@ export function buildF1Car(team: Team, driver?: Driver, quality?: GraphicsQualit
     : isHighOrUltra
     ? new THREE.MeshPhysicalMaterial({
         color: secondaryColor,
-        metalness: isUltra ? 0.38 : 0.26,
-        roughness: 0.27,
-        clearcoat: 0.92,
-        clearcoatRoughness: 0.16,
-        ior: 1.48,
-        envMapIntensity: isUltra ? 0.78 : 0.68,
+        metalness: isUltra ? 0.46 : 0.32,
+        roughness: 0.22,
+        clearcoat: 0.96,
+        clearcoatRoughness: 0.05,
+        ior: 1.5,
+        envMapIntensity: isUltra ? 1.4 : 1.05,
       })
     : new THREE.MeshStandardMaterial({
         color: secondaryColor,
@@ -250,12 +250,12 @@ export function buildF1Car(team: Team, driver?: Driver, quality?: GraphicsQualit
     : isHighOrUltra
     ? new THREE.MeshPhysicalMaterial({
         color: accentColor,
-        metalness: isUltra ? 0.34 : 0.24,
-        roughness: 0.24,
-        clearcoat: 0.95,
-        clearcoatRoughness: 0.15,
+        metalness: isUltra ? 0.42 : 0.28,
+        roughness: 0.2,
+        clearcoat: 0.98,
+        clearcoatRoughness: 0.045,
         ior: 1.5,
-        envMapIntensity: isUltra ? 0.8 : 0.7,
+        envMapIntensity: isUltra ? 1.45 : 1.1,
       })
     : new THREE.MeshStandardMaterial({
         color: accentColor,

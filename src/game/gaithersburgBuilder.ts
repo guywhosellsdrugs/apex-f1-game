@@ -18,6 +18,12 @@ import {
   buildSuburbanHouseMesh,
 } from './cityTrafficBuilder';
 import { SuburbanBatchBuilder } from './suburbanBatchBuilder';
+import {
+  GrassPatchPlacement,
+  WoodlandTreePlacement,
+  populateChunkedGrassAndShrubs,
+  populateInstancedWoodlandTrees,
+} from './foliageBuilder';
 
 export interface GaithersburgBuilderContext {
   group: THREE.Group;
@@ -931,16 +937,55 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
     sceneryGroup.add(fgSign);
     cityBuildings.push({ minX: gx(-291), maxX: gx(-239), minZ: gz(1784), maxZ: gz(1806), height: 13, name: 'Montgomery County Fairgrounds Pavilion' });
 
-    // Historic 1884 B&O / MARC Depot with pitched gable roof & west-bay clock spire
+    // Historic 1884 Queen Anne B&O / MARC Station (red common-bond brick, projecting trackside bay gable, arched window, wood platform canopy & chimneys)
     const depotBrickMat = makeBrickFacadeMat('#991b1b', '#f8fafc', '#fde68a', 6, 2, true);
-    const depotSolidBrickMat = makeCityMat({ color: 0x991b1b, roughness: 0.76 });
+    const depotSolidBrickMat = makeCityMat({ color: 0x991b1b, roughness: 0.78 });
     const depotRoofMat = makeCityMat({ color: 0x1e293b, roughness: 0.72 });
+    const depotWoodTrimMat = makeCityMat({ color: 0xfef3c7, roughness: 0.55 });
+    const depotGlassMat = new THREE.MeshPhysicalMaterial({ color: 0x0f2942, roughness: 0.08, clearcoat: 0.9 });
+    disposables.push(depotGlassMat);
+
     const depotBody = new THREE.Mesh(new THREE.BoxGeometry(54, 10, 20), boxWithRoofMat(depotBrickMat, flatRoofMat));
     depotBody.position.set(gx(-125), 5.25, gz(1956));
+    depotBody.castShadow = isUltra;
+    depotBody.receiveShadow = isUltra;
     sceneryGroup.add(depotBody);
-    const depotRoof = buildPitchedRoofGroup(54.8, 20.8, 4.2, depotBrickMat, depotRoofMat, 'x');
+
+    const depotRoof = buildPitchedRoofGroup(55.4, 21.4, 4.4, depotBrickMat, depotRoofMat, 'x');
     depotRoof.position.set(gx(-125), 10.25, gz(1956));
     sceneryGroup.add(depotRoof);
+
+    // Projecting South-Track Queen Anne Center Gable Bay + Semicircular Arched Window
+    const depotCenterBay = new THREE.Mesh(new THREE.BoxGeometry(12.2, 11.4, 5.2), depotSolidBrickMat);
+    depotCenterBay.position.set(gx(-125), 5.95, gz(1956) + 9.2);
+    depotCenterBay.castShadow = isUltra;
+    sceneryGroup.add(depotCenterBay);
+    const depotCenterRoof = buildPitchedRoofGroup(12.6, 5.6, 4.2, depotWoodTrimMat, depotRoofMat, 'z');
+    depotCenterRoof.position.set(gx(-125), 11.65, gz(1956) + 9.2);
+    sceneryGroup.add(depotCenterRoof);
+    const depotArchWin = new THREE.Mesh(new THREE.CylinderGeometry(1.85, 1.85, 0.35, 14, 1, false, 0, Math.PI), depotGlassMat);
+    depotArchWin.rotation.z = Math.PI / 2;
+    depotArchWin.rotation.y = Math.PI / 2;
+    depotArchWin.position.set(gx(-125), 10.4, gz(1956) + 11.82);
+    sceneryGroup.add(depotArchWin);
+
+    // Trackside Covered Timber Platform Canopy with Turned Bracket Posts
+    const canopyRoof = new THREE.Mesh(new THREE.BoxGeometry(58, 0.42, 6.4), depotRoofMat);
+    canopyRoof.position.set(gx(-125), 4.65, gz(1956) + 12.6);
+    canopyRoof.rotation.x = 0.14;
+    sceneryGroup.add(canopyRoof);
+    for (let px = -24; px <= 24; px += 8) {
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.22, 4.3, 8), depotWoodTrimMat);
+      post.position.set(gx(-125) + px, 2.35, gz(1956) + 15.2);
+      sceneryGroup.add(post);
+    }
+
+    // Twin brick end chimneys + West clock spire
+    for (const cx of [-18, 18]) {
+      const chim = new THREE.Mesh(new THREE.BoxGeometry(1.8, 5.4, 1.8), depotSolidBrickMat);
+      chim.position.set(gx(-125) + cx, 14.5, gz(1956) - 2);
+      sceneryGroup.add(chim);
+    }
     const depotTower = new THREE.Mesh(new THREE.BoxGeometry(10, 17, 10), depotSolidBrickMat);
     depotTower.position.set(gx(-125) - 18, 8.75, gz(1956) - 6);
     sceneryGroup.add(depotTower);
@@ -957,7 +1002,7 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
     );
     depotSign.position.set(gx(-125), 9.2, gz(1966.5));
     sceneryGroup.add(depotSign);
-    cityBuildings.push({ minX: gx(-153), maxX: gx(-97), minZ: gz(1945), maxZ: gz(1967), height: 24, name: 'Gaithersburg 1884 B&O / MARC Station' });
+    cityBuildings.push({ minX: gx(-153), maxX: gx(-97), minZ: gz(1945), maxZ: gz(1972), height: 24, name: 'Gaithersburg 1884 B&O / MARC Station' });
 
     const ballast = new THREE.Mesh(new THREE.PlaneGeometry(580, 11.5), makeCityMat({ color: 0x57534e, roughness: 0.95 }));
     ballast.rotation.order = 'YXZ';
@@ -1091,19 +1136,77 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
     postInst.computeBoundingSphere();
     sceneryGroup.add(postInst);
 
-    // Timber Boardwalk & Carousel Pier along North Shore
-    const rioBoardwalk = new THREE.Mesh(new THREE.BoxGeometry(92, 0.42, 10), makeCityMat({ color: 0x7c4a26, roughness: 0.8 }));
+    // Timber Boardwalk promenade, Waterfront Pergolas, Festive String-Light Patio Posts & Americana Carousel
+    const woodDeckMat = makeCityMat({ color: 0x7c4a26, roughness: 0.78 });
+    const whitePergolaMat = makeCityMat({ color: 0xf8fafc, roughness: 0.45 });
+    const brassPoleMat = makeCityMat({ color: 0xfbbf24, roughness: 0.25, metalness: 0.85 });
+    const warmStringBulbMat = new THREE.MeshBasicMaterial({ color: 0xfef08a });
+    disposables.push(warmStringBulbMat);
+
+    const rioBoardwalk = new THREE.Mesh(new THREE.BoxGeometry(96, 0.44, 11), woodDeckMat);
     rioBoardwalk.position.set(rioX, 0.42, rioLakeZ - 30);
     rioBoardwalk.receiveShadow = isUltra;
     sceneryGroup.add(rioBoardwalk);
-    const carouselPier = new THREE.Mesh(new THREE.CylinderGeometry(8.8, 8.8, 0.55, 18), makeCityMat({ color: 0x7c4a26, roughness: 0.8 }));
+
+    // Timber Lakeside Patio Deck along South & West restaurants
+    const southPatioDeck = new THREE.Mesh(new THREE.BoxGeometry(76, 0.36, 7.5), woodDeckMat);
+    southPatioDeck.position.set(rioX + 2, 0.38, rioLakeZ + 29);
+    southPatioDeck.receiveShadow = isUltra;
+    sceneryGroup.add(southPatioDeck);
+
+    // Architectural Timber Pergolas & Warm String-Light Lantern Poles along RIO Boardwalk
+    for (const px of [-34, 0, 34]) {
+      const pergX = rioX + px;
+      const pergZ = rioLakeZ - 30;
+      for (const ox of [-4.2, 4.2]) {
+        for (const oz of [-3.2, 3.2]) {
+          const post = new THREE.Mesh(new THREE.BoxGeometry(0.32, 4.2, 0.32), whitePergolaMat);
+          post.position.set(pergX + ox, 2.5, pergZ + oz);
+          sceneryGroup.add(post);
+        }
+      }
+      for (let b = -3.6; b <= 3.6; b += 1.44) {
+        const beam = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.28, 7.2), woodDeckMat);
+        beam.position.set(pergX + b, 4.65, pergZ);
+        sceneryGroup.add(beam);
+      }
+    }
+    for (let lx = -38; lx <= 38; lx += 9.5) {
+      const lPost = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.11, 3.6, 6), ironRailMat);
+      lPost.position.set(rioX + lx, 2.0, rioLakeZ - 24.5);
+      sceneryGroup.add(lPost);
+      const lantern = new THREE.Mesh(new THREE.SphereGeometry(0.22, 8, 8), warmStringBulbMat);
+      lantern.position.set(rioX + lx, 3.9, rioLakeZ - 24.5);
+      sceneryGroup.add(lantern);
+    }
+
+    // Authentic Multi-Ring Carousel Pavilion with Striped Canopy, Golden Finial & Brass Poles
+    const carouselPier = new THREE.Mesh(new THREE.CylinderGeometry(9.2, 9.5, 0.58, 22), woodDeckMat);
     carouselPier.position.set(rioX, 0.52, rioLakeZ - 15);
     sceneryGroup.add(carouselPier);
-    const carouselCanopy = new THREE.Mesh(new THREE.ConeGeometry(7.6, 4.4, 16), makeCityMat({ color: 0xef4444, roughness: 0.45 }));
-    carouselCanopy.position.set(rioX, 6.4, rioLakeZ - 15);
+    const carouselPlatform = new THREE.Mesh(new THREE.CylinderGeometry(7.2, 7.4, 0.38, 20), whitePergolaMat);
+    carouselPlatform.position.set(rioX, 0.95, rioLakeZ - 15);
+    sceneryGroup.add(carouselPlatform);
+    const carouselCore = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 1.4, 4.8, 12), makeCityMat({ color: 0xfef3c7, roughness: 0.35 }));
+    carouselCore.position.set(rioX, 3.4, rioLakeZ - 15);
+    sceneryGroup.add(carouselCore);
+    for (let p = 0; p < 8; p++) {
+      const ang = (p / 8) * Math.PI * 2;
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 4.5, 6), brassPoleMat);
+      pole.position.set(rioX + Math.cos(ang) * 5.4, 3.3, rioLakeZ - 15 + Math.sin(ang) * 5.4);
+      sceneryGroup.add(pole);
+    }
+    const carouselFrieze = new THREE.Mesh(new THREE.CylinderGeometry(7.9, 7.9, 0.85, 22), makeCityMat({ color: 0xfde047, roughness: 0.32 }));
+    carouselFrieze.position.set(rioX, 5.4, rioLakeZ - 15);
+    sceneryGroup.add(carouselFrieze);
+    const carouselCanopy = new THREE.Mesh(new THREE.ConeGeometry(8.2, 4.2, 22), makeCityMat({ color: 0xdc2626, roughness: 0.42 }));
+    carouselCanopy.position.set(rioX, 7.9, rioLakeZ - 15);
     sceneryGroup.add(carouselCanopy);
+    const carouselFinial = new THREE.Mesh(new THREE.ConeGeometry(0.32, 1.6, 8), brassPoleMat);
+    carouselFinial.position.set(rioX, 10.6, rioLakeZ - 15);
+    sceneryGroup.add(carouselFinial);
 
-    // Waterfront Stores & Restaurants surrounding all 4 sides of RIO Lake
+    // Waterfront Stores & Restaurants surrounding all 4 sides of RIO Lake with awnings, glazed storefronts & signature architecture
     const rioStores: {
       x: number;
       z: number;
@@ -1112,25 +1215,30 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
       d: number;
       brickHex: string;
       winHex: string;
+      awningHex?: number;
       signLines?: string[];
       signSide?: 'N' | 'S' | 'E' | 'W';
+      kind?: 'amc' | 'target' | 'bn' | 'restaurant';
       name: string;
     }[] = [
       // North Row (facing lake)
-      { x: gx(-464), z: gz(2244), w: 42, h: 15, d: 20, brickHex: '#9a3412', winHex: '#fbbf24', signLines: ['RIO LAKEFRONT · WASHINGTONIAN', 'AMC DINE-IN 18 · BOARDWALK'], signSide: 'S', name: 'RIO Lakefront AMC Dine-In 18' },
-      { x: gx(-502), z: gz(2248), w: 24, h: 12, d: 18, brickHex: '#b91c1c', winHex: '#f8fafc', signLines: ['TARGET · DICK\'S SPORTING GOODS', 'RIO WASHINGTONIAN CENTER'], signSide: 'S', name: 'RIO Target & Dick\'s Sporting Goods' },
-      { x: gx(-426), z: gz(2248), w: 24, h: 11.5, d: 18, brickHex: '#78350f', winHex: '#fde68a', signLines: ['BARNES & NOBLE · COPPER CANYON', 'WATERFRONT SHOPS'], signSide: 'S', name: 'RIO Barnes & Noble & Copper Canyon' },
+      { x: gx(-464), z: gz(2244), w: 42, h: 15.5, d: 20, brickHex: '#9a3412', winHex: '#fbbf24', awningHex: 0x7f1d1d, kind: 'amc', signLines: ['RIO LAKEFRONT · WASHINGTONIAN', 'AMC DINE-IN 18 · IMAX'], signSide: 'S', name: 'RIO Lakefront AMC Dine-In 18' },
+      { x: gx(-502), z: gz(2248), w: 24, h: 12.2, d: 18, brickHex: '#b91c1c', winHex: '#f8fafc', awningHex: 0x991b1b, kind: 'target', signLines: ['TARGET · DICK\'S SPORTING GOODS', 'RIO WASHINGTONIAN CENTER'], signSide: 'S', name: 'RIO Target & Dick\'s Sporting Goods' },
+      { x: gx(-426), z: gz(2248), w: 24, h: 11.8, d: 18, brickHex: '#78350f', winHex: '#fde68a', awningHex: 0x14532d, kind: 'bn', signLines: ['BARNES & NOBLE · COPPER CANYON', 'BOOKSELLERS & WATERFRONT CAFE'], signSide: 'S', name: 'RIO Barnes & Noble & Copper Canyon' },
       // West Row (facing lake East)
-      { x: gx(-516), z: gz(2289), w: 14, h: 10.5, d: 22, brickHex: '#a16207', winHex: '#fef08a', signLines: ['UNCLE JULIO\'S RIO'], signSide: 'E', name: 'Uncle Julio\'s Rio Grande Cafe' },
-      { x: gx(-516), z: gz(2317), w: 14, h: 10.0, d: 22, brickHex: '#475569', winHex: '#bae6fd', signLines: ['TRUE FOOD KITCHEN · BOUTIQUES'], signSide: 'E', name: 'True Food Kitchen & RIO Shops' },
+      { x: gx(-516), z: gz(2289), w: 14, h: 10.5, d: 22, brickHex: '#a16207', winHex: '#fef08a', awningHex: 0x9a3412, signLines: ['UNCLE JULIO\'S RIO'], signSide: 'E', name: 'Uncle Julio\'s Rio Grande Cafe' },
+      { x: gx(-516), z: gz(2317), w: 14, h: 10.0, d: 22, brickHex: '#475569', winHex: '#bae6fd', awningHex: 0x0f766e, signLines: ['TRUE FOOD KITCHEN · BOUTIQUES'], signSide: 'E', name: 'True Food Kitchen & RIO Shops' },
       // East Row (facing lake West)
-      { x: gx(-412), z: gz(2290), w: 14, h: 10.5, d: 20, brickHex: '#7c2d12', winHex: '#fde68a', signLines: ['GUAPO\'S CANTINA · PATIO'], signSide: 'W', name: 'Guapo\'s Cantina RIO' },
-      { x: gx(-404), z: gz(2320), w: 14, h: 10.0, d: 20, brickHex: '#334155', winHex: '#38bdf8', signLines: ['SILVER DINER · LAKEFRONT'], signSide: 'W', name: 'Silver Diner RIO Lakefront' },
+      { x: gx(-412), z: gz(2290), w: 14, h: 10.5, d: 20, brickHex: '#7c2d12', winHex: '#fde68a', awningHex: 0x1e293b, signLines: ['GUAPO\'S CANTINA · PATIO'], signSide: 'W', name: 'Guapo\'s Cantina RIO' },
+      { x: gx(-404), z: gz(2320), w: 14, h: 10.0, d: 20, brickHex: '#334155', winHex: '#38bdf8', awningHex: 0xb91c1c, signLines: ['SILVER DINER · LAKEFRONT'], signSide: 'W', name: 'Silver Diner RIO Lakefront' },
       // South Row (facing lake North)
-      { x: gx(-486), z: gz(2344), w: 20, h: 9.5, d: 11, brickHex: '#8b3a2b', winHex: '#fef3c7', signLines: ['CHARLEY PRIME FOODS'], signSide: 'N', name: 'Charley Prime Foods RIO' },
-      { x: gx(-458), z: gz(2344), w: 20, h: 9.5, d: 11, brickHex: '#57534e', winHex: '#bae6fd', signLines: ['YARD HOUSE · LAKEFRONT PATIO'], signSide: 'N', name: 'Yard House RIO' },
-      { x: gx(-430), z: gz(2344), w: 20, h: 9.5, d: 11, brickHex: '#1e3a5f', winHex: '#fde047', signLines: ['LAKESIDE BISTRO & GELATO'], signSide: 'N', name: 'Lakeside Bistro & Shops' },
+      { x: gx(-486), z: gz(2344), w: 20, h: 9.8, d: 11, brickHex: '#8b3a2b', winHex: '#fef3c7', awningHex: 0x7c2d12, signLines: ['CHARLEY PRIME FOODS'], signSide: 'N', name: 'Charley Prime Foods RIO' },
+      { x: gx(-458), z: gz(2344), w: 20, h: 9.8, d: 11, brickHex: '#57534e', winHex: '#bae6fd', awningHex: 0x1e293b, signLines: ['YARD HOUSE · LAKEFRONT PATIO'], signSide: 'N', name: 'Yard House RIO' },
+      { x: gx(-430), z: gz(2344), w: 20, h: 9.8, d: 11, brickHex: '#1e3a5f', winHex: '#fde047', awningHex: 0x0369a1, signLines: ['LAKESIDE BISTRO & GELATO'], signSide: 'N', name: 'Lakeside Bistro & Shops' },
     ];
+    const amcGlassMat = new THREE.MeshPhysicalMaterial({ color: 0x0f2744, roughness: 0.06, metalness: 0.25, clearcoat: 1.0 });
+    disposables.push(amcGlassMat);
+
     for (const st of rioStores) {
       const mat = makeBrickFacadeMat(st.brickHex, '#f1f5f9', st.winHex, 6, 2, true);
       const bMesh = new THREE.Mesh(new THREE.BoxGeometry(st.w, st.h, st.d), boxWithRoofMat(mat, flatRoofMat));
@@ -1138,23 +1246,66 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
       bMesh.castShadow = isUltra;
       bMesh.receiveShadow = isUltra;
       sceneryGroup.add(bMesh);
-      const crown = new THREE.Mesh(new THREE.BoxGeometry(st.w + 1.0, 0.9, st.d + 1.0), campusTrimMat);
-      crown.position.set(st.x, st.h + 0.7, st.z);
+      const crown = new THREE.Mesh(new THREE.BoxGeometry(st.w + 1.1, 0.95, st.d + 1.1), campusTrimMat);
+      crown.position.set(st.x, st.h + 0.72, st.z);
       sceneryGroup.add(crown);
+
+      // Architectural ground-floor storefront awning canopy facing RIO lakefront promenade
+      if (st.awningHex !== undefined) {
+        const awMat = makeCityMat({ color: st.awningHex, roughness: 0.55 });
+        const awW = st.signSide === 'N' || st.signSide === 'S' ? st.w - 2.4 : 2.6;
+        const awD = st.signSide === 'N' || st.signSide === 'S' ? 2.6 : st.d - 2.4;
+        const aw = new THREE.Mesh(new THREE.BoxGeometry(awW, 0.36, awD), awMat);
+        if (st.signSide === 'S') aw.position.set(st.x, 4.4, st.z + st.d * 0.5 + 1.25);
+        else if (st.signSide === 'N') aw.position.set(st.x, 4.4, st.z - st.d * 0.5 - 1.25);
+        else if (st.signSide === 'E') aw.position.set(st.x + st.w * 0.5 + 1.25, 4.4, st.z);
+        else aw.position.set(st.x - st.w * 0.5 - 1.25, 4.4, st.z);
+        sceneryGroup.add(aw);
+      }
+
+      // Signature RIO Anchor Landmark Details
+      if (st.kind === 'amc') {
+        const lobbyGlass = new THREE.Mesh(new THREE.BoxGeometry(22, 11.2, 2.2), amcGlassMat);
+        lobbyGlass.position.set(st.x, 5.85, st.z + st.d * 0.5 + 0.9);
+        sceneryGroup.add(lobbyGlass);
+        const blade = new THREE.Mesh(
+          new THREE.BoxGeometry(2.2, 9.2, 1.4),
+          makeTextSignMat(['AMC', '18'], '#b91c1c', '#fef08a', '#ffffff')
+        );
+        blade.position.set(st.x, 12.2, st.z + st.d * 0.5 + 2.1);
+        sceneryGroup.add(blade);
+      } else if (st.kind === 'target') {
+        const bullOuter = new THREE.Mesh(new THREE.TorusGeometry(1.75, 0.38, 10, 22), makeCityMat({ color: 0xef4444, roughness: 0.35 }));
+        bullOuter.position.set(st.x, st.h + 1.9, st.z + st.d * 0.5 + 0.3);
+        sceneryGroup.add(bullOuter);
+        const bullDot = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.62, 0.35, 16), makeCityMat({ color: 0xef4444, roughness: 0.35 }));
+        bullDot.rotation.x = Math.PI / 2;
+        bullDot.position.set(st.x, st.h + 1.9, st.z + st.d * 0.5 + 0.3);
+        sceneryGroup.add(bullDot);
+      } else if (st.kind === 'bn') {
+        // Famous RIO Barnes & Noble literary art mural panel & brick pilasters
+        const mural = new THREE.Mesh(
+          new THREE.BoxGeometry(11.5, 6.2, 0.35),
+          makeTextSignMat(['CLASSIC BOOKS · POETRY', 'GAITHERSBURG LITERARY WALL'], '#1e3a5f', '#fde68a', '#d97706')
+        );
+        mural.position.set(st.x + 5.2, 6.4, st.z + st.d * 0.5 + 0.25);
+        sceneryGroup.add(mural);
+      }
+
       if (st.signLines) {
         const signFaceW = st.signSide === 'N' || st.signSide === 'S' ? Math.min(st.w - 3, 28) : Math.min(st.d - 3, 18);
         const sMesh = new THREE.Mesh(
           new THREE.BoxGeometry(signFaceW, 2.4, 0.35),
           makeTextSignMat(st.signLines, '#0f172a', '#fde047', '#38bdf8')
         );
-        if (st.signSide === 'S') sMesh.position.set(st.x, st.h - 1.6, st.z + st.d * 0.5 + 0.25);
-        else if (st.signSide === 'N') sMesh.position.set(st.x, st.h - 1.6, st.z - st.d * 0.5 - 0.25);
+        if (st.signSide === 'S') sMesh.position.set(st.x, st.h - 1.6, st.z + st.d * 0.5 + 0.28);
+        else if (st.signSide === 'N') sMesh.position.set(st.x, st.h - 1.6, st.z - st.d * 0.5 - 0.28);
         else if (st.signSide === 'E') {
           sMesh.rotation.y = Math.PI / 2;
-          sMesh.position.set(st.x + st.w * 0.5 + 0.25, st.h - 1.6, st.z);
+          sMesh.position.set(st.x + st.w * 0.5 + 0.28, st.h - 1.6, st.z);
         } else {
           sMesh.rotation.y = -Math.PI / 2;
-          sMesh.position.set(st.x - st.w * 0.5 - 0.25, st.h - 1.6, st.z);
+          sMesh.position.set(st.x - st.w * 0.5 - 0.28, st.h - 1.6, st.z);
         }
         sceneryGroup.add(sMesh);
       }
@@ -1202,14 +1353,34 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
     kLake.rotation.x = -Math.PI / 2;
     kLake.position.set(gx(-610), 0.232, gz(2290));
     sceneryGroup.add(kLake);
-    const kMansionBrick = makeBrickFacadeMat('#991b1b', '#f8fafc', '#1e293b', 5, 2, true);
-    const kMansion = new THREE.Mesh(new THREE.BoxGeometry(40, 11, 22), boxWithRoofMat(kMansionBrick, flatRoofMat));
-    kMansion.position.set(gx(-610), 5.75, gz(2246));
+    // Historic Kentlands Georgian Brick Mansion (paired chimneys, white roof widow's walk balustrade & columned portico)
+    const kMansionBrick = makeBrickFacadeMat('#991b1b', '#f8fafc', '#1e293b', 5, 3, true);
+    const kMansion = new THREE.Mesh(new THREE.BoxGeometry(40, 12.5, 22), boxWithRoofMat(kMansionBrick, flatRoofMat));
+    kMansion.position.set(gx(-610), 6.5, gz(2246));
+    kMansion.castShadow = isUltra;
+    kMansion.receiveShadow = isUltra;
     sceneryGroup.add(kMansion);
-    const kMansionRoof = buildPitchedRoofGroup(40.6, 22.6, 4.4, kMansionBrick, makeCityMat({ color: 0x1e293b, roughness: 0.74 }), 'x');
-    kMansionRoof.position.set(gx(-610), 11.25, gz(2246));
+    const kMansionRoof = buildPitchedRoofGroup(40.8, 22.8, 4.8, kMansionBrick, makeCityMat({ color: 0x1e293b, roughness: 0.74 }), 'x');
+    kMansionRoof.position.set(gx(-610), 12.75, gz(2246));
     sceneryGroup.add(kMansionRoof);
-    cityBuildings.push({ minX: gx(-631), maxX: gx(-589), minZ: gz(2234), maxZ: gz(2258), height: 16, name: 'Historic Kentlands Mansion' });
+    const whiteManorTrim = makeCityMat({ color: 0xf8fafc, roughness: 0.36 });
+    const kPorticoRoof = buildPitchedRoofGroup(10.5, 4.6, 2.4, whiteManorTrim, makeCityMat({ color: 0x1e293b, roughness: 0.74 }), 'z');
+    kPorticoRoof.position.set(gx(-610), 9.2, gz(2246) + 13.0);
+    sceneryGroup.add(kPorticoRoof);
+    for (const cx of [-4.2, -1.4, 1.4, 4.2]) {
+      const col = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.34, 8.8, 10), whiteManorTrim);
+      col.position.set(gx(-610) + cx, 4.65, gz(2246) + 14.6);
+      sceneryGroup.add(col);
+    }
+    const widowBase = new THREE.Mesh(new THREE.BoxGeometry(12.5, 1.4, 7.6), whiteManorTrim);
+    widowBase.position.set(gx(-610), 17.6, gz(2246));
+    sceneryGroup.add(widowBase);
+    for (const cx of [-18.5, 18.5]) {
+      const mChim = new THREE.Mesh(new THREE.BoxGeometry(2.0, 6.2, 2.2), makeCityMat({ color: 0x881337, roughness: 0.8 }));
+      mChim.position.set(gx(-610) + cx, 16.4, gz(2246));
+      sceneryGroup.add(mChim);
+    }
+    cityBuildings.push({ minX: gx(-631), maxX: gx(-589), minZ: gz(2234), maxZ: gz(2261), height: 19, name: 'Historic Kentlands Mansion' });
   }
 
   // =========================================================================================
@@ -1242,27 +1413,22 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
   }
 
   // =========================================================================================
-  // 13. INSTANCED MARYLAND WOODED GREENBELT TREES IN GAITHERSBURG
+  // 13. INSTANCED BRANCHED OAK & PINE WOODLAND TREES + 3D GRASS TUFTS & SHRUBS IN GAITHERSBURG
   // =========================================================================================
   {
-    const treePlacements: { x: number; z: number; s: number }[] = [];
-    for (let i = 0; i < 360; i++) {
-      const tx = gx(-690 + ((i * 97) % 1380));
-      const tz = gz(1500 + ((i * 73) % 940));
-      if (isOnGaithersburgPavedSurface(tx, tz)) continue;
-      let nearRoadOrFeature = false;
+    const treePlacements: WoodlandTreePlacement[] = [];
+    const grassPatches: GrassPatchPlacement[] = [];
+    const isBlockedGaithSpot = (tx: number, tz: number, roadPad: number, bldgPad: number): boolean => {
+      if (isOnGaithersburgPavedSurface(tx, tz)) return true;
       for (const r of ALL_MARYLAND_ROADS) {
-        const minClr = r.width * 0.5 + 8.5;
+        const minClr = r.width * 0.5 + roadPad;
         const clrSq = minClr * minClr;
         for (let k = 0; k < r.points.length - 1; k++) {
           if (distSqPointToSeg(tx, tz, r.points[k].x, r.points[k].z, r.points[k + 1].x, r.points[k + 1].z) < clrSq) {
-            nearRoadOrFeature = true;
-            break;
+            return true;
           }
         }
-        if (nearRoadOrFeature) break;
       }
-      if (nearRoadOrFeature) continue;
       if (
         (tx >= gx(245) && tx <= gx(805) && tz >= gz(1045) && tz <= gz(1925)) ||
         (tx >= gx(-205) && tx <= gx(-35) && tz >= gz(1530) && tz <= gz(1600)) ||
@@ -1273,45 +1439,45 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
         (tx >= gx(-665) && tx <= gx(-555) && tz >= gz(2245) && tz <= gz(2335)) ||
         (tx >= gx(-205) && tx <= gx(-95) && tz >= gz(1825) && tz <= gz(1920))
       ) {
-        continue;
+        return true;
       }
-      let hitsBldg = false;
       for (let b = 0; b < cityBuildings.length; b++) {
         const box = cityBuildings[b];
-        if (tx >= box.minX - 6 && tx <= box.maxX + 6 && tz >= box.minZ - 6 && tz <= box.maxZ + 6) {
-          hitsBldg = true;
-          break;
+        if (tx >= box.minX - bldgPad && tx <= box.maxX + bldgPad && tz >= box.minZ - bldgPad && tz <= box.maxZ + bldgPad) {
+          return true;
         }
       }
-      if (hitsBldg) continue;
-      treePlacements.push({ x: tx, z: tz, s: 0.85 + (i % 4) * 0.2 });
-    }
-    if (treePlacements.length > 0) {
-      const trunkGeo = new THREE.CylinderGeometry(0.3, 0.44, 4.2, isRetroPixel ? 5 : 6);
-      const crownGeo = new THREE.DodecahedronGeometry(3.0, isRetroPixel ? 0 : 1);
-      const trunkInst = new THREE.InstancedMesh(trunkGeo, treeTrunkMat, treePlacements.length);
-      const crownInst = new THREE.InstancedMesh(crownGeo, treeFoliageMat, treePlacements.length);
-      const dummy = new THREE.Object3D();
-      for (let i = 0; i < treePlacements.length; i++) {
-        const tp = treePlacements[i];
-        dummy.position.set(tp.x, 0.22 + 2.1 * tp.s, tp.z);
-        dummy.scale.set(tp.s, tp.s, tp.s);
-        dummy.rotation.y = i * 0.8;
-        dummy.updateMatrix();
-        trunkInst.setMatrixAt(i, dummy.matrix);
+      return false;
+    };
 
-        dummy.position.set(tp.x, 0.22 + 5.2 * tp.s, tp.z);
-        dummy.scale.set(tp.s * 1.15, tp.s * 1.05, tp.s * 1.15);
-        dummy.updateMatrix();
-        crownInst.setMatrixAt(i, dummy.matrix);
-      }
-      trunkInst.instanceMatrix.needsUpdate = true;
-      crownInst.instanceMatrix.needsUpdate = true;
-      trunkInst.computeBoundingSphere();
-      crownInst.computeBoundingSphere();
-      sceneryGroup.add(trunkInst);
-      sceneryGroup.add(crownInst);
+    for (let i = 0; i < 380; i++) {
+      const tx = gx(-690 + ((i * 97) % 1380));
+      const tz = gz(1500 + ((i * 73) % 940));
+      if (isBlockedGaithSpot(tx, tz, 8.5, 6.0)) continue;
+      treePlacements.push({
+        x: tx,
+        z: tz,
+        s: 0.85 + (i % 4) * 0.2,
+        species: i % 4 === 0 ? 'pine' : 'oak',
+      });
     }
+    populateInstancedWoodlandTrees(sceneryGroup, treePlacements, { isUltra, isRetroPixel }, disposables);
+
+    // Scatter 3D crossed-blade grass clumps & shrubs across greenbelts, parks & RIO verges
+    for (let i = 0; i < 950; i++) {
+      const rx = ((i * 173 + 29) % 1480) - 720;
+      const rz = 1080 + ((i * 211 + 53) % 1380);
+      const px = gx(rx);
+      const pz = gz(rz);
+      if (isBlockedGaithSpot(px, pz, 2.8, 2.2)) continue;
+      grassPatches.push({
+        x: px,
+        z: pz,
+        s: 0.95 + (i % 5) * 0.16,
+        kind: i % 9 === 0 ? 'shrub' : 'grass',
+      });
+    }
+    populateChunkedGrassAndShrubs(sceneryGroup, grassPatches, { isUltra, isRetroPixel }, disposables);
   }
 
   for (const jct of GAITHERSBURG_SIGNAL_JUNCTIONS.slice(0, 4)) {

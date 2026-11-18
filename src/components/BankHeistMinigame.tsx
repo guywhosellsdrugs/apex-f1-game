@@ -8,6 +8,8 @@ export interface BankMinigameTargetInfo {
   streetLocation: string;
   icon: string;
   hidePayoutUntilStolen?: boolean;
+  policeBreach?: boolean;
+  breachReason?: string;
 }
 
 interface BankHeistMinigameProps {
@@ -41,7 +43,7 @@ interface SecurityBot {
   patrolPhase: number;
   hitFlash: number;
   walkCycle: number;
-  role: 'GUARD' | 'CAPTAIN';
+  role: 'GUARD' | 'CAPTAIN' | 'POLICE';
 }
 
 interface Bolt {
@@ -188,63 +190,53 @@ function hasLineOfSight(x1: number, y1: number, x2: number, y2: number, vaultLoc
   return true;
 }
 
+const ENTRY_DOOR_RECT = { x: 344, y: 498, w: 112, h: 16 };
+
 function getBotSpawnsForTarget(payoutCash: number): Array<{ x: number; y: number; role: 'GUARD' | 'CAPTAIN' }> {
-  if (payoutCash < 10000) {
-    // Small houses, starter homes, corner stores (<$10k): 2 security bots
-    return [
-      { x: 240, y: 195, role: 'GUARD' },
-      { x: 560, y: 195, role: 'GUARD' },
-    ];
-  }
-  if (payoutCash < 15000) {
-    // Small storefront / boardwalk safe / mid house ($10k-$14.9k): 3 security guards
-    return [
-      { x: 185, y: 195, role: 'GUARD' },
-      { x: 615, y: 195, role: 'GUARD' },
-      { x: 400, y: 165, role: 'GUARD' },
-    ];
-  }
-  if (payoutCash < 22000) {
-    // Mid-size showroom / estate ($15k-$21.9k): 4 security guards
-    return [
-      { x: 160, y: 185, role: 'GUARD' },
-      { x: 640, y: 185, role: 'GUARD' },
-      { x: 315, y: 168, role: 'GUARD' },
-      { x: 485, y: 168, role: 'GUARD' },
-    ];
-  }
-  if (payoutCash < 29000) {
-    // High-security jewelry exchange / villa ($22k-$28.9k): 4 guards + 1 captain = 5 bots
-    return [
-      { x: 150, y: 185, role: 'GUARD' },
-      { x: 650, y: 185, role: 'GUARD' },
-      { x: 400, y: 164, role: 'CAPTAIN' },
-      { x: 135, y: 330, role: 'GUARD' },
-      { x: 665, y: 330, role: 'GUARD' },
-    ];
-  }
-  if (payoutCash < 45000) {
-    // Major bank vault / luxury mansion ($30k-$44.9k): 5 guards + 1 captain = 6 bots
-    return [
-      { x: 140, y: 175, role: 'GUARD' },
-      { x: 660, y: 175, role: 'GUARD' },
-      { x: 320, y: 170, role: 'CAPTAIN' },
-      { x: 480, y: 170, role: 'GUARD' },
-      { x: 120, y: 330, role: 'GUARD' },
-      { x: 680, y: 330, role: 'GUARD' },
-    ];
-  }
-  // Fortified high-value bullion depository ($45k+): 6 guards + 2 captains = 8 bots
-  return [
-    { x: 140, y: 170, role: 'GUARD' },
-    { x: 660, y: 170, role: 'GUARD' },
-    { x: 310, y: 170, role: 'CAPTAIN' },
-    { x: 490, y: 170, role: 'CAPTAIN' },
-    { x: 112, y: 330, role: 'GUARD' },
-    { x: 688, y: 330, role: 'GUARD' },
-    { x: 300, y: 270, role: 'GUARD' },
-    { x: 500, y: 270, role: 'GUARD' },
+  const pool: Array<{ x: number; y: number; role: 'GUARD' | 'CAPTAIN' }> = [
+    // Inner hall & side wings (away from player spawn at x=400, y=454)
+    { x: 160, y: 175, role: 'GUARD' },
+    { x: 640, y: 175, role: 'GUARD' },
+    { x: 310, y: 165, role: 'GUARD' },
+    { x: 490, y: 165, role: 'GUARD' },
+    { x: 120, y: 320, role: 'GUARD' },
+    { x: 680, y: 320, role: 'GUARD' },
+    { x: 400, y: 155, role: 'CAPTAIN' },
+    { x: 88, y: 145, role: 'GUARD' },
+    { x: 712, y: 145, role: 'GUARD' },
+    { x: 285, y: 245, role: 'GUARD' },
+    { x: 515, y: 245, role: 'GUARD' },
+    { x: 96, y: 410, role: 'GUARD' },
+    { x: 704, y: 410, role: 'GUARD' },
+    { x: 205, y: 135, role: 'CAPTAIN' },
+    { x: 595, y: 135, role: 'CAPTAIN' },
+    { x: 170, y: 315, role: 'GUARD' },
+    { x: 630, y: 315, role: 'GUARD' },
+    { x: 335, y: 205, role: 'GUARD' },
+    { x: 465, y: 205, role: 'GUARD' },
+    { x: 72, y: 220, role: 'GUARD' },
+    { x: 728, y: 220, role: 'GUARD' },
+    { x: 270, y: 330, role: 'CAPTAIN' },
+    { x: 530, y: 330, role: 'CAPTAIN' },
+    { x: 165, y: 430, role: 'GUARD' },
+    { x: 635, y: 430, role: 'GUARD' },
+    { x: 118, y: 148, role: 'GUARD' },
+    { x: 682, y: 148, role: 'GUARD' },
+    { x: 182, y: 138, role: 'CAPTAIN' },
+    { x: 618, y: 138, role: 'CAPTAIN' },
+    { x: 295, y: 142, role: 'GUARD' },
+    { x: 505, y: 142, role: 'GUARD' },
+    { x: 400, y: 228, role: 'CAPTAIN' },
   ];
+
+  let count = 2;
+  if (payoutCash >= 45000) count = 8;
+  else if (payoutCash >= 30000) count = 6;
+  else if (payoutCash >= 22000) count = 5;
+  else if (payoutCash >= 15000) count = 4;
+  else if (payoutCash >= 10000) count = 3;
+
+  return pool.slice(0, count);
 }
 
 export const BankHeistMinigame: React.FC<BankHeistMinigameProps> = ({
@@ -269,6 +261,7 @@ export const BankHeistMinigame: React.FC<BankHeistMinigameProps> = ({
     phase: 'playing' | 'knockout' | 'capture' | 'won';
     bannerText: string;
     regenActive: boolean;
+    policeBreachActive: boolean;
   }>({
     hp: 100,
     maxHp: 100,
@@ -276,8 +269,11 @@ export const BankHeistMinigame: React.FC<BankHeistMinigameProps> = ({
     totalBots: initialBotCount,
     vaultUnlocked: false,
     phase: 'playing',
-    bannerText: `DESTROY ALL ${initialBotCount} SECURITY BOTS TO UNLOCK THE VAULT`,
+    bannerText: target.policeBreach
+      ? `🚨 ${target.breachReason || 'POLICE APPROACHING DOOR — PREPARE FOR BREACH!'}`
+      : `DESTROY ALL ${initialBotCount} SECURITY BOTS TO UNLOCK THE VAULT`,
     regenActive: false,
+    policeBreachActive: Boolean(target.policeBreach),
   });
 
   useEffect(() => {
@@ -294,11 +290,11 @@ export const BankHeistMinigame: React.FC<BankHeistMinigameProps> = ({
       y: sp.y,
       vx: 0,
       vy: 0,
-      hp: sp.role === 'CAPTAIN' ? 120 : 80,
-      maxHp: sp.role === 'CAPTAIN' ? 120 : 80,
+      hp: sp.role === 'CAPTAIN' ? 85 : 55,
+      maxHp: sp.role === 'CAPTAIN' ? 85 : 55,
       alive: true,
       facing: Math.PI / 2,
-      fireCooldown: 0.9 + idx * 0.22,
+      fireCooldown: 1.0 + (idx % 7) * 0.28,
       patrolAnchorX: sp.x,
       patrolAnchorY: sp.y,
       patrolPhase: idx * 1.15,
@@ -343,6 +339,14 @@ export const BankHeistMinigame: React.FC<BankHeistMinigameProps> = ({
     let captureBotId: number | null = null;
     let animTime = 0;
     let callbackFired = false;
+
+    // Animated Police Door Breach state (ONLY escalates hostile force when police break in!)
+    const breachArmed = Boolean(target.policeBreach);
+    let breachTriggered = false;
+    let breachDoorOpen = 0;
+    let breachOfficersSpawned = 0;
+    let breachAlertFlash = 0;
+    const totalBreachOfficers = breachArmed ? 14 : 0;
 
     const spawnSparks = (x: number, y: number, color: string, count: number, speed = 150) => {
       for (let i = 0; i < count; i++) {
@@ -423,26 +427,32 @@ export const BankHeistMinigame: React.FC<BankHeistMinigameProps> = ({
 
     const pushHud = (bannerOverride?: string) => {
       const aliveCount = bots.filter((b) => b.alive).length;
+      const pendingPolice = breachArmed ? Math.max(0, totalBreachOfficers - breachOfficersSpawned) : 0;
       const defaultBanner =
         phase === 'knockout'
           ? '💫 KNOCKED OUT! SEEING STARS...'
           : phase === 'capture'
-          ? '🤖 SECURITY BOT CAPTURED YOU — RESTITUTION & CUSTODY INCOMING!'
+          ? '👮 ARRESTED / CAPTURED — RESTITUTION & CUSTODY INCOMING!'
           : phase === 'won'
           ? `💰 VAULT LOOT STOLEN (+$${target.payoutCash.toLocaleString()})! GET TO YOUR CAR!`
+          : breachTriggered && pendingPolice === 0 && aliveCount > 0 && animTime < 6.5
+          ? `🚨 ${totalBreachOfficers} POLICE SWAT OFFICERS BURST THROUGH THE DOOR! CLEAR ALL HOSTILES!`
           : vaultUnlocked
-          ? '🔓 ALL SECURITY BOTS DESTROYED — ENTER THE TOP VAULT TO STEAL THE LOOT!'
-          : `🤖 DESTROY ALL ${aliveCount} REMAINING SECURITY BOTS TO UNLOCK THE VAULT`;
+          ? '🔓 ALL HOSTILES CLEARED — ENTER THE TOP VAULT TO STEAL THE LOOT!'
+          : breachArmed && !breachTriggered
+          ? `🚨 ${target.breachReason || 'SIRENS OUTSIDE! HEAVY SWAT BREACH IMMINENT!'}`
+          : `🤖 ELIMINATE ALL ${aliveCount} SECURITY BOTS TO UNLOCK THE VAULT`;
       const regenActive = phase === 'playing' && player.timeSinceHit >= 2.2 && player.hp < player.maxHp;
       setHudState({
         hp: Math.max(0, Math.ceil(player.hp)),
         maxHp: player.maxHp,
         botsAlive: aliveCount,
-        totalBots: bots.length,
+        totalBots: bots.length + pendingPolice,
         vaultUnlocked,
         phase,
         bannerText: bannerOverride || defaultBanner,
         regenActive,
+        policeBreachActive: breachArmed,
       });
     };
 
@@ -451,27 +461,26 @@ export const BankHeistMinigame: React.FC<BankHeistMinigameProps> = ({
       y: number,
       facing: number,
       walk: number,
-      isCaptain: boolean,
+      role: 'GUARD' | 'CAPTAIN' | 'POLICE',
       hitFlash: number,
       alive: boolean,
-      isCapturing: boolean
+      isCapturing: boolean,
+      tNow: number
     ) => {
+      const isCaptain = role === 'CAPTAIN';
+      const isPolice = role === 'POLICE';
       ctx.save();
       ctx.translate(Math.round(x), Math.round(y));
 
       if (!alive) {
-        // Powered-down broken robot chassis on marble floor
-        ctx.fillStyle = '#1e293b';
+        ctx.fillStyle = isPolice ? '#172554' : '#1e293b';
         ctx.fillRect(-13, -7, 26, 14);
-        ctx.fillStyle = '#334155';
+        ctx.fillStyle = isPolice ? '#1e3a8a' : '#334155';
         ctx.fillRect(-10, -5, 14, 10);
         ctx.fillStyle = '#0f172a';
         ctx.fillRect(5, -5, 7, 10);
-        // Darkened broken visor & spark wire
         ctx.fillStyle = '#ef4444';
         ctx.fillRect(-12, -2, 3, 2);
-        ctx.fillStyle = '#64748b';
-        ctx.fillRect(10, 2, 5, 2);
         ctx.restore();
         return;
       }
@@ -484,45 +493,60 @@ export const BankHeistMinigame: React.FC<BankHeistMinigameProps> = ({
 
       const stride = Math.sin(walk * 8) * 3.5;
 
-      // Humanoid legs (pixel steel boots)
-      ctx.fillStyle = '#334155';
+      // Legs
+      ctx.fillStyle = isPolice ? '#0f172a' : '#334155';
       ctx.fillRect(-7, 5 + stride * 0.4, 5, 8);
       ctx.fillRect(2, 5 - stride * 0.4, 5, 8);
 
-      // Torso armor (Captain = crimson/gold security unit, Guard = slate/cobalt)
-      ctx.fillStyle = hitFlash > 0 ? '#ffffff' : isCaptain ? '#991b1b' : '#334155';
+      // Torso armor (Police SWAT = deep Metro PD navy + gold badge; Captain = crimson/gold; Guard = slate/cobalt)
+      ctx.fillStyle = hitFlash > 0 ? '#ffffff' : isPolice ? '#172554' : isCaptain ? '#991b1b' : '#334155';
       ctx.fillRect(-10, -8, 20, 15);
-      ctx.strokeStyle = isCaptain ? '#facc15' : '#38bdf8';
+      ctx.strokeStyle = isPolice ? '#60a5fa' : isCaptain ? '#facc15' : '#38bdf8';
       ctx.lineWidth = 2;
       ctx.strokeRect(-10, -8, 20, 15);
 
-      // Glowing power core on chest
-      ctx.fillStyle = isCapturing ? '#f97316' : isCaptain ? '#fde047' : '#38bdf8';
-      ctx.fillRect(-3, -3, 6, 6);
+      if (isPolice) {
+        // Gold Police Star Badge on Tactical Vest
+        ctx.fillStyle = '#facc15';
+        ctx.fillRect(-7, -5, 5, 5);
+        ctx.fillStyle = '#e2e8f0';
+        ctx.fillRect(1, -3, 6, 2);
+      } else {
+        ctx.fillStyle = isCapturing ? '#f97316' : isCaptain ? '#fde047' : '#38bdf8';
+        ctx.fillRect(-3, -3, 6, 6);
+      }
 
-      // Humanoid shoulders & articulated blaster arm rotating toward aim direction
+      // Weapon arm rotating toward player
       ctx.save();
       ctx.rotate(facing);
-      ctx.fillStyle = '#475569';
+      ctx.fillStyle = isPolice ? '#1e293b' : '#475569';
       ctx.fillRect(4, -5, 13, 4);
       ctx.fillStyle = '#0f172a';
       ctx.fillRect(14, -6, 6, 6);
-      ctx.fillStyle = isCapturing ? '#fb923c' : '#ef4444';
+      ctx.fillStyle = isPolice ? '#3b82f6' : isCapturing ? '#fb923c' : '#ef4444';
       ctx.fillRect(19, -4, 3, 2);
       ctx.restore();
 
-      // Humanoid head + antenna + glowing visor slit
-      ctx.fillStyle = hitFlash > 0 ? '#ffffff' : '#94a3b8';
+      // Helmet / Head + Flashing Red/Blue Police Strobe on SWAT Officers!
+      ctx.fillStyle = hitFlash > 0 ? '#ffffff' : isPolice ? '#1e3a8a' : '#94a3b8';
       ctx.fillRect(-7, -17, 14, 11);
-      ctx.fillStyle = '#1e293b';
+      ctx.fillStyle = '#0f172a';
       ctx.fillRect(-6, -13, 12, 4);
-      ctx.fillStyle = isCapturing ? '#facc15' : '#ef4444';
+      ctx.fillStyle = isPolice ? '#93c5fd' : isCapturing ? '#facc15' : '#ef4444';
       ctx.fillRect(-5, -12, 10, 2);
-      // Antenna on head
-      ctx.fillStyle = '#64748b';
-      ctx.fillRect(-1, -22, 2, 5);
-      ctx.fillStyle = isCaptain ? '#facc15' : '#ef4444';
-      ctx.fillRect(-2, -23, 4, 2);
+
+      if (isPolice) {
+        const flash = Math.floor(tNow * 10) % 2 === 0;
+        ctx.fillStyle = flash ? '#ef4444' : '#3b82f6';
+        ctx.fillRect(-5, -20, 4, 3);
+        ctx.fillStyle = flash ? '#3b82f6' : '#ef4444';
+        ctx.fillRect(1, -20, 4, 3);
+      } else {
+        ctx.fillStyle = '#64748b';
+        ctx.fillRect(-1, -22, 2, 5);
+        ctx.fillStyle = isCaptain ? '#facc15' : '#ef4444';
+        ctx.fillRect(-2, -23, 4, 2);
+      }
 
       ctx.restore();
     };
@@ -649,6 +673,54 @@ export const BankHeistMinigame: React.FC<BankHeistMinigameProps> = ({
         }
       }
 
+      if (breachAlertFlash > 0) breachAlertFlash = Math.max(0, breachAlertFlash - dt);
+
+      // Police Door Breach Sequence (door kicks open & escalated SWAT force charges inside!)
+      if (phase === 'playing' && breachArmed) {
+        if (!breachTriggered && animTime >= 1.75) {
+          breachTriggered = true;
+          breachAlertFlash = 2.0;
+          screenShake = Math.max(screenShake, 16);
+          spawnSparks(400, ENTRY_DOOR_RECT.y - 4, '#f59e0b', 28, 220);
+          spawnSparks(400, ENTRY_DOOR_RECT.y - 4, '#ef4444', 22, 200);
+          spawnSparks(400, ENTRY_DOOR_RECT.y - 4, '#3b82f6', 22, 200);
+          playRetroTone(140, 48, 0.35, 'sawtooth', 0.14);
+          setTimeout(() => playRetroTone(740, 520, 0.22, 'square', 0.08), 90);
+          pushHud(`🚨 ${totalBreachOfficers} POLICE SWAT OFFICERS BURST THROUGH THE DOOR!`);
+        }
+        if (breachTriggered) {
+          breachDoorOpen = Math.min(1, breachDoorOpen + dt * 5.0);
+          // Spawn escalated 14-officer SWAT squad charging through the breached doorway in waves
+          const desiredSpawned = Math.min(totalBreachOfficers, 2 + Math.floor((animTime - 1.75) / 0.22));
+          while (breachOfficersSpawned < desiredSpawned) {
+            const k = breachOfficersSpawned;
+            const lane = (k % 5) - 2;
+            const spreadX = 400 + lane * 18;
+            const rankRow = Math.floor(k / 5);
+            bots.push({
+              id: 100 + k,
+              x: spreadX,
+              y: ENTRY_DOOR_RECT.y - 4,
+              vx: 0,
+              vy: -98,
+              hp: k % 4 === 0 ? 85 : 65,
+              maxHp: k % 4 === 0 ? 85 : 65,
+              alive: true,
+              facing: -Math.PI / 2,
+              fireCooldown: 0.9 + (k % 5) * 0.26,
+              patrolAnchorX: 160 + ((k * 137) % 480),
+              patrolAnchorY: 265 + rankRow * 58,
+              patrolPhase: k * 0.65,
+              hitFlash: 0,
+              walkCycle: k * 0.35,
+              role: 'POLICE',
+            });
+            spawnSparks(spreadX, ENTRY_DOOR_RECT.y - 8, '#60a5fa', 6, 115);
+            breachOfficersSpawned++;
+          }
+        }
+      }
+
       // 1. Update Simulation
       if (phase === 'playing') {
         let moveX = 0;
@@ -697,8 +769,8 @@ export const BankHeistMinigame: React.FC<BankHeistMinigameProps> = ({
         // Shoot cyan EMP stun-bolts strictly along facing direction (Space OR Left Mouse Button)
         player.fireTimer = Math.max(0, player.fireTimer - dt);
         if ((leftMouseDown || keys.has('Space')) && player.fireTimer <= 0) {
-          player.fireTimer = 0.19;
-          const speed = 520;
+          player.fireTimer = 0.16;
+          const speed = 540;
           const muzzleX = player.x + Math.cos(player.aimAngle) * 18;
           const muzzleY = player.y + Math.sin(player.aimAngle) * 18;
           bolts.push({
@@ -712,7 +784,7 @@ export const BankHeistMinigame: React.FC<BankHeistMinigameProps> = ({
           playRetroTone(740, 260, 0.08, 'square', 0.06);
         }
 
-        // Update Security Bots AI
+        // Update Security Bots & Breaching Police Officers AI
         let aliveCount = 0;
         for (const bot of bots) {
           if (!bot.alive) continue;
@@ -724,17 +796,16 @@ export const BankHeistMinigame: React.FC<BankHeistMinigameProps> = ({
           const distP = Math.hypot(dxP, dyP);
           const seePlayer = hasLineOfSight(bot.x, bot.y, player.x, player.y, !vaultUnlocked);
 
-          bot.patrolPhase += dt * (bot.role === 'CAPTAIN' ? 1.5 : 1.15);
+          bot.patrolPhase += dt * (bot.role === 'POLICE' ? 1.8 : bot.role === 'CAPTAIN' ? 1.45 : 1.1);
           let goalX = bot.patrolAnchorX + Math.sin(bot.patrolPhase) * 44;
           let goalY = bot.patrolAnchorY + Math.cos(bot.patrolPhase * 0.7) * 26;
 
-          if (seePlayer && distP < 420) {
-            // Advance gently if far, strafe if at medium range, back up if crowded
+          if ((seePlayer && distP < 430) || bot.role === 'POLICE') {
             bot.facing = Math.atan2(dyP, dxP);
-            if (distP > 195) {
+            if (distP > (bot.role === 'POLICE' ? 135 : 195)) {
               goalX = player.x;
               goalY = player.y;
-            } else if (distP < 105) {
+            } else if (distP < 95) {
               goalX = bot.x - dxP * 0.5;
               goalY = bot.y - dyP * 0.5;
             } else {
@@ -748,16 +819,16 @@ export const BankHeistMinigame: React.FC<BankHeistMinigameProps> = ({
           const gdx = goalX - bot.x;
           const gdy = goalY - bot.y;
           const gDist = Math.hypot(gdx, gdy);
-          const botSpeed = bot.role === 'CAPTAIN' ? 88 : 74;
+          const botSpeed = bot.role === 'POLICE' ? 112 : bot.role === 'CAPTAIN' ? 86 : 70;
           if (gDist > 4) {
             bot.x += (gdx / gDist) * botSpeed * dt;
             bot.y += (gdy / gDist) * botSpeed * dt;
             bot.walkCycle += dt;
           }
 
-          // Keep bots in lobby (below vault line y=118)
+          // Keep bots inside arena walls
           bot.x = Math.max(28 + BOT_RADIUS, Math.min(CANVAS_W - 28 - BOT_RADIUS, bot.x));
-          bot.y = Math.max(122 + BOT_RADIUS, Math.min(CANVAS_H - 32 - BOT_RADIUS, bot.y));
+          bot.y = Math.max(122 + BOT_RADIUS, Math.min(CANVAS_H - 30 - BOT_RADIUS, bot.y));
           for (const obs of STATIC_OBSTACLES) {
             const res = resolveCircleRect(bot.x, bot.y, BOT_RADIUS, obs);
             bot.x = res.x;
@@ -777,32 +848,37 @@ export const BankHeistMinigame: React.FC<BankHeistMinigameProps> = ({
             }
           }
 
-          // Fire stun bolt when player is visible
           bot.fireCooldown -= dt;
-          if (seePlayer && distP < 440 && bot.fireCooldown <= 0) {
-            bot.fireCooldown = bot.role === 'CAPTAIN' ? 0.95 : 1.35 + Math.random() * 0.45;
-            const aimSpread = (Math.random() - 0.5) * 0.14;
+          if (seePlayer && distP < 420 && bot.fireCooldown <= 0) {
+            bot.fireCooldown =
+              bot.role === 'POLICE'
+                ? 1.5 + Math.random() * 0.65
+                : bot.role === 'CAPTAIN'
+                ? 1.45 + Math.random() * 0.45
+                : 1.85 + Math.random() * 0.7;
+            const aimSpread = (Math.random() - 0.5) * 0.16;
             const ang = Math.atan2(dyP, dxP) + aimSpread;
-            const boltSpd = bot.role === 'CAPTAIN' ? 285 : 245;
+            const boltSpd = bot.role === 'POLICE' ? 295 : bot.role === 'CAPTAIN' ? 275 : 235;
             bolts.push({
               x: bot.x + Math.cos(ang) * 18,
               y: bot.y + Math.sin(ang) * 18,
               vx: Math.cos(ang) * boltSpd,
               vy: Math.sin(ang) * boltSpd,
               fromPlayer: false,
-              life: 2.2,
+              life: 2.0,
             });
-            playRetroTone(320, 170, 0.09, 'sawtooth', 0.045);
+            playRetroTone(320, 170, 0.09, 'sawtooth', 0.035);
           }
         }
 
-        // Check Vault Unlock condition: ALL bots must be destroyed!
-        if (!vaultUnlocked && aliveCount === 0) {
+        // Check Vault Unlock condition: ALL bots AND any breached Police Officers must be neutralized!
+        const allBreachCleared = !breachArmed || (breachTriggered && breachOfficersSpawned >= totalBreachOfficers);
+        if (!vaultUnlocked && aliveCount === 0 && allBreachCleared) {
           vaultUnlocked = true;
           playRetroTone(440, 880, 0.25, 'triangle', 0.1);
           setTimeout(() => playRetroTone(660, 1320, 0.3, 'triangle', 0.1), 130);
           spawnSparks(400, 102, '#10b981', 26, 200);
-          pushHud('🔓 ALL SECURITY BOTS DESTROYED — VAULT UNLOCKED! STEAL THE LOOT!');
+          pushHud('🔓 ALL HOSTILES NEUTRALIZED — VAULT UNLOCKED! STEAL THE LOOT!');
         }
 
         // Update Bolts
@@ -1082,14 +1158,78 @@ export const BankHeistMinigame: React.FC<BankHeistMinigameProps> = ({
         }
       }
 
-      // Draw Destroyed Bots Underneath Standing Entities
+      // Outer Wall Border Trim + Animated Entry Double Doorway (bottom center)
+      ctx.strokeStyle = '#64748b';
+      ctx.lineWidth = 4;
+      ctx.strokeRect(24, 16, CANVAS_W - 48, CANVAS_H - 34);
+
+      // Animated Front Entryway Door (Closed -> Bursts Open when Police Breach!)
+      const doorHalfW = ENTRY_DOOR_RECT.w / 2;
+      const hingeY = ENTRY_DOOR_RECT.y + 4;
+      const swingRad = breachDoorOpen * (Math.PI * 0.62);
+
+      // Door threshold sill & flashing police strobes outside if breachArmed
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(ENTRY_DOOR_RECT.x, ENTRY_DOOR_RECT.y - 2, ENTRY_DOOR_RECT.w, 16);
+      if (breachArmed) {
+        const strobeFlip = Math.floor(animTime * 12) % 2 === 0;
+        const sirenGlowAlpha = breachTriggered ? 0.28 : 0.42 + Math.sin(animTime * 10) * 0.2;
+        ctx.fillStyle = strobeFlip
+          ? `rgba(239, 68, 68, ${sirenGlowAlpha})`
+          : `rgba(59, 130, 246, ${sirenGlowAlpha})`;
+        ctx.beginPath();
+        ctx.arc(ENTRY_DOOR_RECT.x + 12, hingeY + 8, 52, Math.PI, 0);
+        ctx.fill();
+        ctx.fillStyle = strobeFlip
+          ? `rgba(59, 130, 246, ${sirenGlowAlpha})`
+          : `rgba(239, 68, 68, ${sirenGlowAlpha})`;
+        ctx.beginPath();
+        ctx.arc(ENTRY_DOOR_RECT.x + ENTRY_DOOR_RECT.w - 12, hingeY + 8, 52, Math.PI, 0);
+        ctx.fill();
+      }
+
+      // Left hinged door leaf
+      const rattleX = breachArmed && !breachTriggered ? Math.sin(animTime * 65) * 2.5 : 0;
+      ctx.save();
+      ctx.translate(ENTRY_DOOR_RECT.x + rattleX, hingeY);
+      ctx.rotate(-swingRad);
+      ctx.fillStyle = '#78350f';
+      ctx.fillRect(0, -4, doorHalfW - 1, 9);
+      ctx.strokeStyle = '#f59e0b';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(0, -4, doorHalfW - 1, 9);
+      ctx.restore();
+
+      // Right hinged door leaf
+      ctx.save();
+      ctx.translate(ENTRY_DOOR_RECT.x + ENTRY_DOOR_RECT.w + rattleX, hingeY);
+      ctx.rotate(swingRad);
+      ctx.fillStyle = '#78350f';
+      ctx.fillRect(-(doorHalfW - 1), -4, doorHalfW - 1, 9);
+      ctx.strokeStyle = '#f59e0b';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(-(doorHalfW - 1), -4, doorHalfW - 1, 9);
+      ctx.restore();
+
+      if (breachArmed) {
+        ctx.fillStyle = breachTriggered ? '#fca5a5' : '#fde047';
+        ctx.font = 'bold 10px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(
+          breachTriggered ? '🚨 POLICE BREACHED DOOR!' : '🚨 POLICE OUTSIDE DOOR!',
+          400,
+          ENTRY_DOOR_RECT.y - 6
+        );
+      }
+
+      // Draw Destroyed Bots & Officers Underneath Standing Entities
       for (const bot of bots) {
         if (!bot.alive) {
-          drawRobotSprite(bot.x, bot.y, bot.facing, bot.walkCycle, bot.role === 'CAPTAIN', 0, false, false);
+          drawRobotSprite(bot.x, bot.y, bot.facing, bot.walkCycle, bot.role, 0, false, false, animTime);
         }
       }
 
-      // Draw Living Security Bots + HP Bars
+      // Draw Living Security Bots & Police Officers + HP Bars
       for (const bot of bots) {
         if (!bot.alive) continue;
         const isCapturing = phase === 'capture' && bot.id === captureBotId;
@@ -1098,10 +1238,11 @@ export const BankHeistMinigame: React.FC<BankHeistMinigameProps> = ({
           bot.y,
           bot.facing,
           bot.walkCycle,
-          bot.role === 'CAPTAIN',
+          bot.role,
           bot.hitFlash,
           true,
-          isCapturing
+          isCapturing,
+          animTime
         );
 
         // Overhead Bot HP Bar
@@ -1109,7 +1250,7 @@ export const BankHeistMinigame: React.FC<BankHeistMinigameProps> = ({
         const ratio = Math.max(0, bot.hp / bot.maxHp);
         ctx.fillStyle = '#090d16';
         ctx.fillRect(bot.x - bw / 2, bot.y - 29, bw, 4);
-        ctx.fillStyle = bot.role === 'CAPTAIN' ? '#facc15' : '#ef4444';
+        ctx.fillStyle = bot.role === 'POLICE' ? '#60a5fa' : bot.role === 'CAPTAIN' ? '#facc15' : '#ef4444';
         ctx.fillRect(bot.x - bw / 2, bot.y - 29, bw * ratio, 4);
       }
 
@@ -1255,15 +1396,17 @@ export const BankHeistMinigame: React.FC<BankHeistMinigameProps> = ({
               )}
             </div>
 
-            {/* Security Bots Counter */}
+            {/* Security Bots & Police Counter */}
             <div
               className={`px-2.5 py-1 rounded-lg border text-[11px] font-black ${
                 hudState.vaultUnlocked
                   ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300'
+                  : hudState.policeBreachActive
+                  ? 'bg-blue-500/20 border-red-400/80 text-amber-300 animate-pulse'
                   : 'bg-rose-500/20 border-rose-400/70 text-rose-300'
               }`}
             >
-              🤖 BOTS: {hudState.botsAlive}/{hudState.totalBots}
+              {hudState.policeBreachActive ? '👮/🤖' : '🤖'} HOSTILES: {hudState.botsAlive}/{hudState.totalBots}
             </div>
 
             {hudState.phase === 'playing' && (
@@ -1285,6 +1428,8 @@ export const BankHeistMinigame: React.FC<BankHeistMinigameProps> = ({
               ? 'bg-red-950/80 text-amber-300'
               : hudState.vaultUnlocked
               ? 'bg-emerald-950/80 text-emerald-300 animate-pulse'
+              : hudState.policeBreachActive
+              ? 'bg-red-950/75 text-amber-200 animate-pulse'
               : 'bg-amber-950/50 text-amber-200'
           }`}
         >

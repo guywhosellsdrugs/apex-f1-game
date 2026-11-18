@@ -314,14 +314,6 @@ export function createAtmosphericWeatherSystem(
   return { group, update, dispose };
 }
 
-function setBgHex(scene: THREE.Scene, hex: number) {
-  if (scene.background instanceof THREE.Color) {
-    scene.background.setHex(hex);
-  } else {
-    scene.background = new THREE.Color(hex);
-  }
-}
-
 export interface SkyCelestialAndCloudsSystem {
   group: THREE.Group;
   sunDirection: THREE.Vector3;
@@ -349,33 +341,36 @@ function createSunGlowTexture(): THREE.CanvasTexture {
 }
 
 /**
- * Computes real Gaithersburg Sun vector in world space (East = +X, South = +Z, Up = +Y)
- * Maps daytime elevation into a realistic 4°–22° visible sky arc so the sun is clearly
- * visible above Maryland buildings and horizon from the driving camera perspective.
+ * Computes real Gaithersburg Sun vector in Three.js world space (North = -Z, East = +X, South = +Z, Up = +Y)
+ * using astronomical solar azimuth and elevation for Gaithersburg, MD (39.1434° N, 77.2014° W).
  */
 export function computeGaithersburgSunVector(weather: GaithersburgWeather, outVec: THREE.Vector3): THREE.Vector3 {
-  const hourNorm = THREE.MathUtils.clamp((weather.localHour - 6) / 12, -0.35, 1.35);
-  const elevationRad =
-    weather.sunAltitude >= 0
-      ? 0.07 + Math.pow(THREE.MathUtils.clamp(weather.sunAltitude, 0, 1), 0.75) * 0.31
-      : THREE.MathUtils.clamp(weather.sunAltitude * (Math.PI * 0.35), -0.65, 0);
-  const azimuthRad = (0.5 - hourNorm) * Math.PI * 0.92; // +X at dawn -> +Z at noon -> -X at dusk
-  const cosElev = Math.cos(elevationRad);
+  const azRad = ((weather.sunAzimuthDeg ?? 180) * Math.PI) / 180;
+  const trueElevDeg = weather.sunElevationDeg ?? (Math.asin(THREE.MathUtils.clamp(weather.sunAltitude, -1, 1)) * 180) / Math.PI;
+  // Compress high midday peak (~74° in June) slightly into ~42° so sun arcs gracefully across driving camera FOV,
+  // while keeping low sunrise/sunset (-4°..+14°) faithful to the horizon!
+  const mappedElevDeg =
+    trueElevDeg >= 0
+      ? Math.min(44, trueElevDeg <= 14 ? trueElevDeg : 14 + (trueElevDeg - 14) * 0.5)
+      : Math.max(-28, trueElevDeg * 0.85);
+  const elevRad = (mappedElevDeg * Math.PI) / 180;
+  const cosElev = Math.cos(elevRad);
+
+  // North = -Z, East = +X, South = +Z, West = -X
   outVec.set(
-    Math.sin(azimuthRad) * cosElev,
-    Math.sin(elevationRad),
-    Math.cos(azimuthRad) * cosElev
+    Math.sin(azRad) * cosElev,
+    Math.sin(elevRad),
+    -Math.cos(azRad) * cosElev
   );
   return outVec.normalize();
 }
 
 /**
  * Sky Celestial & Dynamic 3D Cloud System for Maryland City Driving:
- * - Smooth vertical gradient sky dome following car (inside Low-graphics far clip = 1400)
- * - Visible Sun disc + radial corona following real Gaithersburg hour & altitude
+ * - Smooth vertical + azimuthal sunrise/sunset gradient sky dome following car (R=620 fits inside dynamic far clip >= 700)
+ * - Visible Sun disc + radial corona following real Gaithersburg azimuth & elevation
  * - Visible Moon & twinkling Starfield at dusk/night
- * - 48 multi-puff volumetric 3D cloud clusters (240 puffs in 1 InstancedMesh draw call)
- *   driven smoothly by weather.cloudCover, weather.condition, & weather.windSpeedKmh
+ * - Multi-puff volumetric 3D cloud clusters (1 InstancedMesh draw call)
  */
 export function createSkyCelestialAndCloudsSystem(
   scene: THREE.Scene,
@@ -385,18 +380,21 @@ export function createSkyCelestialAndCloudsSystem(
   const group = new THREE.Group();
   scene.add(group);
 
-  // 1. Physically-Inspired Maryland Atmospheric Sky Dome Shell (Rayleigh gradient, horizon haze, Mie sun glow, cirrus wisps)
+  // 1. Physically-Inspired Maryland Atmospheric Sky Dome Shell (Rayleigh + Mie + Sunrise/Sunset Belt of Venus)
   const skyUniforms = {
     uTopColor: { value: new THREE.Color(0x1b4e8f) },
     uMidColor: { value: new THREE.Color(0x5294d4) },
     uHorizonColor: { value: new THREE.Color(0xc4def4) },
     uSunDir: { value: new THREE.Vector3(0.4, 0.35, 0.85).normalize() },
     uSunGlowColor: { value: new THREE.Color(0xfff1c9) },
+    uTwilightColor: { value: new THREE.Color(0xf97316) },
+    uAntiSolarColor: { value: new THREE.Color(0xb87596) },
+    uTwilightStrength: { value: 0.0 },
     uSunScatter: { value: 0.95 },
     uCirrusAmount: { value: isRetroPixel ? 0.0 : 0.22 },
     uTime: { value: 0.0 },
   };
-  const skyDomeGeom = new THREE.SphereGeometry(920, isRetroPixel ? 16 : 32, isRetroPixel ? 12 : 22);
+  const skyDomeGeom = new THREE.SphereGeometry(620, isRetroPixel ? 16 : 32, isRetroPixel ? 12 : 22);
   const skyDomeMat = new THREE.ShaderMaterial({
     uniforms: skyUniforms,
     side: THREE.BackSide,
@@ -415,6 +413,9 @@ export function createSkyCelestialAndCloudsSystem(
       uniform vec3 uHorizonColor;
       uniform vec3 uSunDir;
       uniform vec3 uSunGlowColor;
+      uniform vec3 uTwilightColor;
+      uniform vec3 uAntiSolarColor;
+      uniform float uTwilightStrength;
       uniform float uSunScatter;
       uniform float uCirrusAmount;
       uniform float uTime;
@@ -440,29 +441,44 @@ export function createSkyCelestialAndCloudsSystem(
       void main() {
         vec3 dir = normalize(vWorldLocalPos);
         float h = clamp(dir.y, 0.0, 1.0);
+        vec3 sDir = normalize(uSunDir);
 
         // Rayleigh zenith -> cerulean mid-sky -> humid Chesapeake/Piedmont horizon gradient
         vec3 col = mix(uHorizonColor, uMidColor, smoothstep(0.0, 0.24, h));
         col = mix(col, uTopColor, smoothstep(0.20, 0.86, h));
 
         // Soft atmospheric mist right along horizon line
-        float horizonMist = exp(-h * 12.0);
-        col = mix(col, uHorizonColor, horizonMist * 0.72);
+        float horizonMist = exp(-h * 11.5);
+        col = mix(col, uHorizonColor, horizonMist * 0.68);
+
+        // Azimuthal Sunrise / Sunset Directional Glow & Opposite-Sky Belt of Venus
+        if (uTwilightStrength > 0.005) {
+          vec2 dirH = normalize(vec2(dir.x, dir.z) + vec2(1e-5));
+          vec2 sunH = normalize(vec2(sDir.x, sDir.z) + vec2(1e-5));
+          float towardSun = max(dot(dirH, sunH), 0.0);
+          float awaySun = max(dot(dirH, -sunH), 0.0);
+          float lowSkyMask = exp(-h * 5.2);
+          float pinkBandMask = exp(-pow((h - 0.075) * 9.0, 2.0));
+
+          col = mix(col, uTwilightColor, pow(towardSun, 2.4) * lowSkyMask * uTwilightStrength * 0.85);
+          col = mix(col, uAntiSolarColor, pow(awaySun, 1.8) * pinkBandMask * uTwilightStrength * 0.52);
+        }
 
         // Mie forward solar scattering + crisp sun aureole
-        float sunCos = max(dot(dir, normalize(uSunDir)), 0.0);
-        float wideScatter = pow(sunCos, 6.0) * 0.22 * uSunScatter;
-        float innerCorona = pow(sunCos, 48.0) * 0.52 * uSunScatter;
-        float solarCore = smoothstep(0.9968, 0.9994, sunCos) * 0.85 * uSunScatter;
+        float sunCos = max(dot(dir, sDir), 0.0);
+        float wideScatter = pow(sunCos, 5.0) * 0.24 * uSunScatter;
+        float innerCorona = pow(sunCos, 44.0) * 0.55 * uSunScatter;
+        float solarCore = smoothstep(0.9965, 0.9994, sunCos) * 0.85 * uSunScatter;
         col += uSunGlowColor * (wideScatter + innerCorona + solarCore);
 
-        // Delicate high-altitude cirrus wisps on clear & partly-cloudy skies
+        // Delicate high-altitude cirrus wisps illuminated warmly at sunrise/sunset
         if (uCirrusAmount > 0.01 && h > 0.04) {
           vec2 skyUv = dir.xz / (h + 0.16);
           vec2 p = skyUv * vec2(1.7, 3.1) + vec2(uTime * 0.0045, uTime * 0.002);
           float f = noise2d(p) * 0.62 + noise2d(p * 2.3 + vec2(3.7, 1.9)) * 0.38;
           float streak = smoothstep(0.56, 0.86, f) * smoothstep(0.04, 0.28, h) * (1.0 - smoothstep(0.72, 1.0, h));
-          vec3 cirrusCol = mix(vec3(0.96, 0.98, 1.0), uSunGlowColor, wideScatter * 0.7);
+          vec3 cirrusBase = mix(vec3(0.96, 0.98, 1.0), uTwilightColor, uTwilightStrength * 0.78);
+          vec3 cirrusCol = mix(cirrusBase, uSunGlowColor, wideScatter * 0.75);
           col = mix(col, cirrusCol, streak * uCirrusAmount);
         }
 
@@ -537,7 +553,7 @@ export function createSkyCelestialAndCloudsSystem(
   for (let i = 0; i < STAR_COUNT; i++) {
     const theta = Math.random() * Math.PI * 2;
     const phi = Math.acos(0.08 + Math.random() * 0.92); // upper hemisphere
-    const r = 860;
+    const r = 580;
     starPositions[i * 3 + 0] = r * Math.sin(phi) * Math.cos(theta);
     starPositions[i * 3 + 1] = r * Math.cos(phi);
     starPositions[i * 3 + 2] = r * Math.sin(phi) * Math.sin(theta);
@@ -630,6 +646,15 @@ export function createSkyCelestialAndCloudsSystem(
   const scratchDummy = new THREE.Object3D();
   const scratchCloudColor = new THREE.Color(0xffffff);
   const scratchHiddenColor = new THREE.Color(0xffffff);
+  const scratchDayTop = new THREE.Color(0x1b4e8f);
+  const scratchDayMid = new THREE.Color(0x4e91d4);
+  const scratchDayHor = new THREE.Color(0xc4def4);
+  const scratchTwiTop = new THREE.Color(0x192544);
+  const scratchTwiMid = new THREE.Color(0x844769);
+  const scratchTwiHor = new THREE.Color(0xee7848);
+  const scratchNightTop = new THREE.Color(0x020617);
+  const scratchNightMid = new THREE.Color(0x080f21);
+  const scratchNightHor = new THREE.Color(0x131d33);
   const lastColorHex = { value: -1 };
   let prevCarX = 0;
   let prevCarZ = 0;
@@ -656,13 +681,14 @@ export function createSkyCelestialAndCloudsSystem(
     // 1. Update Sun & Moon Positions from Real Gaithersburg Time & Solar Altitude
     computeGaithersburgSunVector(weather, sunDirection);
     skyUniforms.uSunDir.value.copy(sunDirection);
-    const orbitR = 780;
+    const orbitR = 540;
     sunGroup.position.set(
       carPos.x + sunDirection.x * orbitR,
       sunDirection.y * orbitR,
       carPos.z + sunDirection.z * orbitR
     );
 
+    const elevDeg = weather.sunElevationDeg ?? (Math.asin(THREE.MathUtils.clamp(weather.sunAltitude, -1, 1)) * 180) / Math.PI;
     const sunAlt = weather.sunAltitude;
     const cloudFrac = THREE.MathUtils.clamp(weather.cloudCover / 100, 0, 1);
     const stormVeil =
@@ -673,95 +699,110 @@ export function createSkyCelestialAndCloudsSystem(
         : weather.condition === 'overcast'
         ? 0.76
         : weather.condition === 'clear'
-        ? 0.0 // Clear daytime skies always reveal the sun brightly
+        ? 0.0 // Clear skies reveal the sun cleanly even right along sunrise/sunset
         : cloudFrac * 0.34;
-    const sunVisFactor = THREE.MathUtils.clamp((sunAlt + 0.06) / 0.16, 0, 1) * (1 - stormVeil);
+    const sunVisFactor = THREE.MathUtils.clamp((elevDeg + 2.5) / 6.0, 0, 1) * (1 - stormVeil);
 
-    sunGroup.visible = sunVisFactor > 0.03;
+    // Continuous atmospheric twilight factor: peaks around -1°..+5° (true sunrise & golden sunset!)
+    const dayWeight = THREE.MathUtils.smoothstep(elevDeg, -1.5, 14.0);
+    const twilightPeak = Math.exp(-Math.pow((elevDeg - 1.5) / 7.2, 2.0));
+    const nightWeight = 1.0 - THREE.MathUtils.smoothstep(elevDeg, -11.0, 0.5);
+    const clearSkyFactor = 1.0 - Math.min(1, stormVeil * 1.15);
+
+    sunGroup.visible = sunVisFactor > 0.02;
     if (sunGroup.visible) {
-      const goldenBlend = THREE.MathUtils.clamp(1.0 - sunAlt / 0.35, 0, 1);
-      sunDiscMat.color.setHex(0xfffef2).lerp(scratchHiddenColor.setHex(0xfb923c), goldenBlend * 0.75);
+      const goldenBlend = THREE.MathUtils.clamp(1.0 - Math.max(0, elevDeg) / 18.0, 0, 1);
+      sunDiscMat.color.setHex(0xfffef2).lerp(scratchHiddenColor.setHex(0xfb7125), goldenBlend * 0.85);
       sunDiscMat.opacity = Math.min(1, sunVisFactor * 1.15);
-      sunHaloMat.color.setHex(0xfef3c7).lerp(scratchHiddenColor.setHex(0xf97316), goldenBlend * 0.8);
-      sunHaloMat.opacity = sunVisFactor * 0.92;
-      const haloScale = 195 + goldenBlend * 65;
+      sunHaloMat.color.setHex(0xfef3c7).lerp(scratchHiddenColor.setHex(0xf97316), goldenBlend * 0.88);
+      sunHaloMat.opacity = sunVisFactor * 0.94;
+      const haloScale = 155 + goldenBlend * 75;
       sunHaloSprite.scale.set(haloScale, haloScale, 1);
       skyUniforms.uSunGlowColor.value.copy(sunHaloMat.color);
       skyUniforms.uSunScatter.value = sunVisFactor;
     } else {
-      skyUniforms.uSunScatter.value = Math.max(0, THREE.MathUtils.clamp((sunAlt + 0.06) / 0.2, 0, 1) * 0.18);
+      skyUniforms.uSunScatter.value = Math.max(0, THREE.MathUtils.clamp((elevDeg + 7) / 10, 0, 1) * 0.25);
     }
 
+    skyUniforms.uTwilightStrength.value = twilightPeak * clearSkyFactor;
+    // Sunrise is crisp coral-amber; sunset deepens to rich Chesapeake crimson-gold
+    const isMorningSide = (weather.sunAzimuthDeg ?? 180) < 180;
+    skyUniforms.uTwilightColor.value.setHex(isMorningSide ? 0xfb923c : 0xea580c);
+    skyUniforms.uAntiSolarColor.value.setHex(isMorningSide ? 0xa5b4fc : 0xc08497);
+
     // Moon sits across the sky opposite the sun at night/twilight
-    const nightFactor = THREE.MathUtils.clamp((-sunAlt + 0.04) / 0.24, 0, 1);
-    const moonVis = nightFactor * (weather.isRaining || weather.isSnowing || weather.condition === 'overcast' ? 0.12 : 1.0);
+    const moonVis = nightWeight * (weather.isRaining || weather.isSnowing || weather.condition === 'overcast' ? 0.14 : 1.0);
     moonGroup.visible = moonVis > 0.04;
     if (moonGroup.visible) {
       moonGroup.position.set(
-        carPos.x - sunDirection.x * orbitR * 0.82,
-        Math.max(90, -sunDirection.y * orbitR * 0.85 + 160),
-        carPos.z - sunDirection.z * orbitR * 0.82
+        carPos.x - sunDirection.x * orbitR * 0.86,
+        Math.max(80, -sunDirection.y * orbitR * 0.85 + 140),
+        carPos.z - sunDirection.z * orbitR * 0.86
       );
       moonMat.opacity = moonVis * 0.95;
       moonHaloMat.opacity = moonVis * 0.35;
     }
 
-    starPoints.visible = nightFactor > 0.08 && cloudFrac < 0.88 && !weather.isRaining && !weather.isSnowing;
+    starPoints.visible = nightWeight > 0.12 && cloudFrac < 0.88 && !weather.isRaining && !weather.isSnowing;
     if (starPoints.visible) {
-      starMat.opacity = nightFactor * (1 - cloudFrac * 0.85) * 0.9;
+      starMat.opacity = nightWeight * (1 - cloudFrac * 0.85) * 0.92;
     }
 
-    // 2. Match Atmospheric Gradient Sky Dome & Cirrus Veil to Current Gaithersburg Sky
-    if (sunAlt > 0.08) {
-      if (weather.isSnowing) {
-        skyUniforms.uTopColor.value.setHex(0x7c8ea0);
-        skyUniforms.uMidColor.value.setHex(0x9fb0c0);
-        skyUniforms.uHorizonColor.value.setHex(0xcfd8dc);
-        skyUniforms.uCirrusAmount.value = 0.0;
-      } else if (weather.isRaining) {
-        skyUniforms.uTopColor.value.setHex(0x1e293b);
-        skyUniforms.uMidColor.value.setHex(0x334155);
-        skyUniforms.uHorizonColor.value.setHex(0x475569);
-        skyUniforms.uCirrusAmount.value = 0.0;
-      } else if (weather.isFoggy) {
-        skyUniforms.uTopColor.value.setHex(0x6e8094);
-        skyUniforms.uMidColor.value.setHex(0x8c9bad);
-        skyUniforms.uHorizonColor.value.setHex(0xa8b5c4);
-        skyUniforms.uCirrusAmount.value = 0.0;
-      } else if (weather.condition === 'overcast' || weather.cloudCover >= 75) {
-        skyUniforms.uTopColor.value.setHex(0x526377);
-        skyUniforms.uMidColor.value.setHex(0x758699);
-        skyUniforms.uHorizonColor.value.setHex(0x9fb0c2);
-        skyUniforms.uCirrusAmount.value = isRetroPixel ? 0.0 : 0.12;
-      } else if (weather.condition === 'partly_cloudy' || weather.cloudCover >= 30) {
-        skyUniforms.uTopColor.value.setHex(0x215ea8);
-        skyUniforms.uMidColor.value.setHex(0x5d9cd8);
-        skyUniforms.uHorizonColor.value.setHex(0xc6dcf0);
-        skyUniforms.uCirrusAmount.value = isRetroPixel ? 0.0 : 0.28;
-      } else {
-        // Realistic Crisp Clear Maryland Daylight Sky (Rayleigh cerulean + Piedmont horizon haze)
-        skyUniforms.uTopColor.value.setHex(0x1b4e8f);
-        skyUniforms.uMidColor.value.setHex(0x4e91d4);
-        skyUniforms.uHorizonColor.value.setHex(0xc4def4);
-        skyUniforms.uCirrusAmount.value = isRetroPixel ? 0.0 : 0.18;
-      }
-    } else if (sunAlt >= -0.08) {
-      if (weather.isRaining || weather.condition === 'overcast') {
-        skyUniforms.uTopColor.value.setHex(0x334155);
-        skyUniforms.uMidColor.value.setHex(0x64748b);
-        skyUniforms.uHorizonColor.value.setHex(0x94a3b8);
-        skyUniforms.uCirrusAmount.value = 0.0;
-      } else {
-        skyUniforms.uTopColor.value.setHex(0x1d3557);
-        skyUniforms.uMidColor.value.setHex(0x8b4c6b);
-        skyUniforms.uHorizonColor.value.setHex(0xf09260);
-        skyUniforms.uCirrusAmount.value = isRetroPixel ? 0.0 : 0.24;
-      }
-    } else {
-      skyUniforms.uTopColor.value.setHex(0x020617);
-      skyUniforms.uMidColor.value.setHex(0x090f21);
-      skyUniforms.uHorizonColor.value.setHex(0x131d33);
+    // 2. Smooth Continuous Sky Dome Interpolation (Night -> Astronomical/Civil Twilight -> Sunrise/Sunset -> Daylight)
+    scratchDayTop.setHex(0x1b4e8f);
+    scratchDayMid.setHex(0x4e91d4);
+    scratchDayHor.setHex(0xc4def4);
+
+    if (weather.isSnowing) {
+      scratchDayTop.setHex(0x7c8ea0);
+      scratchDayMid.setHex(0x9fb0c0);
+      scratchDayHor.setHex(0xcfd8dc);
+    } else if (weather.isRaining) {
+      scratchDayTop.setHex(0x1e293b);
+      scratchDayMid.setHex(0x334155);
+      scratchDayHor.setHex(0x475569);
+    } else if (weather.isFoggy) {
+      scratchDayTop.setHex(0x6e8094);
+      scratchDayMid.setHex(0x8c9bad);
+      scratchDayHor.setHex(0xa8b5c4);
+    } else if (weather.condition === 'overcast' || weather.cloudCover >= 75) {
+      scratchDayTop.setHex(0x526377);
+      scratchDayMid.setHex(0x758699);
+      scratchDayHor.setHex(0x9fb0c2);
+    } else if (weather.condition === 'partly_cloudy' || weather.cloudCover >= 30) {
+      scratchDayTop.setHex(0x215ea8);
+      scratchDayMid.setHex(0x5d9cd8);
+      scratchDayHor.setHex(0xc6dcf0);
+    }
+
+    scratchTwiTop.setHex(weather.isRaining ? 0x1e293b : isMorningSide ? 0x1e3a5f : 0x192544);
+    scratchTwiMid.setHex(weather.isRaining ? 0x475569 : isMorningSide ? 0x6b5b7b : 0x844769);
+    scratchTwiHor.setHex(weather.isRaining ? 0x64748b : isMorningSide ? 0xf6a46c : 0xee7848);
+
+    scratchNightTop.setHex(0x020617);
+    scratchNightMid.setHex(0x080f21);
+    scratchNightHor.setHex(0x131d33);
+
+    // Blend night -> daylight, then blend in twilight peak around sunrise/sunset
+    skyUniforms.uTopColor.value
+      .copy(scratchNightTop)
+      .lerp(scratchDayTop, dayWeight)
+      .lerp(scratchTwiTop, twilightPeak * 0.78);
+    skyUniforms.uMidColor.value
+      .copy(scratchNightMid)
+      .lerp(scratchDayMid, dayWeight)
+      .lerp(scratchTwiMid, twilightPeak * 0.85);
+    skyUniforms.uHorizonColor.value
+      .copy(scratchNightHor)
+      .lerp(scratchDayHor, dayWeight)
+      .lerp(scratchTwiHor, twilightPeak * 0.9);
+
+    if (weather.isSnowing || weather.isRaining || weather.isFoggy) {
       skyUniforms.uCirrusAmount.value = 0.0;
+    } else {
+      skyUniforms.uCirrusAmount.value = isRetroPixel
+        ? 0.0
+        : (weather.condition === 'partly_cloudy' ? 0.28 : 0.2) * (0.35 + 0.65 * dayWeight + twilightPeak * 0.25);
     }
 
     // 3. Update Procedural 3D Clouds (count, height, spread, opacity, color, & wind drift)
@@ -883,6 +924,10 @@ export function createSkyCelestialAndCloudsSystem(
   return { group, sunDirection, update, dispose };
 }
 
+const _diurnalTmpA = new THREE.Color();
+const _diurnalTmpB = new THREE.Color();
+const _diurnalTmpC = new THREE.Color();
+
 /**
  * Synchronizes Sky, Sun Direction, Ambient Light, and Fog with Gaithersburg, Maryland Live Time and Weather
  */
@@ -894,132 +939,113 @@ export function updateSceneDiurnalLighting(
   weather: GaithersburgWeather,
   isUltra: boolean
 ): void {
-  const sunAlt = weather.sunAltitude; // -1 (midnight) to +1 (noon)
+  const elevDeg =
+    weather.sunElevationDeg ??
+    (Math.asin(THREE.MathUtils.clamp(weather.sunAltitude, -1, 1)) * 180) / Math.PI;
   const isSnow = weather.isSnowing;
   const isRain = weather.isRaining;
   const isFog = weather.isFoggy;
   const isOvercast = weather.condition === 'overcast' || weather.cloudCover >= 75;
   const isPartlyCloudy = !isOvercast && (weather.condition === 'partly_cloudy' || weather.cloudCover >= 30);
 
-  if (sunAlt > 0.08) {
-    // ------------------------------------------------------------------
-    // DAYTIME (Gaithersburg Sun Above Horizon)
-    // ------------------------------------------------------------------
-    if (isSnow) {
-      setBgHex(scene, 0xb0bec5);
-      if (scene.fog) {
-        scene.fog.color.setHex(0xcfd8dc);
-        (scene.fog as THREE.FogExp2).density = 0.0038;
-      }
-      sunLight.color.setHex(0xffffff);
-      sunLight.intensity = isUltra ? 1.0 : 1.25;
-      ambientLight.color.setHex(0xe2e8f0);
-      ambientLight.intensity = 0.85;
-      hemiLight.color.setHex(0xe2e8f0);
-      hemiLight.groundColor.setHex(0x94a3b8);
-    } else if (isRain) {
-      setBgHex(scene, 0x334155);
-      if (scene.fog) {
-        scene.fog.color.setHex(0x475569);
-        (scene.fog as THREE.FogExp2).density = 0.0046;
-      }
-      sunLight.color.setHex(0x94a3b8);
-      sunLight.intensity = isUltra ? 0.68 : 0.9;
-      ambientLight.color.setHex(0x64748b);
-      ambientLight.intensity = 0.68;
-      hemiLight.color.setHex(0x64748b);
-      hemiLight.groundColor.setHex(0x334155);
-    } else if (isFog) {
-      setBgHex(scene, 0xa8b5c4);
-      if (scene.fog) {
-        scene.fog.color.setHex(0xa8b5c4);
-        (scene.fog as THREE.FogExp2).density = 0.0068;
-      }
-      sunLight.color.setHex(0xfef08a);
-      sunLight.intensity = isUltra ? 0.82 : 1.05;
-      ambientLight.color.setHex(0xa1a1aa);
-      ambientLight.intensity = 0.76;
-      hemiLight.color.setHex(0x94a3b8);
-      hemiLight.groundColor.setHex(0x475569);
-    } else if (isOvercast) {
-      // Cloudy / Overcast Maryland Sky (cool grey-blue overcast diffused light)
-      setBgHex(scene, 0x9fb0c2);
-      if (scene.fog) {
-        scene.fog.color.setHex(0x9fb0c2);
-        (scene.fog as THREE.FogExp2).density = 0.0018;
-      }
-      sunLight.color.setHex(0xe2e8f0);
-      sunLight.intensity = isUltra ? 0.92 : 1.18;
-      ambientLight.color.setHex(0xcbd5e1);
-      ambientLight.intensity = 0.82;
-      hemiLight.color.setHex(0xcbd5e1);
-      hemiLight.groundColor.setHex(0x475569);
-    } else if (isPartlyCloudy) {
-      // Partly Cloudy Sunny Maryland Day
-      setBgHex(scene, 0xc6dcf0);
-      if (scene.fog) {
-        scene.fog.color.setHex(0xc6dcf0);
-        (scene.fog as THREE.FogExp2).density = 0.00105;
-      }
-      sunLight.color.setHex(0xfff7e6);
-      sunLight.intensity = isUltra ? 1.38 : 1.75;
-      ambientLight.color.setHex(0xf8fafc);
-      ambientLight.intensity = 0.86;
-      hemiLight.color.setHex(0xa6d2fa);
-      hemiLight.groundColor.setHex(0x39473a);
-    } else {
-      // Crisp Clear Sunny Maryland Sky (horizon fog matches Piedmont sky horizon)
-      setBgHex(scene, 0xc4def4);
-      if (scene.fog) {
-        scene.fog.color.setHex(0xc4def4);
-        (scene.fog as THREE.FogExp2).density = 0.00085;
-      }
-      sunLight.color.setHex(0xfff6e3);
-      sunLight.intensity = isUltra ? 1.52 : 1.92;
-      ambientLight.color.setHex(0xffffff);
-      ambientLight.intensity = 0.90;
-      hemiLight.color.setHex(0x98ccfc);
-      hemiLight.groundColor.setHex(0x3c4a3c);
-    }
-  } else if (sunAlt >= -0.08) {
-    // ------------------------------------------------------------------
-    // DAWN / DUSK (Maryland Golden Hour)
-    // ------------------------------------------------------------------
-    if (isOvercast || isRain || isSnow) {
-      setBgHex(scene, 0x94a3b8);
-      if (scene.fog) {
-        scene.fog.color.setHex(0x94a3b8);
-        (scene.fog as THREE.FogExp2).density = 0.0028;
-      }
-      sunLight.color.setHex(0xcbd5e1);
-      sunLight.intensity = isUltra ? 0.72 : 0.92;
-      ambientLight.color.setHex(0x94a3b8);
-      ambientLight.intensity = 0.65;
-    } else {
-      setBgHex(scene, 0xf09260);
-      if (scene.fog) {
-        scene.fog.color.setHex(0xf09260);
-        (scene.fog as THREE.FogExp2).density = 0.0018;
-      }
-      sunLight.color.setHex(0xfb923c);
-      sunLight.intensity = isUltra ? 1.15 : 1.45;
-      ambientLight.color.setHex(0xfed7aa);
-      ambientLight.intensity = 0.75;
-    }
-  } else {
-    // ------------------------------------------------------------------
-    // NIGHTTIME (Gaithersburg Midnight / Cool Moonlit Sky)
-    // ------------------------------------------------------------------
-    setBgHex(scene, 0x030712);
-    if (scene.fog) {
-      scene.fog.color.setHex(0x0f172a);
-      (scene.fog as THREE.FogExp2).density = 0.002;
-    }
-    sunLight.color.setHex(0x60a5fa);
-    sunLight.intensity = isUltra ? 0.3 : 0.44;
-    ambientLight.color.setHex(0x1e293b);
-    ambientLight.intensity = 0.5;
-    hemiLight.color.setHex(0x1e293b);
-    hemiLight.groundColor.setHex(0x090d16);
+  const dayWeight = THREE.MathUtils.smoothstep(elevDeg, -2.0, 14.0);
+  const twilightPeak = Math.exp(-Math.pow((elevDeg - 1.2) / 6.8, 2.0));
+
+  // Target daytime weather palette calibrated for ACESFilmic + PMREM IBL shadow contrast
+  let dayFogHex = 0xbfd9f2;
+  let dayFogDensity = 0.00062;
+  let daySunHex = 0xfff5e0;
+  let daySunInt = isUltra ? 2.75 : 2.35;
+  let dayAmbHex = 0xdbeafe;
+  let dayAmbInt = isUltra ? 0.22 : 0.34;
+  let dayHemiSky = 0x90c6fa;
+  let dayHemiGnd = 0x2d382c;
+
+  if (isSnow) {
+    dayFogHex = 0xcfd8dc;
+    dayFogDensity = 0.0036;
+    daySunHex = 0xffffff;
+    daySunInt = isUltra ? 1.55 : 1.45;
+    dayAmbHex = 0xd8e2ec;
+    dayAmbInt = isUltra ? 0.44 : 0.56;
+    dayHemiSky = 0xe2e8f0;
+    dayHemiGnd = 0x7c8b9b;
+  } else if (isRain) {
+    dayFogHex = 0x475569;
+    dayFogDensity = 0.0044;
+    daySunHex = 0x94a3b8;
+    daySunInt = isUltra ? 1.05 : 1.1;
+    dayAmbHex = 0x64748b;
+    dayAmbInt = isUltra ? 0.30 : 0.42;
+    dayHemiSky = 0x64748b;
+    dayHemiGnd = 0x1e293b;
+  } else if (isFog) {
+    dayFogHex = 0xa8b5c4;
+    dayFogDensity = 0.0064;
+    daySunHex = 0xfef08a;
+    daySunInt = isUltra ? 1.25 : 1.3;
+    dayAmbHex = 0x9ca3af;
+    dayAmbInt = isUltra ? 0.38 : 0.5;
+    dayHemiSky = 0x94a3b8;
+    dayHemiGnd = 0x334155;
+  } else if (isOvercast) {
+    dayFogHex = 0x9fb0c2;
+    dayFogDensity = 0.0016;
+    daySunHex = 0xe2e8f0;
+    daySunInt = isUltra ? 1.35 : 1.38;
+    dayAmbHex = 0xcbd5e1;
+    dayAmbInt = isUltra ? 0.38 : 0.48;
+    dayHemiSky = 0xcbd5e1;
+    dayHemiGnd = 0x334155;
+  } else if (isPartlyCloudy) {
+    dayFogHex = 0xc2d8ee;
+    dayFogDensity = 0.00085;
+    daySunHex = 0xfff6e4;
+    daySunInt = isUltra ? 2.4 : 2.1;
+    dayAmbHex = 0xe2e8f0;
+    dayAmbInt = isUltra ? 0.26 : 0.36;
+    dayHemiSky = 0x9eccfa;
+    dayHemiGnd = 0x2b362b;
   }
+
+  // Twilight & Night targets (smoothly blended by true solar elevation)
+  const isStormOrOvercast = isOvercast || isRain || isSnow;
+  const twiFogHex = isStormOrOvercast ? 0x64748b : 0xeb8454;
+  const twiSunHex = isStormOrOvercast ? 0xcbd5e1 : 0xfb923c;
+  const twiAmbHex = isStormOrOvercast ? 0x64748b : 0xd99b72;
+
+  const nightFogHex = 0x070c18;
+  const nightSunHex = 0x60a5fa;
+  const nightSunInt = isUltra ? 0.32 : 0.40;
+  const nightAmbHex = 0x162238;
+  const nightAmbInt = isUltra ? 0.09 : 0.16;
+
+  _diurnalTmpA.setHex(nightFogHex).lerp(_diurnalTmpB.setHex(dayFogHex), dayWeight);
+  _diurnalTmpA.lerp(_diurnalTmpC.setHex(twiFogHex), twilightPeak * (isStormOrOvercast ? 0.45 : 0.86));
+  if (!(scene.background instanceof THREE.Color)) {
+    scene.background = new THREE.Color(_diurnalTmpA.getHex());
+  } else {
+    scene.background.copy(_diurnalTmpA);
+  }
+  if (scene.fog) {
+    scene.fog.color.copy(_diurnalTmpA);
+    const nightFogDensity = isRain || isSnow ? 0.0038 : 0.0018;
+    (scene.fog as THREE.FogExp2).density = THREE.MathUtils.lerp(nightFogDensity, dayFogDensity, dayWeight);
+  }
+
+  _diurnalTmpA.setHex(nightSunHex).lerp(_diurnalTmpB.setHex(daySunHex), dayWeight);
+  _diurnalTmpA.lerp(_diurnalTmpC.setHex(twiSunHex), twilightPeak * (isStormOrOvercast ? 0.35 : 0.90));
+  sunLight.color.copy(_diurnalTmpA);
+  sunLight.intensity =
+    THREE.MathUtils.lerp(nightSunInt, daySunInt, dayWeight) +
+    twilightPeak * (isStormOrOvercast ? 0.14 : 0.55);
+
+  _diurnalTmpA.setHex(nightAmbHex).lerp(_diurnalTmpB.setHex(dayAmbHex), dayWeight);
+  _diurnalTmpA.lerp(_diurnalTmpC.setHex(twiAmbHex), twilightPeak * 0.65);
+  ambientLight.color.copy(_diurnalTmpA);
+  ambientLight.intensity = THREE.MathUtils.lerp(nightAmbInt, dayAmbInt, dayWeight);
+
+  hemiLight.color.setHex(0x16223a).lerp(_diurnalTmpB.setHex(dayHemiSky), dayWeight);
+  hemiLight.groundColor.setHex(0x060910).lerp(_diurnalTmpB.setHex(dayHemiGnd), dayWeight);
+  hemiLight.intensity = THREE.MathUtils.lerp(isUltra ? 0.22 : 0.28, isUltra ? 0.54 : 0.62, dayWeight);
 }

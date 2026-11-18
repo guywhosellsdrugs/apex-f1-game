@@ -38,7 +38,8 @@ import {
   canCopSeePlayer,
   buildCityMissionBeacon,
   buildCityGpsRouteLine,
-  computeCityGpsRoute,
+  computeCityGpsRouteDetailed,
+  GpsManeuverType,
   buildCityInteractiveLandmarks,
   applyPlayerStreetCarVisual,
   getEffectiveStreetCarSpec,
@@ -50,6 +51,8 @@ import {
   buildCivilianCarMesh,
   buildPoliceInterceptorMesh,
   updateVehicleLighting,
+  updatePlayerHeadlightRig,
+  updateNpcHeadlightsVisibility,
 } from './cityTrafficBuilder';
 import type { LockpickTargetInfo } from '../components/LockpickMinigame';
 import {
@@ -59,6 +62,9 @@ import {
   GaithersburgWeather,
   WeatherConditionType,
   WeatherMode,
+  TimeOfDayPreset,
+  getTimeOfDayPreset,
+  setTimeOfDayPreset,
   getFallbackGaithersburgWeather,
   getGaithersburgLocalTime,
 } from '../services/weatherService';
@@ -414,6 +420,8 @@ export class PhysicsEngine {
   public isMinigamePaused: boolean = false;
   private bankMinigameGraceTimer: number = 0;
   private pickedHouseIds: Set<string> = new Set();
+  private houseAlarmTriggeredIds: Set<string> = new Set();
+  private recentRobberyHeatTimer: number = 0;
   private houseLootSalt: number = Math.floor(Math.random() * 100000);
   public cityPursuitStats: {
     wantedStars: number;
@@ -472,6 +480,13 @@ export class PhysicsEngine {
         label: string;
         color: string;
         distMeters: number;
+        routeDistMeters: number;
+        etaSeconds: number;
+        maneuver: GpsManeuverType;
+        nextRoadName: string;
+        currentRoadName: string;
+        thenInstruction: string;
+        distToTurnMeters: number;
         turnInstruction: string;
       } | null;
       gpsRoute: { x: number; z: number }[];
@@ -625,8 +640,13 @@ export class PhysicsEngine {
       streetLocation: string;
       icon: string;
       hidePayoutUntilStolen?: boolean;
+      policeBreach?: boolean;
+      breachReason?: string;
     } | null;
     activeLockpickTarget: LockpickTargetInfo | null;
+    headlightMode: 'auto' | 'low' | 'high' | 'off';
+    effectiveHeadlightState: 'off' | 'low' | 'high';
+    timeOfDayPreset: TimeOfDayPreset;
   } = {
     wantedStars: 0,
     pursuitState: 'CLEAR',
@@ -710,11 +730,27 @@ export class PhysicsEngine {
     completedMissionIds: [],
     activeBankMinigameTarget: null,
     activeLockpickTarget: null,
+    headlightMode: 'auto',
+    effectiveHeadlightState: 'off',
+    timeOfDayPreset: getTimeOfDayPreset(),
   };
 
   public currentWeather: GaithersburgWeather = (() => {
     const t = getGaithersburgLocalTime();
-    return getFallbackGaithersburgWeather(t.localTimeString, t.localHour, t.isDaytime, t.sunAltitude);
+    return getFallbackGaithersburgWeather(
+      t.localTimeString,
+      t.localHour,
+      t.isDaytime,
+      t.sunAltitude,
+      {
+        sunElevationDeg: t.sunElevationDeg,
+        sunAzimuthDeg: t.sunAzimuthDeg,
+        sunriseHour: t.sunriseHour,
+        sunsetHour: t.sunsetHour,
+        sunriseString: t.sunriseString,
+        sunsetString: t.sunsetString,
+      }
+    );
   })();
   public weatherMode: WeatherMode = 'live_gaithersburg';
   private weatherRefreshTimer: number = 0;
@@ -738,6 +774,59 @@ export class PhysicsEngine {
     } else {
       this.currentWeather = getOverriddenWeather(mode as WeatherConditionType);
     }
+  }
+
+  public setTimeOfDayPreset(preset: TimeOfDayPreset): void {
+    setTimeOfDayPreset(preset);
+    this.cityPursuitStats.timeOfDayPreset = preset;
+    const t = getGaithersburgLocalTime();
+    if (this.weatherMode === 'live_gaithersburg') {
+      this.currentWeather = {
+        ...this.currentWeather,
+        localTimeString: t.localTimeString,
+        localHour: t.localHour,
+        isDay: t.isDaytime,
+        sunAltitude: t.sunAltitude,
+        sunElevationDeg: t.sunElevationDeg,
+        sunAzimuthDeg: t.sunAzimuthDeg,
+        sunriseHour: t.sunriseHour,
+        sunsetHour: t.sunsetHour,
+        sunriseString: t.sunriseString,
+        sunsetString: t.sunsetString,
+      };
+      void this.refreshLiveWeather();
+    } else {
+      this.currentWeather = getOverriddenWeather(this.weatherMode as WeatherConditionType);
+    }
+  }
+
+  public getEffectiveHeadlightState(): 'off' | 'low' | 'high' {
+    const mode = this.cityPursuitStats.headlightMode;
+    if (mode === 'off' || mode === 'low' || mode === 'high') {
+      return mode;
+    }
+    const w = this.currentWeather;
+    const isLowLight = (w.sunElevationDeg ?? 15) < 4.5 || w.sunAltitude < 0.08;
+    const isLowVisWeather = Boolean(
+      w.isRaining ||
+        w.isSnowing ||
+        w.condition === 'fog' ||
+        w.condition === 'heavy_rain' ||
+        w.condition === 'thunderstorm'
+    );
+    return isLowLight || isLowVisWeather ? 'low' : 'off';
+  }
+
+  public cycleHeadlightMode(): 'auto' | 'low' | 'high' | 'off' {
+    const order: ('auto' | 'low' | 'high' | 'off')[] = ['auto', 'low', 'high', 'off'];
+    const nextIdx = (order.indexOf(this.cityPursuitStats.headlightMode) + 1) % order.length;
+    const nextMode = order[nextIdx];
+    this.cityPursuitStats.headlightMode = nextMode;
+    const eff = this.getEffectiveHeadlightState();
+    this.cityPursuitStats.effectiveHeadlightState = eff;
+    updatePlayerHeadlightRig(this.playerCar.root, eff);
+    soundEngine.playStartLightBeep(eff !== 'off');
+    return nextMode;
   }
 
   public getTireSprayState(): {
@@ -5427,6 +5516,15 @@ export class PhysicsEngine {
       }
 
       const payoutCash = this.computeSuburbanHousePayout(idx);
+      const alarmBreach = this.houseAlarmTriggeredIds.has(houseId);
+      const hotPursuitBreach = this.cityPursuitStats.wantedStars > 0 || this.recentRobberyHeatTimer > 0;
+      const policeBreach = alarmBreach || hotPursuitBreach;
+      const breachReason = alarmBreach
+        ? 'HOME SECURITY ALARM TRIPPED — POLICE BURSTING THROUGH THE DOOR!'
+        : hotPursuitBreach
+        ? 'ACTIVE POLICE HEAT FROM PRIOR ROBBERY — POLICE RAIDING INSIDE!'
+        : undefined;
+
       this.activeRobberyState = null;
       this.playerSpeedKmh = 0;
       this.isMinigamePaused = true;
@@ -5438,6 +5536,8 @@ export class PhysicsEngine {
         streetLocation: sub.address,
         icon: '🏠',
         hidePayoutUntilStolen: true,
+        policeBreach,
+        breachReason,
       };
       soundEngine.playStartLightBeep(true);
       return;
@@ -5484,6 +5584,15 @@ export class PhysicsEngine {
       return;
     }
 
+    const alarmBreach = this.houseAlarmTriggeredIds.has(house.id);
+    const hotPursuitBreach = this.cityPursuitStats.wantedStars > 0 || this.recentRobberyHeatTimer > 0;
+    const policeBreach = alarmBreach || hotPursuitBreach;
+    const breachReason = alarmBreach
+      ? 'HOME SECURITY ALARM TRIPPED — POLICE BURSTING THROUGH THE DOOR!'
+      : hotPursuitBreach
+      ? 'ACTIVE POLICE HEAT FROM PRIOR ROBBERY — POLICE RAIDING INSIDE!'
+      : undefined;
+
     this.activeRobberyState = null;
     this.playerSpeedKmh = 0;
     this.isMinigamePaused = true;
@@ -5495,8 +5604,33 @@ export class PhysicsEngine {
       streetLocation: house.streetLocation,
       icon: '🏠',
       hidePayoutUntilStolen: true,
+      policeBreach,
+      breachReason,
     };
     soundEngine.playStartLightBeep(true);
+  }
+
+  private dispatchNearbyPoliceUnitsForRobbery(unitCount: number = 2) {
+    const sortedCops = [...this.cityPoliceCars].sort(
+      (a, b) =>
+        Math.hypot(a.pos.x - this.playerPos.x, a.pos.z - this.playerPos.z) -
+        Math.hypot(b.pos.x - this.playerPos.x, b.pos.z - this.playerPos.z)
+    );
+    for (let i = 0; i < Math.min(unitCount, sortedCops.length); i++) {
+      const cop = sortedCops[i];
+      const d = Math.hypot(cop.pos.x - this.playerPos.x, cop.pos.z - this.playerPos.z);
+      if (d > 210 || d < 45) {
+        const ang = 0.45 + i * 2.35;
+        const spawnDist = 135 + i * 32;
+        cop.pos.set(
+          this.playerPos.x + Math.cos(ang) * spawnDist,
+          0.25,
+          this.playerPos.z + Math.sin(ang) * spawnDist
+        );
+        cop.speedKmh = 115;
+      }
+      cop.built.setSirenActive(true, this.raceTimer);
+    }
   }
 
   public completeHouseLockpick(houseId: string) {
@@ -5505,8 +5639,10 @@ export class PhysicsEngine {
     this.triggerHouseRobbery(houseId);
   }
 
-  public triggerHouseSecurityAlarm(_houseId: string) {
+  public triggerHouseSecurityAlarm(houseId: string) {
     if (!this.isCityMode || this.cityPursuitStats.isPoliceOnDuty) return;
+    this.houseAlarmTriggeredIds.add(houseId);
+    this.recentRobberyHeatTimer = Math.max(this.recentRobberyHeatTimer, 210);
     this.cityPursuitStats.wantedStars = Math.max(this.cityPursuitStats.wantedStars, 3);
     this.cityPursuitStats.pursuitState = 'PURSUIT';
     this.cityPursuitStats.escapeProgress = 0;
@@ -5517,29 +5653,9 @@ export class PhysicsEngine {
         alarmTriggered: true,
       };
     }
-    // Dispatch two closest police units toward player's neighborhood (at safe perimeter distance ~135m-170m) if very far
-    const sortedCops = [...this.cityPoliceCars].sort(
-      (a, b) =>
-        Math.hypot(a.pos.x - this.playerPos.x, a.pos.z - this.playerPos.z) -
-        Math.hypot(b.pos.x - this.playerPos.x, b.pos.z - this.playerPos.z)
-    );
-    for (let i = 0; i < Math.min(2, sortedCops.length); i++) {
-      const cop = sortedCops[i];
-      const d = Math.hypot(cop.pos.x - this.playerPos.x, cop.pos.z - this.playerPos.z);
-      if (d > 240) {
-        const ang = i === 0 ? 0.35 : 3.5;
-        const spawnDist = 140 + i * 35;
-        cop.pos.set(
-          this.playerPos.x + Math.cos(ang) * spawnDist,
-          0.25,
-          this.playerPos.z + Math.sin(ang) * spawnDist
-        );
-        cop.speedKmh = 115;
-      }
-      cop.built.setSirenActive(true, this.raceTimer);
-    }
+    this.dispatchNearbyPoliceUnitsForRobbery(2);
     this.addCityViolationAlert(
-      `🚨 HOME SECURITY SYSTEM TRIPPED! POLICE DISPATCHED TO ARREST YOU!`,
+      `🚨 HOME SECURITY SYSTEM TRIPPED! POLICE DISPATCHED TO BREACH & ARREST YOU!`,
       `Triggered Burglar Alarm while Lockpicking — ★${this.cityPursuitStats.wantedStars} Police Response`,
       0,
       0
@@ -5547,9 +5663,25 @@ export class PhysicsEngine {
   }
 
   public abortHouseLockpick() {
+    const activeLP = this.cityPursuitStats.activeLockpickTarget;
     this.isMinigamePaused = false;
     this.cityPursuitStats.activeLockpickTarget = null;
-    this.bankMinigameGraceTimer = 3.0;
+    this.bankMinigameGraceTimer = 2.5;
+    if (activeLP && activeLP.alarmTriggered) {
+      this.cityPursuitStats.heistCooldowns[`house_rob_${activeLP.houseId}`] = 120;
+      this.cityPursuitStats.wantedStars = Math.max(this.cityPursuitStats.wantedStars, 3);
+      this.cityPursuitStats.pursuitState = 'PURSUIT';
+      this.cityPursuitStats.escapeProgress = 0;
+      this.cityPursuitStats.bustProgress = 0;
+      this.recentRobberyHeatTimer = Math.max(this.recentRobberyHeatTimer, 180);
+      this.dispatchNearbyPoliceUnitsForRobbery(2);
+      this.addCityViolationAlert(
+        `🔒 ${activeLP.name.toUpperCase()} LOCKED DOWN! POLICE CHASING YOU!`,
+        `Tripped Security Alarm & Fled @ ${activeLP.name}`,
+        0,
+        0
+      );
+    }
   }
 
   /**
@@ -5636,6 +5768,7 @@ export class PhysicsEngine {
     }
 
     // Launch Top-Down Retro Heist Shooter Minigame for ALL robberies (bot count scales by payout!)
+    const hotPursuitBreach = this.cityPursuitStats.wantedStars > 0 || this.recentRobberyHeatTimer > 0;
     this.activeRobberyState = null;
     this.playerSpeedKmh = 0;
     this.isMinigamePaused = true;
@@ -5647,6 +5780,10 @@ export class PhysicsEngine {
       streetLocation: target.streetLocation,
       icon: target.icon,
       hidePayoutUntilStolen: target.category === 'HOUSE',
+      policeBreach: hotPursuitBreach,
+      breachReason: hotPursuitBreach
+        ? 'ACTIVE POLICE MANHUNT — OFFICERS BURSTING THROUGH THE DOOR!'
+        : undefined,
     };
     soundEngine.playStartLightBeep(true);
     return;
@@ -5656,6 +5793,9 @@ export class PhysicsEngine {
     this.isMinigamePaused = false;
     this.cityPursuitStats.activeBankMinigameTarget = null;
     this.bankMinigameGraceTimer = 8.0;
+    if (targetId.startsWith('house_rob_')) {
+      this.houseAlarmTriggeredIds.delete(targetId.slice('house_rob_'.length));
+    }
     const target = this.resolveMinigameTargetSpec(targetId);
     if (target) {
       this.completeActiveHeistRobbery(target);
@@ -5667,6 +5807,10 @@ export class PhysicsEngine {
     this.cityPursuitStats.activeBankMinigameTarget = null;
     this.bankMinigameGraceTimer = 6.5;
     this.activeRobberyState = null;
+    this.recentRobberyHeatTimer = 0;
+    if (targetId.startsWith('house_rob_')) {
+      this.houseAlarmTriggeredIds.delete(targetId.slice('house_rob_'.length));
+    }
 
     const target = this.resolveMinigameTargetSpec(targetId);
     if (target) {
@@ -5709,9 +5853,28 @@ export class PhysicsEngine {
   }
 
   public abortBankHeistMinigame() {
+    const aborted = this.cityPursuitStats.activeBankMinigameTarget;
     this.isMinigamePaused = false;
     this.cityPursuitStats.activeBankMinigameTarget = null;
-    this.bankMinigameGraceTimer = 6.5;
+    this.bankMinigameGraceTimer = 2.0;
+
+    if (aborted) {
+      const target = this.resolveMinigameTargetSpec(aborted.id);
+      this.cityPursuitStats.heistCooldowns[aborted.id] = Math.max(120, target?.cooldownSec || 120);
+      this.cityPursuitStats.wantedStars = Math.max(this.cityPursuitStats.wantedStars, 3);
+      this.cityPursuitStats.pursuitState = 'PURSUIT';
+      this.cityPursuitStats.escapeProgress = 0;
+      this.cityPursuitStats.bustProgress = 0;
+      this.recentRobberyHeatTimer = Math.max(this.recentRobberyHeatTimer, 210);
+      this.dispatchNearbyPoliceUnitsForRobbery(2);
+      soundEngine.playStartLightBeep(true);
+      this.addCityViolationAlert(
+        `🔒 ${aborted.name.toUpperCase()} ON LOCKDOWN! ABORTED BREAK-IN — ★${this.cityPursuitStats.wantedStars} POLICE CHASE!`,
+        `Aborted Break-in & Lockdown @ ${aborted.name}`,
+        0,
+        0
+      );
+    }
   }
 
   private getPlayerSafehouseTarget(): { x: number; z: number; name: string } {
@@ -5735,6 +5898,7 @@ export class PhysicsEngine {
   private completeActiveHeistRobbery(target: CityHeistTargetSpec) {
     this.activeRobberyState = null;
     this.cityPursuitStats.heistCooldowns[target.id] = target.cooldownSec;
+    this.recentRobberyHeatTimer = 210;
 
     const home = this.getPlayerSafehouseTarget();
     const totalCarryAmount = (this.pendingHeistLoot?.amount || 0) + target.payoutCash;
@@ -5766,6 +5930,9 @@ export class PhysicsEngine {
   private updateCityModeSimulation(dt: number, playerFwd: THREE.Vector3, input?: UnifiedInput) {
     if (this.bankMinigameGraceTimer > 0) {
       this.bankMinigameGraceTimer = Math.max(0, this.bankMinigameGraceTimer - dt);
+    }
+    if (this.recentRobberyHeatTimer > 0) {
+      this.recentRobberyHeatTimer = Math.max(0, this.recentRobberyHeatTimer - dt);
     }
     // 0. Update Turn Signal Blinker Relay & Skill Bonus Popup Timer
     if (this.cityPursuitStats.turnSignal !== 'off') {
@@ -5976,6 +6143,12 @@ export class PhysicsEngine {
         localHour: mdTime.localHour,
         isDay: mdTime.isDaytime,
         sunAltitude: mdTime.sunAltitude,
+        sunElevationDeg: mdTime.sunElevationDeg,
+        sunAzimuthDeg: mdTime.sunAzimuthDeg,
+        sunriseHour: mdTime.sunriseHour,
+        sunsetHour: mdTime.sunsetHour,
+        sunriseString: mdTime.sunriseString,
+        sunsetString: mdTime.sunsetString,
       };
       if (this.weatherMode === 'live_gaithersburg') {
         void this.refreshLiveWeather();
@@ -6209,6 +6382,9 @@ export class PhysicsEngine {
       playerSirenActive,
       this.cityPursuitStats.isPoliceOnDuty
     );
+    const effectiveHeadlights = this.getEffectiveHeadlightState();
+    this.cityPursuitStats.effectiveHeadlightState = effectiveHeadlights;
+    updatePlayerHeadlightRig(this.playerCar.root, effectiveHeadlights);
 
     // 3c. Current Speed Limit, Zone & Police Precinct Proximity
     const currentZone = this.getSpeedLimitAtPosition(this.playerPos.x, this.playerPos.z);
@@ -6760,6 +6936,13 @@ export class PhysicsEngine {
       const dz = this.playerPos.z - civ.pos.z;
       const distSq = dx * dx + dz * dz;
 
+      const npcNightActive =
+        (this.currentWeather.sunElevationDeg ?? 15) < 5.0 ||
+        this.currentWeather.sunAltitude < 0.09 ||
+        this.currentWeather.isRaining ||
+        this.currentWeather.isSnowing ||
+        this.currentWeather.condition === 'fog';
+
       if (distSq < 280 * 280) {
         civ.built.setWheelSpin(civ.speedKmh, dt);
         civ.built.setTurnSignals?.(
@@ -6776,6 +6959,9 @@ export class PhysicsEngine {
           civ.rightSignalActive || civ.hazardActive,
           false
         );
+        updateNpcHeadlightsVisibility(civ.built.root, npcNightActive && distSq < 155 * 155);
+      } else {
+        updateNpcHeadlightsVisibility(civ.built.root, false);
       }
 
       const dist = Math.sqrt(distSq);
@@ -7259,6 +7445,15 @@ export class PhysicsEngine {
       cop.built.root.rotation.y = cop.heading;
 
       const distNow = Math.hypot(this.playerPos.x - cop.pos.x, this.playerPos.z - cop.pos.z);
+      const copHeadlightsOn =
+        distNow < 165 &&
+        (isChasing ||
+          (this.currentWeather.sunElevationDeg ?? 15) < 5.0 ||
+          this.currentWeather.sunAltitude < 0.09 ||
+          this.currentWeather.isRaining ||
+          this.currentWeather.condition === 'fog');
+      updateNpcHeadlightsVisibility(cop.built.root, copHeadlightsOn);
+
       if (isChasing && distNow < closestCopDist) {
         closestCopDist = distNow;
       }
@@ -7740,7 +7935,7 @@ export class PhysicsEngine {
       this.cityPursuitStats.activeRegularJob = null;
     }
 
-    // 8. Compute Turn-by-Turn Manhattan GPS Route & Update 3D Road Ribbon + 2D Radar Mini-Map Data
+    // 8. Compute Turn-by-Turn Google Maps GPS Route & Update 3D Road Ribbon + 2D Radar Mini-Map Data
     const safehouse = this.getPlayerSafehouseTarget();
     let gpsRoutePts: { x: number; z: number }[] = [];
     let gpsTargetSummary: {
@@ -7749,72 +7944,50 @@ export class PhysicsEngine {
       label: string;
       color: string;
       distMeters: number;
+      routeDistMeters: number;
+      etaSeconds: number;
+      maneuver: GpsManeuverType;
+      nextRoadName: string;
+      currentRoadName: string;
+      thenInstruction: string;
+      distToTurnMeters: number;
       turnInstruction: string;
     } | null = null;
 
     if (activeGpsInfo) {
-      gpsRoutePts = computeCityGpsRoute(
+      const detailed = computeCityGpsRouteDetailed(
         this.playerPos.x,
         this.playerPos.z,
         activeGpsInfo.x,
-        activeGpsInfo.z
+        activeGpsInfo.z,
+        this.playerHeading
       );
+      gpsRoutePts = detailed.points;
       this.gpsRouteRibbon?.updateRoute(gpsRoutePts, activeGpsInfo.color, true);
 
-      const totalDist = Math.round(
+      const directDist = Math.round(
         Math.hypot(activeGpsInfo.x - this.playerPos.x, activeGpsInfo.z - this.playerPos.z)
       );
-      // Calculate exact turn instruction using XZ vector cross product (handles +Y CCW heading cleanly)
-      let turnInstruction = `⬆️ PROCEED ${totalDist}M TO DESTINATION`;
-      if (gpsRoutePts.length >= 2) {
-        const nextCorner = gpsRoutePts[1];
-        const inDx = nextCorner.x - this.playerPos.x;
-        const inDz = nextCorner.z - this.playerPos.z;
-        const distToCorner = Math.hypot(inDx, inDz);
-        const distToTurn = Math.round(distToCorner);
-        const inLen = Math.max(0.001, distToCorner);
-        const inUx = inDx / inLen;
-        const inUz = inDz / inLen;
-
-        // Player forward unit vector in Three.js (heading=0 points North / -Z, +heading turns CCW / West)
-        const fwdX = -Math.sin(this.playerHeading);
-        const fwdZ = -Math.cos(this.playerHeading);
-        const fwdDotIn = fwdX * inUx + fwdZ * inUz;
-
-        if (fwdDotIn < -0.35 && distToCorner > 14) {
-          turnInstruction = `🔄 MAKE U-TURN (${totalDist}M)`;
-        } else if (gpsRoutePts.length >= 3) {
-          const afterCorner = gpsRoutePts[2];
-          const legDx = afterCorner.x - nextCorner.x;
-          const legDz = afterCorner.z - nextCorner.z;
-          const legLen = Math.max(0.001, Math.hypot(legDx, legDz));
-          const legUx = legDx / legLen;
-          const legUz = legDz / legLen;
-          // In XZ screen space (+X East, +Z South): cross = inUx * legUz - inUz * legUx
-          // cross < 0 => Left turn, cross > 0 => Right turn
-          const cross = inUx * legUz - inUz * legUx;
-
-          if (distToTurn < 12) {
-            if (cross < -0.25) turnInstruction = `⬅️ TURN LEFT NOW`;
-            else if (cross > 0.25) turnInstruction = `➡️ TURN RIGHT NOW`;
-            else turnInstruction = `⬆️ STRAIGHT AHEAD (${totalDist}M)`;
-          } else if (cross < -0.25) {
-            turnInstruction = `⬅️ TURN LEFT IN ${distToTurn}M`;
-          } else if (cross > 0.25) {
-            turnInstruction = `➡️ TURN RIGHT IN ${distToTurn}M`;
-          } else {
-            turnInstruction = `⬆️ STRAIGHT ${distToTurn}M`;
-          }
-        }
-      }
+      const routeDistMeters = Math.max(directDist, detailed.totalRouteMeters);
+      // Google Maps style dynamic ETA (~50 km/h city / 95 km/h highway blend)
+      const currentSpeedMps = Math.max(12.5, Math.abs(this.playerSpeedKmh) / 3.6);
+      const avgCruiseMps = currentSpeedMps * 0.45 + 16.5 * 0.55;
+      const etaSeconds = Math.max(1, Math.round(routeDistMeters / avgCruiseMps));
 
       gpsTargetSummary = {
         x: activeGpsInfo.x,
         z: activeGpsInfo.z,
         label: activeGpsInfo.label,
         color: activeGpsInfo.color,
-        distMeters: totalDist,
-        turnInstruction,
+        distMeters: routeDistMeters,
+        routeDistMeters,
+        etaSeconds,
+        maneuver: detailed.maneuver,
+        nextRoadName: detailed.nextRoadName,
+        currentRoadName: detailed.currentRoadName,
+        thenInstruction: detailed.thenInstruction,
+        distToTurnMeters: detailed.distToTurnMeters,
+        turnInstruction: detailed.turnInstruction,
       };
     } else {
       this.gpsRouteRibbon?.updateRoute([], '#38bdf8', false);

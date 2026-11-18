@@ -22,6 +22,15 @@ export type WeatherConditionType =
 
 export type WeatherMode = 'live_gaithersburg' | WeatherConditionType;
 
+export type TimeOfDayPreset =
+  | 'live'
+  | 'sunrise'
+  | 'morning'
+  | 'noon'
+  | 'golden_hour'
+  | 'sunset'
+  | 'night';
+
 export interface GaithersburgWeather {
   temperatureC: number;
   temperatureF: number;
@@ -37,7 +46,13 @@ export interface GaithersburgWeather {
   relativeHumidity: number;
   localTimeString: string; // e.g. "8:45 AM EDT"
   localHour: number; // 0 - 24 float
-  sunAltitude: number; // -1.0 to 1.0 (positive = above horizon)
+  sunAltitude: number; // -1.0 to 1.0 (sin of solar elevation angle)
+  sunElevationDeg: number; // true astronomical elevation in degrees (-90..+90)
+  sunAzimuthDeg: number; // true astronomical azimuth clockwise from North (0=N, 90=E, 180=S, 270=W)
+  sunriseHour: number; // exact today's sunrise hour in America/New_York
+  sunsetHour: number; // exact today's sunset hour in America/New_York
+  sunriseString: string;
+  sunsetString: string;
   roadGrip: number; // 0.30 to 1.0
   isRaining: boolean;
   isSnowing: boolean;
@@ -49,6 +64,16 @@ const GAITHERSBURG_LAT = 39.1434;
 const GAITHERSBURG_LON = -77.2014;
 const CACHE_KEY = 'metrocity_gaithersburg_weather_cache';
 const CACHE_DURATION_MS = 8 * 60 * 1000; // 8 minutes
+
+let activeTimeOfDayPreset: TimeOfDayPreset = 'live';
+
+export function getTimeOfDayPreset(): TimeOfDayPreset {
+  return activeTimeOfDayPreset;
+}
+
+export function setTimeOfDayPreset(preset: TimeOfDayPreset): void {
+  activeTimeOfDayPreset = preset;
+}
 
 // Map WMO Weather Codes to WeatherConditionType
 export function mapWmoCodeToCondition(code: number, precipitationMm = 0, snowfallCm = 0): WeatherConditionType {
@@ -79,59 +104,205 @@ export function mapWmoCodeToCondition(code: number, precipitationMm = 0, snowfal
   return 'clear';
 }
 
+function formatHour12(hourFloat: number, tzLabel: string): string {
+  const wrapped = ((hourFloat % 24) + 24) % 24;
+  let h = Math.floor(wrapped);
+  let m = Math.round((wrapped - h) * 60);
+  if (m >= 60) {
+    m -= 60;
+    h = (h + 1) % 24;
+  }
+  const suffix = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}:${m.toString().padStart(2, '0')} ${suffix} ${tzLabel}`;
+}
+
+function computeGaithersburgSolarPosition(
+  year: number,
+  month: number,
+  day: number,
+  localHour: number,
+  utcOffsetHours: number
+): {
+  elevationDeg: number;
+  azimuthDeg: number;
+  sunAltitude: number;
+  sunriseHour: number;
+  sunsetHour: number;
+} {
+  const startOfYear = Date.UTC(year, 0, 1);
+  const currentDayUtc = Date.UTC(year, month - 1, day);
+  const dayOfYear = Math.floor((currentDayUtc - startOfYear) / 86400000) + 1;
+  const isLeap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+  const daysInYear = isLeap ? 366 : 365;
+
+  // NOAA Solar Calculation equations (accurate within ~1 minute for sunrise/sunset)
+  const gamma = ((2 * Math.PI) / daysInYear) * (dayOfYear - 1 + (localHour - 12) / 24);
+
+  const eqTime =
+    229.18 *
+    (0.000075 +
+      0.001868 * Math.cos(gamma) -
+      0.032077 * Math.sin(gamma) -
+      0.014615 * Math.cos(2 * gamma) -
+      0.040849 * Math.sin(2 * gamma));
+
+  const declRad =
+    0.006918 -
+    0.399912 * Math.cos(gamma) +
+    0.070257 * Math.sin(gamma) -
+    0.006758 * Math.cos(2 * gamma) +
+    0.000907 * Math.sin(2 * gamma) -
+    0.002697 * Math.cos(3 * gamma) +
+    0.00148 * Math.sin(3 * gamma);
+
+  const latRad = (GAITHERSBURG_LAT * Math.PI) / 180;
+  const timeOffsetMin = eqTime + 4 * GAITHERSBURG_LON - 60 * utcOffsetHours;
+  const trueSolarTimeMin = ((localHour * 60 + timeOffsetMin) % 1440 + 1440) % 1440;
+  const hourAngleDeg = trueSolarTimeMin / 4 - 180;
+  const hourAngleRad = (hourAngleDeg * Math.PI) / 180;
+
+  const sinElev =
+    Math.sin(latRad) * Math.sin(declRad) +
+    Math.cos(latRad) * Math.cos(declRad) * Math.cos(hourAngleRad);
+  const clampedSinElev = Math.max(-1, Math.min(1, sinElev));
+  const elevationRad = Math.asin(clampedSinElev);
+  const elevationDeg = (elevationRad * 180) / Math.PI;
+
+  // Solar Azimuth clockwise from true North (0 = N, 90 = E, 180 = S, 270 = W)
+  const cosZenith = Math.max(0.0001, Math.cos(elevationRad));
+  const cosAz = Math.max(
+    -1,
+    Math.min(1, (Math.sin(declRad) - Math.sin(latRad) * clampedSinElev) / (Math.cos(latRad) * cosZenith))
+  );
+  let azimuthDeg = (Math.acos(cosAz) * 180) / Math.PI;
+  if (hourAngleDeg > 0) {
+    azimuthDeg = 360 - azimuthDeg;
+  }
+
+  // Exact official Sunrise/Sunset (solar zenith 90.833° including atmospheric refraction + disc radius)
+  const zenithOfficialRad = (90.833 * Math.PI) / 180;
+  const cosSunriseHa = Math.max(
+    -1,
+    Math.min(
+      1,
+      Math.cos(zenithOfficialRad) / (Math.cos(latRad) * Math.cos(declRad)) -
+        Math.tan(latRad) * Math.tan(declRad)
+    )
+  );
+  const sunriseHaDeg = (Math.acos(cosSunriseHa) * 180) / Math.PI;
+
+  // Compute sunrise/sunset using noon equation-of-time for cleanest precision
+  const gammaNoon = ((2 * Math.PI) / daysInYear) * (dayOfYear - 1);
+  const eqNoon =
+    229.18 *
+    (0.000075 +
+      0.001868 * Math.cos(gammaNoon) -
+      0.032077 * Math.sin(gammaNoon) -
+      0.014615 * Math.cos(2 * gammaNoon) -
+      0.040849 * Math.sin(2 * gammaNoon));
+  const solarNoonMin = 720 - 4 * GAITHERSBURG_LON - eqNoon + 60 * utcOffsetHours;
+  const sunriseHour = (solarNoonMin - sunriseHaDeg * 4) / 60;
+  const sunsetHour = (solarNoonMin + sunriseHaDeg * 4) / 60;
+
+  return {
+    elevationDeg,
+    azimuthDeg,
+    sunAltitude: clampedSinElev,
+    sunriseHour,
+    sunsetHour,
+  };
+}
+
 /**
- * Get current time details in Gaithersburg, Maryland (America/New_York)
+ * Get current time & astronomical sun position in Gaithersburg, Maryland (America/New_York)
  */
-export function getGaithersburgLocalTime(): {
+export function getGaithersburgLocalTime(presetOverride?: TimeOfDayPreset): {
   localTimeString: string;
   localHour: number;
   isDaytime: boolean;
   sunAltitude: number;
+  sunElevationDeg: number;
+  sunAzimuthDeg: number;
+  sunriseHour: number;
+  sunsetHour: number;
+  sunriseString: string;
+  sunsetString: string;
 } {
   const now = new Date();
-  
-  // Format formatted string in Eastern Time
-  const timeFormatter = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/New_York',
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-    timeZoneName: 'short',
-  });
-  const localTimeString = timeFormatter.format(now);
+  const effectivePreset = presetOverride ?? activeTimeOfDayPreset;
 
-  // Extract numeric hour and minute in America/New_York
-  const hourFormatter = new Intl.DateTimeFormat('en-US', {
+  const dateTimeFormatter = new Intl.DateTimeFormat('en-US', {
     timeZone: 'America/New_York',
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
     hour: 'numeric',
     minute: 'numeric',
     second: 'numeric',
     hour12: false,
+    timeZoneName: 'short',
   });
-  const parts = hourFormatter.formatToParts(now);
-  const rawHourPart = Number(parts.find((p) => p.type === 'hour')?.value ?? 12);
+  const parts = dateTimeFormatter.formatToParts(now);
+  const getNum = (type: string, fallback: number) =>
+    Number(parts.find((p) => p.type === type)?.value ?? fallback);
+
+  const year = getNum('year', now.getUTCFullYear());
+  const month = getNum('month', now.getUTCMonth() + 1);
+  const day = getNum('day', now.getUTCDate());
+  const rawHourPart = getNum('hour', 12);
   const hourPart = rawHourPart === 24 ? 0 : rawHourPart;
-  const minPart = Number(parts.find((p) => p.type === 'minute')?.value ?? 0);
-  const secPart = Number(parts.find((p) => p.type === 'second')?.value ?? 0);
+  const minPart = getNum('minute', 0);
+  const secPart = getNum('second', 0);
+  const tzName = parts.find((p) => p.type === 'timeZoneName')?.value ?? 'EST';
+  const utcOffsetHours = tzName.includes('EDT') ? -4 : -5;
 
-  const localHour = hourPart + minPart / 60 + secPart / 3600;
+  const liveHour = hourPart + minPart / 60 + secPart / 3600;
 
-  // Maryland Sun Angle: Sunrise ~6:45 AM, Solar Noon ~12:00 PM, Sunset ~5:00 PM (winter) to ~8:30 PM (summer)
-  // Approximate seasonal average: sunrise at 6.8h, sunset at 17.5h (November)
-  const isDaytime = localHour >= 6.7 && localHour <= 17.6;
+  // Compute exact today's sunrise & sunset for Gaithersburg, MD first
+  const baseSolar = computeGaithersburgSolarPosition(year, month, day, liveHour, utcOffsetHours);
 
-  // Normalized sun altitude from -1 (midnight) to +1 (zenith noon)
-  let sunAltitude: number;
-  if (isDaytime) {
-    const dayProgress = (localHour - 6.7) / (17.6 - 6.7); // 0 to 1
-    sunAltitude = Math.sin(dayProgress * Math.PI); // 0 at dawn/dusk, 1.0 at noon
-  } else {
-    const nightLength = 24 - (17.6 - 6.7);
-    const nightProgress = localHour > 17.6 ? (localHour - 17.6) / nightLength : (localHour + 24 - 17.6) / nightLength;
-    sunAltitude = -Math.sin(nightProgress * Math.PI);
+  let localHour = liveHour;
+  if (effectivePreset === 'sunrise') {
+    localHour = baseSolar.sunriseHour + 0.08; // ~5 mins past horizon emergence
+  } else if (effectivePreset === 'morning') {
+    localHour = baseSolar.sunriseHour + 2.2;
+  } else if (effectivePreset === 'noon') {
+    localHour = (baseSolar.sunriseHour + baseSolar.sunsetHour) * 0.5;
+  } else if (effectivePreset === 'golden_hour') {
+    localHour = baseSolar.sunsetHour - 0.65;
+  } else if (effectivePreset === 'sunset') {
+    localHour = baseSolar.sunsetHour - 0.06; // glowing solar disc touching western Piedmont horizon
+  } else if (effectivePreset === 'night') {
+    localHour = 23.0;
   }
 
-  return { localTimeString, localHour, isDaytime, sunAltitude };
+  const solar = computeGaithersburgSolarPosition(year, month, day, localHour, utcOffsetHours);
+  const isDaytime = solar.elevationDeg > -0.833;
+
+  const localTimeString =
+    effectivePreset === 'live'
+      ? new Intl.DateTimeFormat('en-US', {
+          timeZone: 'America/New_York',
+          hour: 'numeric',
+          minute: '2-digit',
+          hour12: true,
+          timeZoneName: 'short',
+        }).format(now)
+      : formatHour12(localHour, tzName);
+
+  return {
+    localTimeString,
+    localHour,
+    isDaytime,
+    sunAltitude: solar.sunAltitude,
+    sunElevationDeg: solar.elevationDeg,
+    sunAzimuthDeg: solar.azimuthDeg,
+    sunriseHour: solar.sunriseHour,
+    sunsetHour: solar.sunsetHour,
+    sunriseString: formatHour12(solar.sunriseHour, tzName),
+    sunsetString: formatHour12(solar.sunsetHour, tzName),
+  };
 }
 
 /**
@@ -271,7 +442,8 @@ export function calculateDrivetrainTractionModifier(
  * Fetch Live Weather for Gaithersburg, Maryland from Open-Meteo API
  */
 export async function fetchLiveGaithersburgWeather(): Promise<GaithersburgWeather> {
-  const { localTimeString, localHour, isDaytime, sunAltitude } = getGaithersburgLocalTime();
+  const timeInfo = getGaithersburgLocalTime();
+  const { localTimeString, localHour, isDaytime, sunAltitude } = timeInfo;
 
   try {
     // Check cached weather first
@@ -286,6 +458,12 @@ export async function fetchLiveGaithersburgWeather(): Promise<GaithersburgWeathe
             localHour,
             isDay: isDaytime,
             sunAltitude,
+            sunElevationDeg: timeInfo.sunElevationDeg,
+            sunAzimuthDeg: timeInfo.sunAzimuthDeg,
+            sunriseHour: timeInfo.sunriseHour,
+            sunsetHour: timeInfo.sunsetHour,
+            sunriseString: timeInfo.sunriseString,
+            sunsetString: timeInfo.sunsetString,
           };
         }
       }
@@ -342,6 +520,12 @@ export async function fetchLiveGaithersburgWeather(): Promise<GaithersburgWeathe
       localTimeString,
       localHour,
       sunAltitude,
+      sunElevationDeg: timeInfo.sunElevationDeg,
+      sunAzimuthDeg: timeInfo.sunAzimuthDeg,
+      sunriseHour: timeInfo.sunriseHour,
+      sunsetHour: timeInfo.sunsetHour,
+      sunriseString: timeInfo.sunriseString,
+      sunsetString: timeInfo.sunsetString,
       roadGrip: getBaseRoadGrip(condition),
       isRaining,
       isSnowing,
@@ -358,8 +542,14 @@ export async function fetchLiveGaithersburgWeather(): Promise<GaithersburgWeathe
 
     return weatherData;
   } catch (_err) {
-    // Graceful offline fallback: realistic Gaithersburg late-autumn climate
-    return getFallbackGaithersburgWeather(localTimeString, localHour, isDaytime, sunAltitude);
+    // Graceful offline fallback: realistic Gaithersburg climate
+    return getFallbackGaithersburgWeather(
+      localTimeString,
+      localHour,
+      isDaytime,
+      sunAltitude,
+      timeInfo
+    );
   }
 }
 
@@ -394,8 +584,17 @@ export function getFallbackGaithersburgWeather(
   localTimeString: string,
   localHour: number,
   isDaytime: boolean,
-  sunAltitude: number
+  sunAltitude: number,
+  solarExtras?: {
+    sunElevationDeg?: number;
+    sunAzimuthDeg?: number;
+    sunriseHour?: number;
+    sunsetHour?: number;
+    sunriseString?: string;
+    sunsetString?: string;
+  }
 ): GaithersburgWeather {
+  const elevDeg = solarExtras?.sunElevationDeg ?? (Math.asin(Math.max(-1, Math.min(1, sunAltitude))) * 180) / Math.PI;
   return {
     temperatureC: 17.5,
     temperatureF: 64,
@@ -412,6 +611,12 @@ export function getFallbackGaithersburgWeather(
     localTimeString,
     localHour,
     sunAltitude,
+    sunElevationDeg: elevDeg,
+    sunAzimuthDeg: solarExtras?.sunAzimuthDeg ?? 180,
+    sunriseHour: solarExtras?.sunriseHour ?? 6.75,
+    sunsetHour: solarExtras?.sunsetHour ?? 17.5,
+    sunriseString: solarExtras?.sunriseString ?? '6:45 AM EST',
+    sunsetString: solarExtras?.sunsetString ?? '5:30 PM EST',
     roadGrip: 1.0,
     isRaining: false,
     isSnowing: false,
@@ -425,7 +630,7 @@ export function getFallbackGaithersburgWeather(
  */
 export function getOverriddenWeather(
   override: WeatherConditionType,
-  baseTime?: { localTimeString: string; localHour: number; isDaytime: boolean; sunAltitude: number }
+  baseTime?: ReturnType<typeof getGaithersburgLocalTime>
 ): GaithersburgWeather {
   const time = baseTime || getGaithersburgLocalTime();
   const isRaining = override === 'rain' || override === 'heavy_rain' || override === 'drizzle' || override === 'thunderstorm';
@@ -475,6 +680,12 @@ export function getOverriddenWeather(
     localTimeString: time.localTimeString,
     localHour: time.localHour,
     sunAltitude: time.sunAltitude,
+    sunElevationDeg: time.sunElevationDeg,
+    sunAzimuthDeg: time.sunAzimuthDeg,
+    sunriseHour: time.sunriseHour,
+    sunsetHour: time.sunsetHour,
+    sunriseString: time.sunriseString,
+    sunsetString: time.sunsetString,
     roadGrip: getBaseRoadGrip(override),
     isRaining,
     isSnowing,

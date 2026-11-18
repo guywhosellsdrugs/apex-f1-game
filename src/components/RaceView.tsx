@@ -27,6 +27,7 @@ import {
   getEffectiveStreetCarSpec,
   searchMarylandGpsDirectory,
   MarylandGpsEntry,
+  GpsManeuverType,
 } from '../game/cityTrafficBuilder';
 import {
   createTireSpraySystem,
@@ -37,7 +38,8 @@ import {
   AtmosphericWeatherSystem,
   SkyCelestialAndCloudsSystem,
 } from '../game/weatherParticles';
-import { WeatherMode, GaithersburgWeather, calculateDrivetrainTractionModifier } from '../services/weatherService';
+import { WeatherMode, TimeOfDayPreset, GaithersburgWeather, calculateDrivetrainTractionModifier } from '../services/weatherService';
+import { voiceNavigationService, formatGoogleMapsDistance } from '../services/voiceNavigationService';
 import { inputManager } from '../services/inputManager';
 import { soundEngine } from '../services/soundEngine';
 import { BroadcastHUD } from './BroadcastHUD';
@@ -130,6 +132,60 @@ const MotionBlurShader = {
     }
   `,
 };
+
+function renderGoogleMapsManeuverIcon(maneuver: GpsManeuverType | undefined) {
+  switch (maneuver) {
+    case 'left':
+      return (
+        <svg viewBox="0 0 24 24" className="w-6 h-6 text-white shrink-0" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M17 20V11a3 3 0 0 0-3-3H5" />
+          <path d="M9 4 5 8l4 4" />
+        </svg>
+      );
+    case 'slight_left':
+      return (
+        <svg viewBox="0 0 24 24" className="w-6 h-6 text-white shrink-0" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M15 20v-6.5L7.5 6" />
+          <path d="M7 12V5.5h6.5" />
+        </svg>
+      );
+    case 'right':
+      return (
+        <svg viewBox="0 0 24 24" className="w-6 h-6 text-white shrink-0" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M7 20V11a3 3 0 0 1 3-3h9" />
+          <path d="m15 4 4 4-4 4" />
+        </svg>
+      );
+    case 'slight_right':
+      return (
+        <svg viewBox="0 0 24 24" className="w-6 h-6 text-white shrink-0" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M9 20v-6.5L16.5 6" />
+          <path d="M17 12V5.5h-6.5" />
+        </svg>
+      );
+    case 'uturn':
+      return (
+        <svg viewBox="0 0 24 24" className="w-6 h-6 text-white shrink-0" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M16 19V9a4 4 0 0 0-8 0v8" />
+          <path d="m5 14 3 3 3-3" />
+        </svg>
+      );
+    case 'arrive':
+      return (
+        <svg viewBox="0 0 24 24" className="w-6 h-6 text-white shrink-0" fill="currentColor">
+          <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z" />
+        </svg>
+      );
+    case 'straight':
+    default:
+      return (
+        <svg viewBox="0 0 24 24" className="w-6 h-6 text-white shrink-0" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 20V4" />
+          <path d="m7 9 5-5 5 5" />
+        </svg>
+      );
+  }
+}
 
 interface RaceViewProps {
   circuit: CircuitInfo;
@@ -281,9 +337,42 @@ export const RaceView: React.FC<RaceViewProps> = ({
   >('police');
   const [isTacticalMapExpanded, setIsTacticalMapExpanded] = useState<boolean>(false);
   const [minimapZoom, setMinimapZoom] = useState<'local' | 'metro' | 'state'>('local');
+  const [isMinimapHeadingUp, setIsMinimapHeadingUp] = useState<boolean>(true);
+  const [mapThemeMode, setMapThemeMode] = useState<'auto' | 'light' | 'dark'>('auto');
+  const [isVoiceNavMuted, setIsVoiceNavMuted] = useState<boolean>(false);
   const [gpsAddressQuery, setGpsAddressQuery] = useState<string>('');
   const [gpsDropdownOpen, setGpsDropdownOpen] = useState<boolean>(false);
   const gpsInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!isCityDrivingMode) return;
+    const tgt = cityPursuitStats?.minimapData?.gpsTarget;
+    if (!tgt) {
+      voiceNavigationService.updateProgress({ active: false });
+      return;
+    }
+    voiceNavigationService.updateProgress({
+      active: true,
+      destLabel: tgt.label,
+      maneuver: tgt.maneuver,
+      nextRoadName: tgt.nextRoadName,
+      distToTurnMeters: tgt.distToTurnMeters,
+      totalRouteMeters: tgt.routeDistMeters ?? tgt.distMeters,
+    });
+  }, [
+    isCityDrivingMode,
+    cityPursuitStats?.minimapData?.gpsTarget?.label,
+    cityPursuitStats?.minimapData?.gpsTarget?.maneuver,
+    cityPursuitStats?.minimapData?.gpsTarget?.nextRoadName,
+    cityPursuitStats?.minimapData?.gpsTarget?.distToTurnMeters,
+    cityPursuitStats?.minimapData?.gpsTarget?.routeDistMeters,
+  ]);
+
+  useEffect(() => {
+    return () => {
+      voiceNavigationService.cancel();
+    };
+  }, []);
 
   const gpsSuggestions = useMemo(
     () => searchMarylandGpsDirectory(gpsAddressQuery),
@@ -395,6 +484,18 @@ export const RaceView: React.FC<RaceViewProps> = ({
     cameraViewRef.current = cameraView;
   }, [cameraView]);
 
+  const [garageCamAngle, setGarageCamAngle] = useState<'front34' | 'front' | 'side' | 'rear' | 'orbit'>('front34');
+  const isGarageShowroomOpenRef = useRef<boolean>(false);
+  const garageCamAngleRef = useRef<'front34' | 'front' | 'side' | 'rear' | 'orbit'>('front34');
+  useEffect(() => {
+    const isModalOpen = showCityTabletModal || showCityGarageModal;
+    isGarageShowroomOpenRef.current =
+      Boolean(isCityDrivingMode && isModalOpen && (cityTabletTab === 'garage' || cityTabletTab === 'dealership'));
+  }, [isCityDrivingMode, showCityTabletModal, showCityGarageModal, cityTabletTab]);
+  useEffect(() => {
+    garageCamAngleRef.current = garageCamAngle;
+  }, [garageCamAngle]);
+
   useEffect(() => {
     if (!containerRef.current) return;
 
@@ -421,24 +522,48 @@ export const RaceView: React.FC<RaceViewProps> = ({
       66,
       width / height,
       0.1,
-      gfxPreset.id === 'retro_pixel' ? 1050 : gfxPreset.id === 'low' ? 1400 : 2400
+      isCityDrivingMode
+        ? gfxPreset.id === 'retro_pixel'
+          ? 760
+          : gfxPreset.id === 'low'
+          ? 820
+          : 1350
+        : gfxPreset.id === 'retro_pixel'
+        ? 1050
+        : gfxPreset.id === 'low'
+        ? 1400
+        : 2400
     );
 
     const renderer = new THREE.WebGLRenderer({
       antialias: gfxPreset.antialias,
       powerPreference: 'high-performance',
     });
+    const glCtx = renderer.getContext();
+    const dbgRenderInfo = glCtx?.getExtension('WEBGL_debug_renderer_info');
+    const gpuRendererStr = dbgRenderInfo
+      ? String(glCtx.getParameter(dbgRenderInfo.UNMASKED_RENDERER_WEBGL) || '')
+      : '';
+    const isSoftwareGl = /SwiftShader|llvmpipe|Software/i.test(gpuRendererStr);
+
+    const ultraPixelCap = width > 1600 ? 1.35 : 1.5;
+    const basePresetPixelRatio =
+      gfxPreset.id === 'ultra' ? Math.min(gfxPreset.maxPixelRatio, ultraPixelCap) : gfxPreset.maxPixelRatio;
+    const initialPixelRatio = isSoftwareGl
+      ? Math.min(1.0, basePresetPixelRatio)
+      : Math.min(window.devicePixelRatio || 1, basePresetPixelRatio);
+
     renderer.setSize(width, height);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, gfxPreset.maxPixelRatio));
+    renderer.setPixelRatio(initialPixelRatio);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
-    renderer.shadowMap.enabled = gfxPreset.shadowsEnabled;
-    if (gfxPreset.shadowsEnabled) {
+    renderer.shadowMap.enabled = gfxPreset.shadowsEnabled && !isSoftwareGl;
+    if (renderer.shadowMap.enabled) {
       renderer.shadowMap.type = gfxPreset.useSoftShadows ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
     }
     const isHighOrUltra = gfxPreset.id === 'high' || gfxPreset.id === 'ultra';
     const isRetroAny = gfxPreset.id === 'retro' || gfxPreset.id === 'retro_pixel';
-    renderer.toneMapping = isHighOrUltra ? THREE.NeutralToneMapping : THREE.NoToneMapping;
-    renderer.toneMappingExposure = gfxPreset.id === 'ultra' ? 0.96 : 1.0;
+    renderer.toneMapping = isHighOrUltra ? THREE.ACESFilmicToneMapping : THREE.NoToneMapping;
+    renderer.toneMappingExposure = gfxPreset.id === 'ultra' ? 1.06 : 1.0;
 
     // Apply crisp nearest-neighbor pixel upscaling ONLY for 'retro_pixel' (leave 'retro' completely untouched)
     renderer.domElement.style.imageRendering = gfxPreset.id === 'retro_pixel' ? 'pixelated' : 'auto';
@@ -580,132 +705,137 @@ export const RaceView: React.FC<RaceViewProps> = ({
     scene.fog = activeSceneFog;
 
     // Physically Calibrated 360° PMREM Environment Reflections for High / Ultra Realistic
-    // Uses a smooth sky + horizon + soft studio bounce dome (zero harsh sun disk, so no circular lens ever forms)
     let pmremGenerator: THREE.PMREMGenerator | null = null;
     let pmremRenderTarget: THREE.WebGLRenderTarget | null = null;
-    if (gfxPreset.useEnvironmentReflections) {
-      pmremGenerator = new THREE.PMREMGenerator(renderer);
-      pmremGenerator.compileCubemapShader();
-
+    const rebuildPmremEnvironment = (skyHex: number, sunHex: number, gndHex: number, glowAlpha = 0.45) => {
+      if (!pmremGenerator) return;
       const envScene = new THREE.Scene();
       const envCanvas = document.createElement('canvas');
       envCanvas.width = 512;
       envCanvas.height = 256;
       const eCtx = envCanvas.getContext('2d');
-      if (eCtx) {
-        const skyCol = new THREE.Color(hemiSky);
-        const sunCol = new THREE.Color(sunColor);
-        const gndCol = new THREE.Color(hemiGround);
-        const eGrad = eCtx.createLinearGradient(0, 0, 0, 256);
-        // Smooth zenith -> soft sky -> natural horizon glow -> dark track asphalt bounce
-        eGrad.addColorStop(0.0, `#${skyCol.clone().multiplyScalar(0.55).getHexString()}`);
-        eGrad.addColorStop(0.36, `#${skyCol.clone().multiplyScalar(0.88).getHexString()}`);
-        eGrad.addColorStop(0.49, `#${sunCol.clone().lerp(skyCol, 0.45).multiplyScalar(0.92).getHexString()}`);
-        eGrad.addColorStop(0.53, '#222630');
-        eGrad.addColorStop(1.0, `#${gndCol.clone().multiplyScalar(0.35).getHexString()}`);
-        eCtx.fillStyle = eGrad;
-        eCtx.fillRect(0, 0, 512, 256);
+      if (!eCtx) return;
 
-        // Subtle soft-edged horizon atmospheric band + circuit floodlight / grandstand reflection accents
-        const horizonBand = eCtx.createLinearGradient(0, 106, 0, 138);
-        horizonBand.addColorStop(0, 'rgba(255, 255, 255, 0.0)');
-        horizonBand.addColorStop(0.48, 'rgba(255, 248, 235, 0.42)');
-        horizonBand.addColorStop(0.55, 'rgba(56, 189, 248, 0.25)');
-        horizonBand.addColorStop(1, 'rgba(255, 255, 255, 0.0)');
-        eCtx.fillStyle = horizonBand;
-        eCtx.fillRect(0, 106, 512, 32);
+      const skyCol = new THREE.Color(skyHex);
+      const sunCol = new THREE.Color(sunHex);
+      const gndCol = new THREE.Color(gndHex);
+      const eGrad = eCtx.createLinearGradient(0, 0, 0, 256);
+      // High-contrast Forza sky zenith -> sunlit horizon -> dark asphalt ground bounce
+      eGrad.addColorStop(0.0, `#${skyCol.clone().multiplyScalar(0.52).getHexString()}`);
+      eGrad.addColorStop(0.36, `#${skyCol.clone().multiplyScalar(0.95).getHexString()}`);
+      eGrad.addColorStop(0.485, `#${sunCol.clone().lerp(skyCol, 0.32).multiplyScalar(1.08).getHexString()}`);
+      eGrad.addColorStop(0.525, '#171b24');
+      eGrad.addColorStop(1.0, `#${gndCol.clone().multiplyScalar(0.28).getHexString()}`);
+      eCtx.fillStyle = eGrad;
+      eCtx.fillRect(0, 0, 512, 256);
 
-        // Soft circuit floodlight & grandstand reflection pillars along the horizon so the glossy track reflects varied light streaks
-        for (let x = 16; x < 512; x += 48) {
-          const beamGrad = eCtx.createLinearGradient(x, 82, x, 134);
-          beamGrad.addColorStop(0, 'rgba(255, 255, 255, 0.0)');
-          beamGrad.addColorStop(0.65, 'rgba(255, 250, 235, 0.38)');
-          beamGrad.addColorStop(1, 'rgba(255, 255, 255, 0.0)');
-          eCtx.fillStyle = beamGrad;
-          eCtx.fillRect(x, 82, 18, 52);
-        }
+      // Soft horizon atmospheric scattering band + distant urban reflection streaks
+      const horizonBand = eCtx.createLinearGradient(0, 102, 0, 140);
+      horizonBand.addColorStop(0, 'rgba(255, 255, 255, 0.0)');
+      horizonBand.addColorStop(0.46, `rgba(255, 246, 232, ${glowAlpha.toFixed(2)})`);
+      horizonBand.addColorStop(0.54, `rgba(${Math.round(skyCol.r * 255)}, ${Math.round(skyCol.g * 255)}, ${Math.round(skyCol.b * 255)}, ${(glowAlpha * 0.6).toFixed(2)})`);
+      horizonBand.addColorStop(1, 'rgba(255, 255, 255, 0.0)');
+      eCtx.fillStyle = horizonBand;
+      eCtx.fillRect(0, 102, 512, 38);
 
-        const envDomeTex = new THREE.CanvasTexture(envCanvas);
-        envDomeTex.colorSpace = THREE.SRGBColorSpace;
-        const envSphere = new THREE.Mesh(
-          new THREE.SphereGeometry(80, 32, 20),
-          new THREE.MeshBasicMaterial({ map: envDomeTex, side: THREE.BackSide })
-        );
-        envScene.add(envSphere);
-
-        // Soft diffused overhead broadcast gantry light panels for natural automotive & glossy track reflections
-        const softPanelMat = new THREE.MeshBasicMaterial({
-          color: sunCol.clone().lerp(new THREE.Color(0xffffff), 0.65).multiplyScalar(0.88),
-          side: THREE.DoubleSide,
-        });
-        const panelLeft = new THREE.Mesh(new THREE.PlaneGeometry(38, 7.5), softPanelMat);
-        panelLeft.position.set(-28, 32, 0);
-        panelLeft.lookAt(0, 0, 0);
-        envScene.add(panelLeft);
-
-        const panelRight = new THREE.Mesh(new THREE.PlaneGeometry(38, 7.5), softPanelMat);
-        panelRight.position.set(28, 28, -10);
-        panelRight.lookAt(0, 0, 0);
-        envScene.add(panelRight);
-
-        const panelFront = new THREE.Mesh(new THREE.PlaneGeometry(32, 6), softPanelMat);
-        panelFront.position.set(0, 26, -34);
-        panelFront.lookAt(0, 0, 0);
-        envScene.add(panelFront);
-
-        pmremRenderTarget = pmremGenerator.fromScene(envScene, 0.032);
-        scene.environment = pmremRenderTarget.texture;
-        envSphere.geometry.dispose();
-        (envSphere.material as THREE.MeshBasicMaterial).dispose();
-        envDomeTex.dispose();
-        panelLeft.geometry.dispose();
-        panelRight.geometry.dispose();
-        panelFront.geometry.dispose();
-        softPanelMat.dispose();
+      for (let x = 16; x < 512; x += 48) {
+        const beamGrad = eCtx.createLinearGradient(x, 86, x, 134);
+        beamGrad.addColorStop(0, 'rgba(255, 255, 255, 0.0)');
+        beamGrad.addColorStop(0.65, `rgba(255, 248, 230, ${(glowAlpha * 0.72).toFixed(2)})`);
+        beamGrad.addColorStop(1, 'rgba(255, 255, 255, 0.0)');
+        eCtx.fillStyle = beamGrad;
+        eCtx.fillRect(x, 86, 16, 48);
       }
+
+      const envDomeTex = new THREE.CanvasTexture(envCanvas);
+      envDomeTex.colorSpace = THREE.SRGBColorSpace;
+      const envSphere = new THREE.Mesh(
+        new THREE.SphereGeometry(80, 32, 20),
+        new THREE.MeshBasicMaterial({ map: envDomeTex, side: THREE.BackSide })
+      );
+      envScene.add(envSphere);
+
+      const softPanelMat = new THREE.MeshBasicMaterial({
+        color: sunCol.clone().lerp(new THREE.Color(0xffffff), 0.55).multiplyScalar(0.95),
+        side: THREE.DoubleSide,
+      });
+      const panelLeft = new THREE.Mesh(new THREE.PlaneGeometry(38, 7.5), softPanelMat);
+      panelLeft.position.set(-28, 32, 0);
+      panelLeft.lookAt(0, 0, 0);
+      envScene.add(panelLeft);
+
+      const panelRight = new THREE.Mesh(new THREE.PlaneGeometry(38, 7.5), softPanelMat);
+      panelRight.position.set(28, 28, -10);
+      panelRight.lookAt(0, 0, 0);
+      envScene.add(panelRight);
+
+      const panelFront = new THREE.Mesh(new THREE.PlaneGeometry(32, 6), softPanelMat);
+      panelFront.position.set(0, 26, -34);
+      panelFront.lookAt(0, 0, 0);
+      envScene.add(panelFront);
+
+      const nextRT = pmremGenerator.fromScene(envScene, 0.025);
+      if (pmremRenderTarget) {
+        pmremRenderTarget.dispose();
+      }
+      pmremRenderTarget = nextRT;
+      scene.environment = nextRT.texture;
+
+      envSphere.geometry.dispose();
+      (envSphere.material as THREE.MeshBasicMaterial).dispose();
+      envDomeTex.dispose();
+      panelLeft.geometry.dispose();
+      panelRight.geometry.dispose();
+      panelFront.geometry.dispose();
+      softPanelMat.dispose();
+    };
+
+    if (gfxPreset.useEnvironmentReflections) {
+      pmremGenerator = new THREE.PMREMGenerator(renderer);
+      pmremGenerator.compileCubemapShader();
+      rebuildPmremEnvironment(hemiSky, sunColor, hemiGround, 0.45);
     }
 
-    // Calibrate direct light intensities in High/Ultra so they complement the 360° PMREM reflections without over-bright specular glare
-    const hemiIntensity = gfxPreset.id === 'ultra' ? 0.72 : gfxPreset.id === 'high' ? 0.82 : 0.95;
+    // Calibrate direct vs ambient contrast so sun shadows and normal maps pop with Forza Horizon depth
+    const hemiIntensity = gfxPreset.id === 'ultra' ? 0.54 : gfxPreset.id === 'high' ? 0.62 : 0.92;
     const hemiLight = new THREE.HemisphereLight(hemiSky, hemiGround, hemiIntensity);
     scene.add(hemiLight);
 
-    const baseAmbient = Math.max(0.75, circuit.ambientLight * 0.88);
-    const ambientIntensity = gfxPreset.id === 'ultra' ? baseAmbient * 0.68 : gfxPreset.id === 'high' ? baseAmbient * 0.78 : baseAmbient;
-    const ambientLight = new THREE.AmbientLight(0xffffff, ambientIntensity);
+    const baseAmbient = gfxPreset.id === 'ultra' ? 0.24 : gfxPreset.id === 'high' ? 0.36 : Math.max(0.68, circuit.ambientLight * 0.85);
+    const ambientLight = new THREE.AmbientLight(0xffffff, baseAmbient);
     scene.add(ambientLight);
 
     const calibratedSunIntensity =
       gfxPreset.id === 'ultra'
-        ? sunIntensity * 0.68
+        ? sunIntensity * 1.38
         : gfxPreset.id === 'high'
-        ? sunIntensity * 0.78
+        ? sunIntensity * 1.18
         : sunIntensity;
     const sunLight = new THREE.DirectionalLight(sunColor, calibratedSunIntensity);
-    sunLight.castShadow = gfxPreset.shadowsEnabled;
-    if (gfxPreset.shadowsEnabled) {
+    sunLight.castShadow = renderer.shadowMap.enabled;
+    if (renderer.shadowMap.enabled) {
       sunLight.shadow.mapSize.width = gfxPreset.shadowMapSize;
       sunLight.shadow.mapSize.height = gfxPreset.shadowMapSize;
-      const shadowRange = isCityDrivingMode ? 95 : 85;
+      const shadowRange = gfxPreset.id === 'ultra' ? 62 : isCityDrivingMode ? 80 : 78;
       sunLight.shadow.camera.left = -shadowRange;
       sunLight.shadow.camera.right = shadowRange;
       sunLight.shadow.camera.top = shadowRange;
       sunLight.shadow.camera.bottom = -shadowRange;
       sunLight.shadow.camera.near = 2;
-      sunLight.shadow.camera.far = 260;
-      sunLight.shadow.bias = -0.00045;
-      sunLight.shadow.normalBias = 0.03;
-      sunLight.shadow.radius = 2.2;
+      sunLight.shadow.camera.far = 230;
+      sunLight.shadow.bias = -0.00032;
+      sunLight.shadow.normalBias = 0.022;
+      sunLight.shadow.radius = gfxPreset.id === 'ultra' ? 1.6 : 2.0;
     }
     scene.add(sunLight);
     scene.add(sunLight.target);
 
-    // 3-Point Rim & Specular Fill Directional Light — softly balanced in Ultra so it never causes white blowouts
+    // 3-Point Rim & Specular Fill Directional Light
     let rimLight: THREE.DirectionalLight | null = null;
     if (gfxPreset.enableRimAndFillLights) {
       rimLight = new THREE.DirectionalLight(
-        circuit.id === 'abudhabi' ? 0x38bdf8 : 0xe0f2fe,
-        gfxPreset.id === 'ultra' ? 0.44 : gfxPreset.id === 'high' ? 0.56 : 0.75
+        circuit.id === 'abudhabi' ? 0x38bdf8 : 0xdbeafe,
+        gfxPreset.id === 'ultra' ? 0.52 : gfxPreset.id === 'high' ? 0.56 : 0.72
       );
       rimLight.castShadow = false;
       scene.add(rimLight);
@@ -740,23 +870,24 @@ export const RaceView: React.FC<RaceViewProps> = ({
     }
 
     let composer: EffectComposer | null = null;
+    let bloomPassRef: UnrealBloomPass | null = null;
     let motionBlurPass: ShaderPass | null = null;
     let planarReflectionRT: THREE.WebGLRenderTarget | null = null;
     let reflectionCamera: THREE.PerspectiveCamera | null = null;
     let currentRoadWetness = 0.0;
 
-    if (gfxPreset.id === 'ultra' || gfxPreset.id === 'high') {
-      const reflScale = gfxPreset.id === 'ultra' ? 0.85 : 0.5;
+    if ((gfxPreset.id === 'ultra' || gfxPreset.id === 'high') && !isSoftwareGl) {
+      const reflScale = gfxPreset.id === 'ultra' ? 0.45 : 0.35;
       planarReflectionRT = new THREE.WebGLRenderTarget(
         Math.max(256, Math.floor(width * reflScale)),
-        Math.max(256, Math.floor(height * reflScale)),
+        Math.max(192, Math.floor(height * reflScale)),
         {
           minFilter: THREE.LinearFilter,
           magFilter: THREE.LinearFilter,
           colorSpace: THREE.SRGBColorSpace,
         }
       );
-      reflectionCamera = new THREE.PerspectiveCamera(camera.fov, width / height, 0.1, 2200);
+      reflectionCamera = new THREE.PerspectiveCamera(camera.fov, width / height, 0.1, 1600);
       track.setReflectionTexture(planarReflectionRT.texture, gfxPreset.id === 'ultra' ? 0.22 : 0.12);
       track.setRoadWetness?.(0.0);
     }
@@ -767,12 +898,13 @@ export const RaceView: React.FC<RaceViewProps> = ({
       if (composer) return composer;
       const isUltra = gfxPreset.id === 'ultra';
       const pixelRatio = renderer.getPixelRatio();
-      const rt = new THREE.WebGLRenderTarget(width * pixelRatio, height * pixelRatio, {
-        samples: isUltra ? 4 : 0,
+      const rtWidth = Math.max(1, Math.floor(width * pixelRatio));
+      const rt = new THREE.WebGLRenderTarget(rtWidth, Math.max(1, Math.floor(height * pixelRatio)), {
+        samples: isUltra && rtWidth < 1950 && !isSoftwareGl ? 2 : 0,
         type: isUltra ? THREE.HalfFloatType : THREE.UnsignedByteType,
       });
       const effectivePixelRatio = motionBlurEnabledRef.current
-        ? Math.min(1.2, pixelRatio * 0.82)
+        ? Math.min(1.15, pixelRatio * 0.85)
         : pixelRatio;
       composer = new EffectComposer(renderer, rt);
       composer.setSize(width, height);
@@ -781,14 +913,14 @@ export const RaceView: React.FC<RaceViewProps> = ({
       const renderPass = new RenderPass(scene, camera);
       composer.addPass(renderPass);
 
-      if (isUltra) {
-        const bloomPass = new UnrealBloomPass(
-          new THREE.Vector2(width, height),
-          0.18, // clean, natural specular bloom on LED headlights, taillights, and street lights
-          0.42,
-          0.88
+      if (isUltra && !isSoftwareGl) {
+        bloomPassRef = new UnrealBloomPass(
+          new THREE.Vector2(Math.floor(width * 0.5), Math.floor(height * 0.5)),
+          0.26, // crisp Forza-style specular bloom on LED headlights, taillights, and neon signage
+          0.48,
+          0.86
         );
-        composer.addPass(bloomPass);
+        composer.addPass(bloomPassRef);
       }
 
       motionBlurPass = new ShaderPass(MotionBlurShader);
@@ -800,7 +932,7 @@ export const RaceView: React.FC<RaceViewProps> = ({
       return composer;
     };
 
-    if (gfxPreset.id === 'ultra' || motionBlurEnabledRef.current) {
+    if ((gfxPreset.id === 'ultra' && !isSoftwareGl) || motionBlurEnabledRef.current) {
       initComposer();
     }
 
@@ -1008,6 +1140,15 @@ export const RaceView: React.FC<RaceViewProps> = ({
     let reflComboAvgFps = 60;
     let lastEmergencyDropFrame = -999;
 
+    // Universal Device Struggle Governor (works on ALL quality presets to reduce chunk load automatically)
+    let struggleChunkScale = 1.0;
+    let emaFrameMs = 16.0;
+    let struggleGoodWindows = 0;
+    let baseNonDynamicFar = camera.far;
+    let cityEnvLastElevDeg = -999;
+    let cityEnvLastCond = '';
+    let cityEnvLastRebuildTime = -9999;
+
     const applyContinuousDynamicQuality = (q: number, persistProfile = false) => {
       const minAllowedQ = isConservativeDynamic ? 0.05 : 0.08;
       const clampedQ = Math.max(minAllowedQ, Math.min(1.0, q));
@@ -1069,13 +1210,13 @@ export const RaceView: React.FC<RaceViewProps> = ({
       dynamicReflectionCadence = 0;
 
       // 3. Continuous Camera Draw Distance (culls distant geometry without lowering screen resolution)
-      // In City Driving Mode, preserve far >= 1060 so the R=920 atmospheric sky dome and R=780 Sun are never far-clipped
+      // In City Driving Mode, preserve far >= 700 so the R=620 atmospheric sky dome and R=540 Sun are never clipped
       const rawFar = showOuterScenery
-        ? Math.round(900 + clampedQ * 1150)
+        ? Math.round(780 + clampedQ * 720)
         : isConservativeDynamic && clampedQ < 0.30
-        ? Math.round(340 + clampedQ * 500)
-        : Math.round(480 + clampedQ * 650);
-      const targetFar = isCityDrivingMode ? Math.max(1060, rawFar) : rawFar;
+        ? Math.round(340 + clampedQ * 420)
+        : Math.round(460 + clampedQ * 520);
+      const targetFar = isCityDrivingMode ? Math.max(700, rawFar) : rawFar;
       if (Math.abs(camera.far - targetFar) > 30) {
         camera.far = targetFar;
         camera.updateProjectionMatrix();
@@ -1115,6 +1256,10 @@ export const RaceView: React.FC<RaceViewProps> = ({
     const scratchTargetCamPos = new THREE.Vector3();
     const scratchTargetLook = new THREE.Vector3();
     const scratchExtrapolated = new THREE.Vector3();
+    const scratchGarageRight = new THREE.Vector3();
+    const cityTrafficProjMatrix = new THREE.Matrix4();
+    const cityTrafficFrustum = new THREE.Frustum();
+    const cityTrafficSphere = new THREE.Sphere(new THREE.Vector3(), 4.2);
 
     const renderLoop = (time: number) => {
       animFrameId = requestAnimationFrame(renderLoop);
@@ -1145,6 +1290,11 @@ export const RaceView: React.FC<RaceViewProps> = ({
 
       const singleFrameMs = rawDelta * 1000;
 
+      // Update rolling frame-time EMA for universal chunk-load struggle detection
+      if (frameCount >= 3 && rawDelta > 0.001 && rawDelta < 0.25) {
+        emaFrameMs = emaFrameMs * 0.90 + singleFrameMs * 0.10;
+      }
+
       // INSTANT PER-FRAME GOVERNOR (Reacts on the exact nanosecond a single frame drops below target before rendering):
       if (isDynamicMode && frameCount >= 2 && rawDelta > 0.001 && rawDelta < 0.25) {
         if (isConservativeDynamic && singleFrameMs > 16.45) {
@@ -1173,17 +1323,16 @@ export const RaceView: React.FC<RaceViewProps> = ({
         }
       }
 
-      // Multi-frame sample window for telemetry readout & smooth steady-state tuning
+      // Multi-frame sample window for telemetry readout, struggle-based chunk reduction & smooth steady-state tuning
       const fpsElapsed = time - lastFpsSampleTime;
       const sampleWindowMs = isConservativeDynamic
         ? 45
         : isAggressiveDynamic
         ? 95
-        : 120;
+        : 140;
 
       if (fpsElapsed >= sampleWindowMs && fpsSampleFrames >= 2) {
         const exactFps = (fpsSampleFrames * 1000) / fpsElapsed;
-        // Completely UNCAPPED FPS readout (supports 60Hz, 120Hz, 144Hz, 240Hz, 360Hz, 500Hz+)
         const measuredFps = Math.max(1, Math.round(exactFps));
         const measuredMs = Number(
           (fpsElapsed / Math.max(1, fpsSampleFrames)).toFixed(1)
@@ -1192,6 +1341,43 @@ export const RaceView: React.FC<RaceViewProps> = ({
         setFrameTimeMs(measuredMs);
         fpsSampleFrames = 0;
         lastFpsSampleTime = time;
+
+        // Universal Device Struggle Detection: automatically sheds distant chunks & heavy draw load when device lags
+        if (frameCount >= 12) {
+          if (emaFrameMs > 21.2 || exactFps < 45.0) {
+            struggleGoodWindows = 0;
+            const drop = exactFps < 30 ? 0.14 : exactFps < 38 ? 0.09 : 0.055;
+            struggleChunkScale = Math.max(0.25, struggleChunkScale - drop);
+          } else if (emaFrameMs < 16.4 && exactFps >= 57.5) {
+            struggleGoodWindows++;
+            if (struggleGoodWindows >= 10 && struggleChunkScale < 1.0) {
+              struggleChunkScale = Math.min(1.0, struggleChunkScale + 0.025);
+            }
+          } else {
+            struggleGoodWindows = Math.max(0, struggleGoodWindows - 1);
+          }
+
+          if (!isDynamicMode && isCityDrivingMode) {
+            const desiredFar = Math.max(600, Math.round(baseNonDynamicFar * (0.52 + 0.48 * struggleChunkScale)));
+            if (Math.abs(camera.far - desiredFar) > 45) {
+              camera.far = desiredFar;
+              camera.updateProjectionMatrix();
+            }
+            if (gfxPreset.id === 'ultra' || gfxPreset.id === 'high') {
+              const desiredPR =
+                struggleChunkScale < 0.72
+                  ? Math.max(1.0, Number((initialPixelRatio * (0.72 + 0.28 * struggleChunkScale)).toFixed(2)))
+                  : initialPixelRatio;
+              if (Math.abs(renderer.getPixelRatio() - desiredPR) > 0.08) {
+                renderer.setPixelRatio(desiredPR);
+                composer?.setPixelRatio(desiredPR);
+              }
+              if (bloomPassRef) {
+                bloomPassRef.enabled = struggleChunkScale >= 0.44;
+              }
+            }
+          }
+        }
 
         if (isConservativeDynamic && frameCount >= 2) {
           // CONSERVATIVE DYNAMIC:
@@ -1394,13 +1580,35 @@ export const RaceView: React.FC<RaceViewProps> = ({
             THREE.MathUtils.lerp(baseDry, wetBoost, currentRoadWetness)
           );
         }
+        const curElevDeg =
+          physics.currentWeather.sunElevationDeg ??
+          (Math.asin(THREE.MathUtils.clamp(physics.currentWeather.sunAltitude, -1, 1)) * 180) / Math.PI;
+        const nightFactor = 1.0 - THREE.MathUtils.smoothstep(curElevDeg, -6.0, 4.5);
+        track.setNightIntensity?.(nightFactor);
+
+        // Keep 360° PMREM reflections synced with Gaithersburg time-of-day & weather (only re-bakes on major shifts)
+        if (
+          pmremGenerator &&
+          (Math.abs(curElevDeg - cityEnvLastElevDeg) >= 7.0 || cityEnvLastCond !== cond) &&
+          time - cityEnvLastRebuildTime > 2800
+        ) {
+          cityEnvLastElevDeg = curElevDeg;
+          cityEnvLastCond = cond;
+          cityEnvLastRebuildTime = time;
+          const isTwi = curElevDeg > -5 && curElevDeg < 8;
+          const skyC = curElevDeg < -5 ? 0x0b1426 : isTwi ? 0x5c4b73 : physics.currentWeather.isRaining ? 0x3b495c : 0x5ca4e6;
+          const sunC = curElevDeg < -5 ? 0x60a5fa : isTwi ? 0xfb923c : physics.currentWeather.isRaining ? 0x94a3b8 : 0xfff3db;
+          const gndC = curElevDeg < -5 ? 0x080c14 : 0x262c28;
+          rebuildPmremEnvironment(skyC, sunC, gndC, curElevDeg < -5 ? 0.25 : isTwi ? 0.65 : 0.45);
+        }
+
         const sprayState = physics.getTireSprayState();
         tireSpraySys?.update(carPos, heading, speed, sprayState, rawDelta);
         weatherAtmosphereSys?.update(carPos, physics.currentWeather, rawDelta);
         skyCelestialSys?.update(carPos, physics.currentWeather, rawDelta);
       }
 
-      const shadowWorldSpan = (isCityDrivingMode ? 95 : 85) * 2;
+      const shadowWorldSpan = (gfxPreset.id === 'ultra' ? 76 : isCityDrivingMode ? 88 : 84) * 2;
       const texelSize = shadowWorldSpan / Math.max(256, gfxPreset.shadowMapSize);
       const snapX = gfxPreset.shadowsEnabled ? Math.round(carPos.x / texelSize) * texelSize : carPos.x;
       const snapZ = gfxPreset.shadowsEnabled ? Math.round(carPos.z / texelSize) * texelSize : carPos.z;
@@ -1448,7 +1656,29 @@ export const RaceView: React.FC<RaceViewProps> = ({
       const targetLook = scratchTargetLook;
 
       const activeView = cameraViewRef.current;
-      if (activeView === 'chase') {
+      if (isGarageShowroomOpenRef.current) {
+        const rightVec = scratchGarageRight.set(Math.cos(heading), 0, -Math.sin(heading));
+        const gAngle = garageCamAngleRef.current;
+        if (gAngle === 'front') {
+          targetCamPos.copy(carPos).addScaledVector(forward, 4.9).addScaledVector(up, 1.15);
+        } else if (gAngle === 'side') {
+          targetCamPos.copy(carPos).addScaledVector(rightVec, 5.2).addScaledVector(forward, 0.4).addScaledVector(up, 1.35);
+        } else if (gAngle === 'rear') {
+          targetCamPos.copy(carPos).addScaledVector(forward, -4.8).addScaledVector(rightVec, 2.2).addScaledVector(up, 1.45);
+        } else if (gAngle === 'orbit') {
+          const orbitAng = time * 0.00055;
+          targetCamPos
+            .copy(carPos)
+            .addScaledVector(forward, Math.cos(orbitAng) * 5.0)
+            .addScaledVector(rightVec, Math.sin(orbitAng) * 5.0)
+            .addScaledVector(up, 1.45);
+        } else {
+          // Default 'front34': showcases front grille, LED headlights & hood crown clearly
+          targetCamPos.copy(carPos).addScaledVector(forward, 4.5).addScaledVector(rightVec, 2.35).addScaledVector(up, 1.42);
+        }
+        // Aim slightly below car center so the vehicle projects cleanly in the upper unobstructed viewport above the bottom Garage dock
+        targetLook.copy(carPos).addScaledVector(up, -0.45);
+      } else if (activeView === 'chase') {
         const camLift = 2.65 + cornerIntensity * 0.35;
         targetCamPos.copy(carPos).addScaledVector(forward, -7.2).addScaledVector(up, camLift);
         targetLook
@@ -1482,7 +1712,11 @@ export const RaceView: React.FC<RaceViewProps> = ({
 
       // Frame-rate independent exponential smoothing for ultra-smooth camera motion
       const safeDt = Math.min(0.05, Math.max(0.001, delta));
-      const baseHz = activeView === 'cockpit' || activeView === 'nose' ? 36 : gfxPreset.cameraSmoothingHz;
+      const baseHz = isGarageShowroomOpenRef.current
+        ? 14
+        : activeView === 'cockpit' || activeView === 'nose'
+        ? 36
+        : gfxPreset.cameraSmoothingHz;
       const smoothAlpha = currentCamPos.lengthSq() === 0 ? 1.0 : 1.0 - Math.exp(-baseHz * safeDt);
       currentCamPos.lerp(targetCamPos, smoothAlpha);
       currentLookAt.lerp(targetLook, smoothAlpha);
@@ -1499,6 +1733,60 @@ export const RaceView: React.FC<RaceViewProps> = ({
 
       camera.position.copy(currentCamPos);
       camera.lookAt(currentLookAt);
+      camera.updateMatrixWorld();
+
+      // Maryland Open-World Spatial Chunk Streaming & Adaptive Struggle-Based Load Reduction
+      if (isCityDrivingMode) {
+        track.updateWorldChunks?.(camera, carPos, {
+          isDynamicMode,
+          qualityFactor: dynamicQualityFactor,
+          chunkLoadScale: struggleChunkScale,
+        });
+
+        cityTrafficProjMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+        cityTrafficFrustum.setFromProjectionMatrix(cityTrafficProjMatrix);
+        const baseTrafficDist = isDynamicMode
+          ? 145 + dynamicQualityFactor * 185
+          : gfxPreset.id === 'ultra'
+          ? 420
+          : gfxPreset.id === 'high'
+          ? 340
+          : 250;
+        const maxTrafficDist = baseTrafficDist * (0.45 + 0.55 * struggleChunkScale);
+        const maxTrafficDistSq = maxTrafficDist * maxTrafficDist;
+
+        for (let i = 0; i < physics.cityCivilianCars.length; i++) {
+          const civ = physics.cityCivilianCars[i];
+          const dSq = carPos.distanceToSquared(civ.pos);
+          let show = false;
+          if (dSq < 196) {
+            show = true;
+          } else if (dSq <= maxTrafficDistSq) {
+            cityTrafficSphere.center.copy(civ.pos);
+            cityTrafficSphere.radius = 4.2;
+            show = cityTrafficFrustum.intersectsSphere(cityTrafficSphere);
+          }
+          if (civ.built.root.visible !== show) {
+            civ.built.root.visible = show;
+          }
+        }
+
+        for (let i = 0; i < physics.cityPoliceCars.length; i++) {
+          const cop = physics.cityPoliceCars[i];
+          const dSq = carPos.distanceToSquared(cop.pos);
+          let show = false;
+          if (dSq < 256) {
+            show = true;
+          } else if (dSq <= maxTrafficDistSq) {
+            cityTrafficSphere.center.copy(cop.pos);
+            cityTrafficSphere.radius = 4.5;
+            show = cityTrafficFrustum.intersectsSphere(cityTrafficSphere);
+          }
+          if (cop.built.root.visible !== show) {
+            cop.built.root.visible = show;
+          }
+        }
+      }
 
       // Camera Near-Lens Guard + Potato Mode Distance Culling:
       // 1. Never let any AI car within 3.6m of the camera lens render inside the camera frustum (prevents trailing cars from blocking the camera view!)
@@ -1533,8 +1821,9 @@ export const RaceView: React.FC<RaceViewProps> = ({
         }
       }
 
-      // Real-time planar road reflection pass (mirrors F1 cars, barriers, grandstands, trees, gantry, and sky across the asphalt plane)
-      if (planarReflectionRT && reflectionCamera) {
+      // Real-time planar road reflection pass (every 2nd frame normally on Ultra/High, throttling further under struggle)
+      const reflStride = struggleChunkScale < 0.5 ? 4 : struggleChunkScale < 0.78 ? 3 : 2;
+      if (planarReflectionRT && reflectionCamera && (frameCount % reflStride === 0)) {
         const trackPlaneY = carPos.y - 0.06;
         reflectionCamera.fov = camera.fov;
         reflectionCamera.aspect = camera.aspect;
@@ -1553,6 +1842,9 @@ export const RaceView: React.FC<RaceViewProps> = ({
         );
 
         track.setReflectionPassMode(true);
+        if (isCityDrivingMode) {
+          track.setReflectionChunkCull?.(true, carPos);
+        }
         const prevBg = scene.background;
         const prevFog = scene.fog;
         const prevSkyVis = skyDomeMesh ? skyDomeMesh.visible : false;
@@ -1571,6 +1863,9 @@ export const RaceView: React.FC<RaceViewProps> = ({
         scene.background = prevBg;
         scene.fog = prevFog;
         if (skyDomeMesh) skyDomeMesh.visible = prevSkyVis;
+        if (isCityDrivingMode) {
+          track.setReflectionChunkCull?.(false);
+        }
         track.setReflectionPassMode(false);
       }
 
@@ -1745,10 +2040,10 @@ export const RaceView: React.FC<RaceViewProps> = ({
         motionBlurPass.uniforms.uResolution.value.set(w, h);
       }
       if (planarReflectionRT) {
-        const reflScale = gfxPreset.id === 'ultra' ? 0.75 : 0.5;
+        const reflScale = gfxPreset.id === 'ultra' ? 0.45 : 0.35;
         planarReflectionRT.setSize(
           Math.max(256, Math.floor(w * reflScale)),
-          Math.max(256, Math.floor(h * reflScale))
+          Math.max(192, Math.floor(h * reflScale))
         );
       }
     };
@@ -1791,7 +2086,14 @@ export const RaceView: React.FC<RaceViewProps> = ({
       if (isCityDrivingMode) {
         if (e.key === 'g' || e.key === 'G' || e.code === 'KeyG') {
           e.preventDefault();
-          setShowCityGarageModal((prev) => !prev);
+          setShowCityGarageModal((prev) => {
+            const next = !prev;
+            if (next) {
+              setCityTabletTab('garage');
+              setGarageCamAngle('front34');
+            }
+            return next;
+          });
           return;
         }
         if (e.key === 'c' || e.key === 'C' || e.code === 'KeyC') {
@@ -1882,6 +2184,12 @@ export const RaceView: React.FC<RaceViewProps> = ({
           physicsRef.current?.honkCityHorn();
           return;
         }
+        if (e.code === 'KeyL' || e.key === 'l' || e.key === 'L') {
+          e.preventDefault();
+          physicsRef.current?.cycleHeadlightMode();
+          if (physicsRef.current) setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
+          return;
+        }
         if (inputManager.isActionPressed('signalLeft') || e.code === 'KeyQ' || e.key === 'q' || e.key === 'Q' || e.code === 'BracketLeft') {
           e.preventDefault();
           physicsRef.current?.toggleTurnSignal('left');
@@ -1915,14 +2223,9 @@ export const RaceView: React.FC<RaceViewProps> = ({
           setIsCinematicHudHidden((prev) => !prev);
           return;
         }
-        if (e.key === 'g' || e.key === 'G' || e.code === 'KeyG') {
-          e.preventDefault();
-          setCityTabletTab('garage');
-          setShowCityTabletModal(true);
-          return;
-        }
         if (e.key === 'Escape') {
           setShowCityTabletModal(false);
+          setShowCityGarageModal(false);
           setShowControlsMappingModal(false);
         }
         // In Metro City mode, city controls are active; prevent all F1 strategy/pit keys (1-5, P, B, etc.)
@@ -3110,13 +3413,57 @@ export const RaceView: React.FC<RaceViewProps> = ({
                     </div>
                   )}
 
-                  {/* Interactive Weather Check & Test Controls */}
+                  {/* Interactive Weather, Sunrise/Sunset & Time-of-Day Controls */}
                   {showWeatherSelector && (
                     <div className="mt-2 pt-2 border-t border-white/15 flex flex-col gap-1.5 text-[9px]">
                       <div className="grid grid-cols-3 gap-1 text-zinc-300 bg-black/50 p-1.5 rounded-lg border border-white/5">
                         <span>💨 {safeWind} km/h</span>
                         <span>💧 {safeHumidity}% RH</span>
                         <span>☁️ {safeCloud}% Cld</span>
+                      </div>
+                      {(currentWeatherState.sunriseString || currentWeatherState.sunsetString) && (
+                        <div className="flex items-center justify-between text-amber-200/90 bg-black/45 px-2 py-1 rounded-lg border border-amber-400/20 font-bold">
+                          <span>🌅 {currentWeatherState.sunriseString || '--:--'}</span>
+                          <span className="text-zinc-400">
+                            ☀️ {(currentWeatherState.sunElevationDeg ?? 0).toFixed(0)}°
+                          </span>
+                          <span>🌇 {currentWeatherState.sunsetString || '--:--'}</span>
+                        </div>
+                      )}
+                      <div className="flex flex-wrap gap-1">
+                        {(
+                          [
+                            { id: 'live', label: '🕒 Live' },
+                            { id: 'sunrise', label: '🌅 Sunrise' },
+                            { id: 'morning', label: '🌤️ AM' },
+                            { id: 'noon', label: '☀️ Noon' },
+                            { id: 'golden_hour', label: '🌇 Golden' },
+                            { id: 'sunset', label: '🌆 Sunset' },
+                            { id: 'night', label: '🌙 Night' },
+                          ] as { id: TimeOfDayPreset; label: string }[]
+                        ).map((tOpt) => {
+                          const active = (cityPursuitStats.timeOfDayPreset || 'live') === tOpt.id;
+                          return (
+                            <button
+                              key={tOpt.id}
+                              type="button"
+                              onClick={() => {
+                                physicsRef.current?.setTimeOfDayPreset(tOpt.id);
+                                if (physicsRef.current) {
+                                  setCurrentWeatherState({ ...physicsRef.current.currentWeather });
+                                  setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
+                                }
+                              }}
+                              className={`px-1.5 py-0.5 rounded border font-black cursor-pointer transition-colors ${
+                                active
+                                  ? 'bg-amber-400 text-black border-amber-200'
+                                  : 'bg-zinc-900 hover:bg-amber-400/30 text-zinc-200 border-white/15'
+                              }`}
+                            >
+                              {tOpt.label}
+                            </button>
+                          );
+                        })}
                       </div>
                       <div className="flex flex-wrap gap-1">
                         {(
@@ -3259,15 +3606,15 @@ export const RaceView: React.FC<RaceViewProps> = ({
             {!isCockpitMinimized && (
               <>
 
-            {/* Mid Row: Turn Signals, Hazards, Horn & Police Siren */}
-            <div className="grid grid-cols-4 gap-1.5 font-mono text-[9px]">
+            {/* Mid Row: Turn Signals, Hazards, Headlights & Horn */}
+            <div className="grid grid-cols-5 gap-1 font-mono text-[9px]">
               <button
                 type="button"
                 onClick={() => {
                   physicsRef.current?.toggleTurnSignal('left');
                   if (physicsRef.current) setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
                 }}
-                className={`py-1.5 px-1 rounded-lg border font-black cursor-pointer transition-all flex items-center justify-center gap-1 ${
+                className={`py-1.5 px-1 rounded-lg border font-black cursor-pointer transition-all flex items-center justify-center gap-0.5 ${
                   (cityPursuitStats.turnSignal === 'left' || cityPursuitStats.turnSignal === 'hazards') &&
                   cityPursuitStats.blinkerFlashOn
                     ? 'bg-emerald-500 text-black border-emerald-300 shadow-[0_0_10px_#10b981]'
@@ -3278,7 +3625,7 @@ export const RaceView: React.FC<RaceViewProps> = ({
                 title="Toggle Left Turn Signal [Q / []"
               >
                 <span>⬅</span>
-                <span>[Q] Left</span>
+                <span>[Q]</span>
               </button>
 
               <button
@@ -3287,7 +3634,7 @@ export const RaceView: React.FC<RaceViewProps> = ({
                   physicsRef.current?.toggleTurnSignal('hazards');
                   if (physicsRef.current) setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
                 }}
-                className={`py-1.5 px-1 rounded-lg border font-black cursor-pointer transition-all flex items-center justify-center gap-1 ${
+                className={`py-1.5 px-1 rounded-lg border font-black cursor-pointer transition-all flex items-center justify-center gap-0.5 ${
                   cityPursuitStats.turnSignal === 'hazards' && cityPursuitStats.blinkerFlashOn
                     ? 'bg-amber-400 text-black border-amber-200 shadow-[0_0_10px_#facc15]'
                     : cityPursuitStats.turnSignal === 'hazards'
@@ -3297,7 +3644,7 @@ export const RaceView: React.FC<RaceViewProps> = ({
                 title="Toggle Hazard Lights [X / Z]"
               >
                 <span>⚠️</span>
-                <span>[X] Haz</span>
+                <span>[X]</span>
               </button>
 
               <button
@@ -3306,7 +3653,7 @@ export const RaceView: React.FC<RaceViewProps> = ({
                   physicsRef.current?.toggleTurnSignal('right');
                   if (physicsRef.current) setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
                 }}
-                className={`py-1.5 px-1 rounded-lg border font-black cursor-pointer transition-all flex items-center justify-center gap-1 ${
+                className={`py-1.5 px-1 rounded-lg border font-black cursor-pointer transition-all flex items-center justify-center gap-0.5 ${
                   (cityPursuitStats.turnSignal === 'right' || cityPursuitStats.turnSignal === 'hazards') &&
                   cityPursuitStats.blinkerFlashOn
                     ? 'bg-emerald-500 text-black border-emerald-300 shadow-[0_0_10px_#10b981]'
@@ -3316,18 +3663,37 @@ export const RaceView: React.FC<RaceViewProps> = ({
                 }`}
                 title="Toggle Right Turn Signal [E / ]]"
               >
-                <span>[E] Right</span>
+                <span>[E]</span>
                 <span>➡</span>
               </button>
 
               <button
                 type="button"
+                onClick={() => {
+                  physicsRef.current?.cycleHeadlightMode();
+                  if (physicsRef.current) setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
+                }}
+                className={`py-1.5 px-1 rounded-lg border font-black cursor-pointer transition-all flex items-center justify-center gap-0.5 ${
+                  cityPursuitStats.effectiveHeadlightState === 'high'
+                    ? 'bg-sky-400 text-black border-sky-200 shadow-[0_0_10px_#38bdf8]'
+                    : cityPursuitStats.effectiveHeadlightState === 'low'
+                    ? 'bg-emerald-500 text-black border-emerald-300 shadow-[0_0_8px_#10b981]'
+                    : 'bg-zinc-900 text-zinc-300 border-white/10 hover:text-white'
+                }`}
+                title="Cycle Headlights: AUTO / LOW / HIGH / OFF [L]"
+              >
+                <span>💡</span>
+                <span>{(cityPursuitStats.headlightMode || 'auto').toUpperCase()}</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={() => physicsRef.current?.honkCityHorn()}
-                className="py-1.5 px-1 rounded-lg border border-white/10 bg-zinc-900 hover:bg-sky-500 hover:text-black text-sky-300 font-black cursor-pointer transition-all flex items-center justify-center gap-1"
+                className="py-1.5 px-1 rounded-lg border border-white/10 bg-zinc-900 hover:bg-sky-500 hover:text-black text-sky-300 font-black cursor-pointer transition-all flex items-center justify-center gap-0.5"
                 title="Honk Car Horn [H]"
               >
                 <span>📯</span>
-                <span>[H] Horn</span>
+                <span>[H]</span>
               </button>
             </div>
 
@@ -3422,49 +3788,167 @@ export const RaceView: React.FC<RaceViewProps> = ({
           )}
           </div>
 
-          {/* OVERHAULED ZOOMABLE FOLLOW-PLAYER RADAR MINIMAP & TURN-BY-TURN GPS NAVIGATOR */}
+          {/* GOOGLE MAPS NAVIGATION MINIMAP WITH SPOKEN VOICE TURN-BY-TURN GUIDANCE */}
           {cityPursuitStats.minimapData && !isMinimapHidden && (() => {
             const mm = cityPursuitStats.minimapData;
-            const vbW = minimapZoom === 'local' ? 850 : minimapZoom === 'metro' ? 2040 : 5350;
-            const vbH = minimapZoom === 'local' ? 500 : minimapZoom === 'metro' ? 1200 : 3150;
+            const vbW = minimapZoom === 'local' ? 760 : minimapZoom === 'metro' ? 1960 : 5350;
+            const vbH = minimapZoom === 'local' ? 450 : minimapZoom === 'metro' ? 1150 : 3150;
             const vbX = minimapZoom === 'state' ? -2650 : mm.playerX - vbW * 0.5;
             const vbZ = minimapZoom === 'state' ? -1050 : mm.playerZ - vbH * 0.5;
             const zs = vbW / 5350;
-            const labelZoomScale = minimapZoom === 'local' ? 0.24 : minimapZoom === 'metro' ? 0.48 : 1.0;
+            const labelZoomScale = minimapZoom === 'local' ? 0.22 : minimapZoom === 'metro' ? 0.48 : 1.0;
+
+            const isHeadingUp = isMinimapHeadingUp && minimapZoom !== 'state';
+            const mapWorldRotateDeg = isHeadingUp ? (mm.playerHeading * 180) / Math.PI : 0;
+            const playerArrowRotateDeg = isHeadingUp ? 0 : (-mm.playerHeading * 180) / Math.PI;
+
+            const isNightMap =
+              mapThemeMode === 'dark' ||
+              (mapThemeMode === 'auto' &&
+                (!currentWeatherState?.isDay || (currentWeatherState?.sunElevationDeg ?? 15) < 5));
+
+            const pal = isNightMap
+              ? {
+                  land: '#1c2128',
+                  westLand: '#1e2923',
+                  centralLand: '#21272e',
+                  easternLand: '#1d2522',
+                  water: '#0f2d4a',
+                  bayWater: '#0c243d',
+                  localRoad: '#374151',
+                  localOutline: '#111827',
+                  arterial: '#4b5563',
+                  highway: '#d97706',
+                  highwayEdge: '#78350f',
+                  bridge: '#64748b',
+                  label: '#e5e7eb',
+                  parkLabel: '#86efac',
+                }
+              : {
+                  land: '#e8eaed',
+                  westLand: '#dcead7',
+                  centralLand: '#ebedf0',
+                  easternLand: '#e2eadc',
+                  water: '#aadaff',
+                  bayWater: '#9bd2fb',
+                  localRoad: '#ffffff',
+                  localOutline: '#dadce0',
+                  arterial: '#fefefe',
+                  highway: '#fbd34d',
+                  highwayEdge: '#d97706',
+                  bridge: '#cbd5e1',
+                  label: '#3c4043',
+                  parkLabel: '#1e8e3e',
+                };
+
+            const tgt = mm.gpsTarget;
+            const turnDistFmt = tgt ? formatGoogleMapsDistance(tgt.distToTurnMeters ?? tgt.distMeters) : null;
+            const totalDistFmt = tgt ? formatGoogleMapsDistance(tgt.routeDistMeters ?? tgt.distMeters) : null;
+            const etaMins = tgt ? Math.max(1, Math.round((tgt.etaSeconds ?? 60) / 60)) : 0;
+            const arrivalClock = tgt
+              ? new Date(Date.now() + (tgt.etaSeconds ?? 60) * 1000).toLocaleTimeString([], {
+                  hour: 'numeric',
+                  minute: '2-digit',
+                })
+              : '';
 
             return (
             <div
-              className={`absolute bottom-3.5 right-3.5 md:right-5 z-30 bg-zinc-950/95 border-2 border-white/20 rounded-2xl p-2.5 shadow-[0_0_28px_rgba(0,0,0,0.85)] backdrop-blur-md flex flex-col gap-1.5 pointer-events-auto font-mono transition-all duration-200 ${
-                isTacticalMapExpanded ? 'w-[340px] sm:w-[400px]' : 'w-[244px] sm:w-[276px]'
+              className={`absolute bottom-3.5 right-3.5 md:right-5 z-30 rounded-2xl p-2 shadow-[0_8px_32px_rgba(0,0,0,0.65)] backdrop-blur-md flex flex-col gap-1.5 pointer-events-auto font-sans transition-all duration-200 border ${
+                isNightMap
+                  ? 'bg-[#202124]/95 border-white/15 text-white'
+                  : 'bg-white/95 border-zinc-300 text-zinc-900'
+              } ${
+                isTacticalMapExpanded ? 'w-[350px] sm:w-[410px]' : 'w-[258px] sm:w-[292px]'
               }`}
             >
-              {/* Top GPS Turn-by-Turn Instruction Header + Local/Metro/State Zoom Toggle */}
-              <div className="flex items-center justify-between gap-1.5 bg-zinc-900/95 border border-white/10 rounded-xl px-2.5 py-1.5">
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center justify-between gap-1">
-                    <span className="text-[9px] font-black uppercase tracking-wider text-purple-400 truncate">
-                      {mm.gpsTarget
-                        ? mm.gpsTarget.turnInstruction
-                        : '📡 MARYLAND GPS RADAR'}
-                    </span>
-                    {mm.gpsTarget && (
-                      <span className="text-[10px] font-black text-emerald-300 tabular-nums shrink-0">
-                        {mm.gpsTarget.distMeters}m
-                      </span>
-                    )}
+              {/* Google Maps Green Turn-by-Turn Header Banner */}
+              {tgt ? (
+                <div className="bg-[#0F9D58] text-white rounded-xl overflow-hidden shadow-md">
+                  <div className="px-2.5 py-2 flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-lg bg-[#0B8043] flex items-center justify-center shrink-0">
+                      {renderGoogleMapsManeuverIcon(tgt.maneuver)}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-baseline gap-1.5 leading-none">
+                        <span className="text-sm font-black tracking-tight tabular-nums">
+                          {turnDistFmt?.shortText}
+                        </span>
+                        <span className="text-[10px] font-bold text-emerald-100 truncate">
+                          {tgt.maneuver === 'arrive' ? 'Arrive' : tgt.nextRoadName}
+                        </span>
+                      </div>
+                      <div className="text-[10px] font-semibold text-white/95 truncate mt-0.5">
+                        {tgt.turnInstruction}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const muted = voiceNavigationService.toggleMuted();
+                          setIsVoiceNavMuted(muted);
+                        }}
+                        className="w-6 h-6 rounded-md bg-black/25 hover:bg-black/40 text-white flex items-center justify-center text-[11px] cursor-pointer"
+                        title={isVoiceNavMuted ? 'Unmute Voice Guidance' : 'Mute Voice Guidance'}
+                      >
+                        {isVoiceNavMuted ? '🔇' : '🔊'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => voiceNavigationService.repeatLast()}
+                        className="w-6 h-6 rounded-md bg-black/25 hover:bg-black/40 text-white flex items-center justify-center text-[10px] cursor-pointer"
+                        title="Repeat spoken turn instruction"
+                      >
+                        🔁
+                      </button>
+                    </div>
                   </div>
-                  <div className="text-[9px] text-zinc-400 truncate mt-0.5">
-                    {mm.gpsTarget
-                      ? `📍 ${mm.gpsTarget.label}`
-                      : `📍 ${cityPursuitStats.nearestStreetName}`}
-                  </div>
+                  {tgt.thenInstruction && (
+                    <div className="bg-[#0B8043] px-2.5 py-1 text-[9px] font-semibold text-emerald-50 truncate">
+                      {tgt.thenInstruction}
+                    </div>
+                  )}
                 </div>
+              ) : (
+                <div
+                  className={`flex items-center justify-between gap-1.5 rounded-xl px-2.5 py-1.5 border ${
+                    isNightMap
+                      ? 'bg-[#292a2d] border-white/10 text-white'
+                      : 'bg-zinc-100 border-zinc-200 text-zinc-900'
+                  }`}
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-[#1A73E8] shrink-0" />
+                      <span className="text-[10px] font-bold tracking-tight truncate">
+                        Google Maps · {cityPursuitStats.nearestStreetName}
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const muted = voiceNavigationService.toggleMuted();
+                      setIsVoiceNavMuted(muted);
+                    }}
+                    className={`px-1.5 py-0.5 rounded text-[10px] cursor-pointer ${
+                      isNightMap ? 'bg-zinc-800 text-zinc-200' : 'bg-white text-zinc-700 border border-zinc-300'
+                    }`}
+                    title={isVoiceNavMuted ? 'Unmute Voice Navigation' : 'Mute Voice Navigation'}
+                  >
+                    {isVoiceNavMuted ? '🔇' : '🔊'}
+                  </button>
+                </div>
+              )}
 
-                <div className="flex items-center gap-1 shrink-0">
+              {/* Map Toolbar (Maps Overlay, Local/Metro/State Zoom, Heading-Up, Day/Night, Expand, Hide) */}
+              <div className="flex items-center justify-between gap-1 text-[9px] font-bold">
+                <div className="flex items-center gap-1">
                   <button
                     type="button"
                     onClick={openGoogleMapsModal}
-                    className="px-1.5 py-1 rounded-lg bg-sky-600/85 hover:bg-sky-500 text-white border border-sky-300/40 text-[9px] font-black cursor-pointer transition-colors"
+                    className="px-1.5 py-1 rounded-lg bg-[#1A73E8] hover:bg-[#1557b0] text-white cursor-pointer transition-colors"
                     title="Open interactive Google Maps overlay"
                   >
                     🗺️ Maps
@@ -3476,23 +3960,67 @@ export const RaceView: React.FC<RaceViewProps> = ({
                         prev === 'local' ? 'metro' : prev === 'metro' ? 'state' : 'local'
                       )
                     }
-                    className="px-1.5 py-1 rounded-lg bg-emerald-950/80 hover:bg-emerald-900 text-emerald-300 border border-emerald-400/40 text-[9px] font-black cursor-pointer transition-colors"
-                    title="Cycle Radar Zoom: Local (Follow Player) / Metro / State"
+                    className={`px-1.5 py-1 rounded-lg border cursor-pointer transition-colors ${
+                      isNightMap
+                        ? 'bg-zinc-800 hover:bg-zinc-700 text-sky-300 border-white/10'
+                        : 'bg-zinc-100 hover:bg-zinc-200 text-[#1A73E8] border-zinc-300'
+                    }`}
+                    title="Cycle Radar Zoom: Local / Metro / State"
                   >
-                    {minimapZoom === 'local' ? '⌖ Local' : minimapZoom === 'metro' ? '⌖ Metro' : '🗺 State'}
+                    {minimapZoom === 'local' ? 'Local' : minimapZoom === 'metro' ? 'Metro' : 'State'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsMinimapHeadingUp((prev) => !prev)}
+                    className={`px-1.5 py-1 rounded-lg border cursor-pointer transition-colors ${
+                      isMinimapHeadingUp
+                        ? 'bg-[#1A73E8]/20 text-[#4285F4] border-[#4285F4]/50'
+                        : isNightMap
+                        ? 'bg-zinc-800 text-zinc-300 border-white/10'
+                        : 'bg-zinc-100 text-zinc-700 border-zinc-300'
+                    }`}
+                    title="Toggle Heading-Up vs North-Up Orientation"
+                  >
+                    {isMinimapHeadingUp ? '🧭 Car↑' : '🧭 N↑'}
+                  </button>
+                </div>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setMapThemeMode((prev) =>
+                        prev === 'auto' ? 'light' : prev === 'light' ? 'dark' : 'auto'
+                      )
+                    }
+                    className={`px-1.5 py-1 rounded-lg border cursor-pointer transition-colors ${
+                      isNightMap
+                        ? 'bg-zinc-800 text-amber-300 border-white/10'
+                        : 'bg-zinc-100 text-zinc-800 border-zinc-300'
+                    }`}
+                    title={`Map Theme (${mapThemeMode.toUpperCase()})`}
+                  >
+                    {isNightMap ? '🌙' : '☀️'}
                   </button>
                   <button
                     type="button"
                     onClick={() => setIsTacticalMapExpanded((prev) => !prev)}
-                    className="px-1.5 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-sky-300 border border-sky-400/30 text-[9px] font-black cursor-pointer transition-colors"
-                    title="Toggle between Compact Radar and Large Tactical Map"
+                    className={`px-1.5 py-1 rounded-lg border cursor-pointer transition-colors ${
+                      isNightMap
+                        ? 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border-white/10'
+                        : 'bg-zinc-100 hover:bg-zinc-200 text-zinc-800 border-zinc-300'
+                    }`}
+                    title="Expand / Shrink Map"
                   >
-                    {isTacticalMapExpanded ? '🔍 Norm' : '🔍 Tac'}
+                    {isTacticalMapExpanded ? '⤡' : '⤢'}
                   </button>
                   <button
                     type="button"
                     onClick={() => setIsMinimapHidden(true)}
-                    className="px-1.5 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white border border-white/10 text-[9px] font-black cursor-pointer transition-colors"
+                    className={`px-1.5 py-1 rounded-lg border cursor-pointer transition-colors ${
+                      isNightMap
+                        ? 'bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white border-white/10'
+                        : 'bg-zinc-100 hover:bg-zinc-200 text-zinc-600 border-zinc-300'
+                    }`}
                     title="Hide Minimap ([N] to toggle)"
                   >
                     ✕
@@ -3502,7 +4030,13 @@ export const RaceView: React.FC<RaceViewProps> = ({
 
               {/* Typeable Maryland Address / Street / Landmark GPS Search Bar */}
               <div className="relative">
-                <div className="flex items-center gap-1 bg-zinc-900/95 border border-purple-400/35 focus-within:border-purple-400 rounded-xl px-2 py-1">
+                <div
+                  className={`flex items-center gap-1 rounded-xl px-2 py-1 border focus-within:border-[#1A73E8] ${
+                    isNightMap
+                      ? 'bg-[#303134] border-white/15'
+                      : 'bg-white border-zinc-300 shadow-inner'
+                  }`}
+                >
                   <span className="text-[10px] shrink-0">🔎</span>
                   <input
                     ref={gpsInputRef}
@@ -3532,8 +4066,12 @@ export const RaceView: React.FC<RaceViewProps> = ({
                         e.currentTarget.blur();
                       }
                     }}
-                    placeholder="Type MD address, street, or target..."
-                    className="w-full min-w-0 bg-transparent text-[10px] text-white placeholder:text-zinc-500 focus:outline-none"
+                    placeholder="Search MD address or place..."
+                    className={`w-full min-w-0 bg-transparent text-[10px] focus:outline-none ${
+                      isNightMap
+                        ? 'text-white placeholder:text-zinc-400'
+                        : 'text-zinc-900 placeholder:text-zinc-500'
+                    }`}
                   />
                   {gpsAddressQuery && (
                     <button
@@ -3559,14 +4097,14 @@ export const RaceView: React.FC<RaceViewProps> = ({
                       }
                     }}
                     disabled={gpsSuggestions.length === 0}
-                    className="px-1.5 py-0.5 rounded-md bg-purple-500 hover:bg-purple-400 disabled:bg-zinc-800 disabled:text-zinc-500 text-white text-[9px] font-black uppercase cursor-pointer shrink-0"
+                    className="px-1.5 py-0.5 rounded-md bg-[#1A73E8] hover:bg-[#1557b0] disabled:bg-zinc-700 disabled:text-zinc-400 text-white text-[9px] font-black uppercase cursor-pointer shrink-0"
                   >
                     GO
                   </button>
                 </div>
 
                 {gpsDropdownOpen && (
-                  <div className="absolute left-0 right-0 bottom-full mb-1.5 max-h-48 overflow-y-auto bg-zinc-950/98 border border-purple-400/50 rounded-xl shadow-[0_0_24px_rgba(0,0,0,0.9)] z-50 divide-y divide-white/10">
+                  <div className="absolute left-0 right-0 bottom-full mb-1.5 max-h-48 overflow-y-auto bg-[#202124]/98 border border-[#4285F4]/60 rounded-xl shadow-[0_0_24px_rgba(0,0,0,0.9)] z-50 divide-y divide-white/10 text-white">
                     {gpsSuggestions.length === 0 ? (
                       <div className="px-2.5 py-2 text-[10px] text-zinc-400">
                         No Maryland street or place matched "{gpsAddressQuery}". Try e.g. "Woodfield Rd", "Potomac", "Baltimore", or "19411".
@@ -3580,7 +4118,7 @@ export const RaceView: React.FC<RaceViewProps> = ({
                             e.preventDefault();
                             handleSelectGpsEntry(entry);
                           }}
-                          className="w-full text-left px-2.5 py-1.5 hover:bg-purple-500/20 flex items-center justify-between gap-2 transition-colors cursor-pointer"
+                          className="w-full text-left px-2.5 py-1.5 hover:bg-[#1A73E8]/25 flex items-center justify-between gap-2 transition-colors cursor-pointer"
                         >
                           <div className="min-w-0 flex-1">
                             <div className="text-[10px] font-bold text-white truncate">
@@ -3590,7 +4128,7 @@ export const RaceView: React.FC<RaceViewProps> = ({
                               {entry.address}
                             </div>
                           </div>
-                          <span className="px-1.5 py-0.5 rounded bg-zinc-800 text-[8px] font-black text-purple-300 uppercase shrink-0">
+                          <span className="px-1.5 py-0.5 rounded bg-zinc-800 text-[8px] font-black text-sky-300 uppercase shrink-0">
                             {entry.category}
                           </span>
                         </button>
@@ -3600,8 +4138,11 @@ export const RaceView: React.FC<RaceViewProps> = ({
                 )}
               </div>
 
-              {/* Interactive Follow-Player / Statewide Maryland Google-Maps Minimap */}
-              <div className="relative w-full aspect-[17/10] bg-zinc-950 rounded-xl overflow-hidden border border-white/15">
+              {/* Interactive Heading-Up / North-Up Google Maps Canvas */}
+              <div
+                className="relative w-full aspect-[17/10] rounded-xl overflow-hidden border border-black/20"
+                style={{ backgroundColor: pal.land }}
+              >
                 <svg
                   viewBox={`${vbX} ${vbZ} ${vbW} ${vbH}`}
                   className="w-full h-full cursor-crosshair select-none"
@@ -3609,294 +4150,314 @@ export const RaceView: React.FC<RaceViewProps> = ({
                     const rect = e.currentTarget.getBoundingClientRect();
                     const normX = (e.clientX - rect.left) / rect.width;
                     const normZ = (e.clientY - rect.top) / rect.height;
-                    const worldX = Math.round(vbX + normX * vbW);
-                    const worldZ = Math.round(vbZ + normZ * vbH);
-                    physicsRef.current?.setCityGpsTarget(worldX, worldZ, 'CUSTOM GPS PIN', '#a855f7');
+                    let worldX = vbX + normX * vbW;
+                    let worldZ = vbZ + normZ * vbH;
+                    if (isHeadingUp) {
+                      const rad = (-mapWorldRotateDeg * Math.PI) / 180;
+                      const dx = worldX - mm.playerX;
+                      const dz = worldZ - mm.playerZ;
+                      worldX = mm.playerX + dx * Math.cos(rad) - dz * Math.sin(rad);
+                      worldZ = mm.playerZ + dx * Math.sin(rad) + dz * Math.cos(rad);
+                    }
+                    physicsRef.current?.setCityGpsTarget(Math.round(worldX), Math.round(worldZ), 'Dropped Pin', '#EA4335');
                     if (physicsRef.current) {
                       setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
                     }
                   }}
                 >
-                  {/* Statewide Ocean & Chesapeake Backdrop */}
-                  <rect x="-4000" y="-2500" width="8500" height="6500" fill="#091318" />
+                  <g transform={isHeadingUp ? `rotate(${mapWorldRotateDeg} ${mm.playerX} ${mm.playerZ})` : undefined}>
+                    {/* Land & Water Backdrop */}
+                    <rect x="-4500" y="-3000" width="9500" height="7500" fill={pal.land} />
+                    <rect x="-2650" y="-1050" width="1200" height="1250" fill={pal.westLand} />
+                    <rect x="-1450" y="-1050" width="3050" height="3150" fill={pal.centralLand} />
 
-                  {/* Western Garrett & Allegany Mountain Terrain */}
-                  <rect x="-2650" y="-1050" width="1200" height="1250" fill="#0e1e15" opacity="0.82" />
-                  {/* Piedmont & Central Maryland Terrain (Frederick -> Gaithersburg -> Baltimore -> DC) */}
-                  <rect x="-1450" y="-1050" width="3050" height="3150" fill="#0c1c16" opacity="0.72" />
+                    {/* Chesapeake Bay & Eastern Shore */}
+                    <polygon
+                      points="1520,-1050 2700,-1050 2700,2100 1320,2100 1420,1150 1560,650 1520,120 1400,-160 1580,-420"
+                      fill={pal.bayWater}
+                    />
+                    <polygon
+                      points="1960,-1050 2450,-1050 2450,2100 1980,2100 2020,1100 1960,550"
+                      fill={pal.easternLand}
+                    />
+                    <rect x="1915" y="610" width="150" height="220" rx="22" fill={pal.easternLand} />
+                    <rect x="2420" y="-1050" width="52" height="3150" fill={pal.water} />
+                    <rect x="2470" y="700" width="54" height="1050" rx="8" fill={isNightMap ? '#4a4332' : '#f3e5ab'} />
+                    <rect x="2524" y="-1050" width="220" height="3150" fill={pal.water} />
 
-                  {/* Chesapeake Bay Waters & Eastern Shore Landmass */}
-                  <polygon
-                    points="1520,-1050 2700,-1050 2700,2100 1320,2100 1420,1150 1560,650 1520,120 1400,-160 1580,-420"
-                    fill="#064e78"
-                    opacity="0.78"
-                  />
-                  {/* Delmarva / Eastern Shore Mainland */}
-                  <polygon
-                    points="1960,-1050 2450,-1050 2450,2100 1980,2100 2020,1100 1960,550"
-                    fill="#0d1e15"
-                    opacity="0.92"
-                  />
-                  {/* Kent Island at East End of Chesapeake Bay Bridge */}
-                  <rect x="1915" y="610" width="150" height="220" rx="22" fill="#0f2419" />
-                  {/* Isle of Wight Bay & Ocean City Atlantic Barrier Island */}
-                  <rect x="2420" y="-1050" width="52" height="3150" fill="#075985" opacity="0.88" />
-                  <rect x="2470" y="700" width="54" height="1050" rx="8" fill="#c2a376" opacity="0.85" />
-                  <rect x="2524" y="-1050" width="220" height="3150" fill="#0369a1" opacity="0.9" />
+                    {/* Deep Creek Lake, Potomac & Patapsco Rivers */}
+                    <ellipse cx="-2410" cy="-450" rx="95" ry="70" fill={pal.water} />
+                    <polyline
+                      fill="none"
+                      stroke={pal.water}
+                      strokeWidth="44"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      points="-2300,-340 -1750,-140 -1220,210 -860,1240 -620,1780 -210,1960 -150,2100"
+                    />
+                    <polyline
+                      fill="none"
+                      stroke={pal.water}
+                      strokeWidth="36"
+                      strokeLinecap="round"
+                      points="180,-290 620,-180 1120,-130 1380,-110 1560,-20"
+                    />
 
-                  {/* Deep Creek Lake, Patapsco River & Potomac River */}
-                  <ellipse cx="-2410" cy="-450" rx="95" ry="70" fill="#0284c7" opacity="0.82" />
-                  <polyline
-                    fill="none"
-                    stroke="#0369a1"
-                    strokeWidth="44"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    opacity="0.75"
-                    points="-2300,-340 -1750,-140 -1220,210 -860,1240 -620,1780 -210,1960 -150,2100"
-                  />
-                  <polyline
-                    fill="none"
-                    stroke="#0369a1"
-                    strokeWidth="36"
-                    strokeLinecap="round"
-                    opacity="0.72"
-                    points="180,-290 620,-180 1120,-130 1380,-110 1560,-20"
-                  />
+                    {/* Gaithersburg Lakes, Fairgrounds & Airpark */}
+                    <rect x={gx(-354)} y={gz(1667)} width="78" height="56" rx="8" fill={pal.water} />
+                    <rect x={gx(-651)} y={gz(2262)} width="82" height="56" rx="8" fill={pal.water} />
+                    <rect x={gx(-494)} y={gz(2259)} width="118" height="72" rx="10" fill={pal.water} />
+                    <ellipse cx={gx(-148)} cy={gz(1875)} rx="42" ry="29" fill={isNightMap ? '#3b2d1f' : '#e6d7b9'} />
+                    <g transform={`translate(${gx(175)}, ${gz(2025)}) rotate(-33.2)`}>
+                      <rect x="-11" y="-70" width="22" height="140" fill={pal.arterial} stroke={pal.localOutline} strokeWidth="3" />
+                    </g>
 
-                  {/* Shifted Gaithersburg Water Features, Fairgrounds & KGAI Airpark */}
-                  <rect x={gx(-354)} y={gz(1667)} width="78" height="56" rx="8" fill="#0369a1" opacity="0.82" />
-                  <rect x={gx(-651)} y={gz(2262)} width="82" height="56" rx="8" fill="#0369a1" opacity="0.82" />
-                  <rect x={gx(-494)} y={gz(2259)} width="118" height="72" rx="10" fill="#0369a1" opacity="0.88" />
-                  <ellipse cx={gx(-148)} cy={gz(1875)} rx="42" ry="29" fill="#92400e" opacity="0.58" />
-                  <g transform={`translate(${gx(175)}, ${gz(2025)}) rotate(-33.2)`}>
-                    <rect x="-11" y="-70" width="22" height="140" fill="#334155" stroke="#94a3b8" strokeWidth="3" />
-                  </g>
-
-                  {/* Entire Maryland Google Maps Road Network */}
-                  {ALL_MARYLAND_ROADS.map((road) => {
-                    const pts = road.points.map((p) => `${p.x},${p.z}`).join(' ');
-                    const baseW = road.isHighway
-                      ? 32
-                      : road.isResidential
-                      ? 12
-                      : road.width > 26
-                      ? 24
-                      : 17;
-                    const strokeW = Math.max(road.width * 0.85, baseW * (0.45 + 0.55 * zs));
-                    return (
-                      <React.Fragment key={`md_rd_${road.id}`}>
-                        <polyline
-                          fill="none"
-                          stroke={road.isBridge ? '#94a3b8' : road.isHighway ? '#475569' : '#334155'}
-                          strokeWidth={strokeW}
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          points={pts}
-                        />
-                        {road.isHighway && (
+                    {/* Google Maps Styled Maryland Road Network (Casing + Fill) */}
+                    {ALL_MARYLAND_ROADS.map((road) => {
+                      const pts = road.points.map((p) => `${p.x},${p.z}`).join(' ');
+                      const baseW = road.isHighway
+                        ? 30
+                        : road.isResidential
+                        ? 12
+                        : road.width > 26
+                        ? 23
+                        : 16;
+                      const strokeW = Math.max(road.width * 0.85, baseW * (0.45 + 0.55 * zs));
+                      return (
+                        <React.Fragment key={`md_rd_${road.id}`}>
                           <polyline
                             fill="none"
-                            stroke="#facc15"
-                            strokeWidth={Math.max(2.2, 6 * zs)}
-                            strokeDasharray={`${Math.max(8, 24 * zs)} ${Math.max(6, 18 * zs)}`}
-                            opacity="0.72"
+                            stroke={road.isHighway ? pal.highwayEdge : pal.localOutline}
+                            strokeWidth={strokeW + Math.max(2, 6 * zs)}
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
                             points={pts}
                           />
-                        )}
-                      </React.Fragment>
-                    );
-                  })}
-
-                  {/* ICM & Church of the Redeemer Scaled Footprints */}
-                  <g transform={`translate(${REDEEMER_CAMPUS_ORIGIN.x}, ${REDEEMER_CAMPUS_ORIGIN.z}) rotate(${(-REDEEMER_CAMPUS_ORIGIN.rotY * 180) / Math.PI})`}>
-                    <rect x={97} y={-22} width={58} height={48} rx={4} fill="#b89f80" stroke="#f8fafc" strokeWidth={Math.max(1.5, 4 * zs)} />
-                  </g>
-                  <g transform={`translate(${ICM_CAMPUS_ORIGIN.x}, ${ICM_CAMPUS_ORIGIN.z}) rotate(${(-ICM_CAMPUS_ORIGIN.rotY * 180) / Math.PI})`}>
-                    <rect x={36} y={-3} width={20} height={18} rx={3} fill="#d6c8b2" stroke="#065f46" strokeWidth={Math.max(1.5, 4 * zs)} />
-                    <rect x={109} y={-21} width={58} height={54} rx={5} fill="#047857" stroke="#f2ebdc" strokeWidth={Math.max(1.5, 4 * zs)} />
-                  </g>
-
-                  {/* Regional City & Landmark Labels */}
-                  <text x="-2400" y="-560" fill="#38bdf8" fontSize={64 * labelZoomScale} fontWeight="black" textAnchor="middle">WISP / DEEP CREEK</text>
-                  <text x="-2080" y="-610" fill="#cbd5e1" fontSize={56 * labelZoomScale} fontWeight="bold" textAnchor="middle">CUMBERLAND</text>
-                  <text x="-1600" y="-550" fill="#cbd5e1" fontSize={56 * labelZoomScale} fontWeight="bold" textAnchor="middle">HAGERSTOWN</text>
-                  <text x="-1100" y="-335" fill="#fde047" fontSize={64 * labelZoomScale} fontWeight="black" textAnchor="middle">FREDERICK</text>
-                  <text x={MD_LANDMARKS.isbCampus.x} y={MD_LANDMARKS.isbCampus.z - 55 * labelZoomScale} fill="#facc15" fontSize={52 * labelZoomScale} fontWeight="black" textAnchor="middle">ISB</text>
-                  <text x={MD_LANDMARKS.baltimoreInnerHarbor.x} y={MD_LANDMARKS.baltimoreInnerHarbor.z - 80 * labelZoomScale} fill="#38bdf8" fontSize={68 * labelZoomScale} fontWeight="black" textAnchor="middle">BALTIMORE</text>
-                  <text x={MD_LANDMARKS.bwiAirport.x} y={MD_LANDMARKS.bwiAirport.z + 75 * labelZoomScale} fill="#93c5fd" fontSize={52 * labelZoomScale} fontWeight="bold" textAnchor="middle">BWI</text>
-                  <text x={MD_LANDMARKS.annapolisStateHouse.x} y={MD_LANDMARKS.annapolisStateHouse.z - 55 * labelZoomScale} fill="#fbbf24" fontSize={58 * labelZoomScale} fontWeight="black" textAnchor="middle">ANNAPOLIS</text>
-                  <text x={MD_LANDMARKS.chesapeakeBayBridgeMid.x} y={MD_LANDMARKS.chesapeakeBayBridgeMid.z - 55 * labelZoomScale} fill="#bae6fd" fontSize={52 * labelZoomScale} fontWeight="bold" textAnchor="middle">BAY BRIDGE</text>
-                  <text x={MD_LANDMARKS.oceanCityBoardwalk.x - 160} y={MD_LANDMARKS.oceanCityBoardwalk.z - 55 * labelZoomScale} fill="#38bdf8" fontSize={58 * labelZoomScale} fontWeight="black" textAnchor="middle">OCEAN CITY</text>
-                  <text x={gx(356)} y={gz(1845) + 55 * labelZoomScale} fill="#10b981" fontSize={54 * labelZoomScale} fontWeight="black" textAnchor="middle">ICM</text>
-                  <text x={gx(595)} y={gz(1455) - 42 * labelZoomScale} fill="#22c55e" fontSize={50 * labelZoomScale} fontWeight="bold" textAnchor="middle">HADLEY FARMS</text>
-                  <text x={gx(486)} y={gz(1652) + 28 * labelZoomScale} fill="#4ade80" fontSize={36 * labelZoomScale} fontWeight="bold" textAnchor="middle">EDINBURGH</text>
-                  <text x={MD_LANDMARKS.collegeParkUMD.x} y={MD_LANDMARKS.collegeParkUMD.z - 55 * labelZoomScale} fill="#f87171" fontSize={50 * labelZoomScale} fontWeight="black" textAnchor="middle">UMD</text>
-                  <text x={MD_LANDMARKS.nationalHarbor.x} y={MD_LANDMARKS.nationalHarbor.z - 55 * labelZoomScale} fill="#a855f7" fontSize={46 * labelZoomScale} fontWeight="bold" textAnchor="middle">NAT HARBOR</text>
-
-                  {/* Turn-by-Turn GPS Route Polyline */}
-                  {mm.gpsRoute.length >= 2 && (
-                    <>
-                      <polyline
-                        fill="none"
-                        stroke={mm.gpsTarget?.color || '#a855f7'}
-                        strokeWidth={Math.max(10, 52 * zs)}
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        opacity="0.35"
-                        points={mm.gpsRoute.map((pt) => `${pt.x},${pt.z}`).join(' ')}
-                      />
-                      <polyline
-                        fill="none"
-                        stroke={mm.gpsTarget?.color || '#a855f7'}
-                        strokeWidth={Math.max(5, 26 * zs)}
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        points={mm.gpsRoute.map((pt) => `${pt.x},${pt.z}`).join(' ')}
-                      />
-                    </>
-                  )}
-
-                  {/* Baltimore Police HQ Marker */}
-                  <g transform={`translate(${MD_LANDMARKS.baltimorePoliceHQ.x}, ${MD_LANDMARKS.baltimorePoliceHQ.z}) scale(${Math.max(0.28, zs)})`}>
-                    <circle cx={0} cy={0} r={42} fill="#2563eb" stroke="#ffffff" strokeWidth="8" />
-                    <text x={0} y={12} fill="#ffffff" fontSize="34" fontWeight="bold" textAnchor="middle">PD</text>
-                  </g>
-
-                  {/* Baltimore Reserve Bank Marker */}
-                  <g transform={`translate(${MD_LANDMARKS.baltimoreBank.x}, ${MD_LANDMARKS.baltimoreBank.z}) scale(${Math.max(0.28, zs)})`}>
-                    <circle cx={0} cy={0} r={42} fill="#eab308" stroke="#000000" strokeWidth="8" />
-                    <text x={0} y={13} fill="#000000" fontSize="34" fontWeight="black" textAnchor="middle">$</text>
-                  </g>
-
-                  {/* Baltimore Dealership Marker */}
-                  <g transform={`translate(${MD_LANDMARKS.baltimoreDealership.x}, ${MD_LANDMARKS.baltimoreDealership.z}) scale(${Math.max(0.28, zs)})`}>
-                    <circle cx={0} cy={0} r={36} fill="#ec4899" stroke="#ffffff" strokeWidth="7" />
-                    <text x={0} y={10} fill="#ffffff" fontSize="26" fontWeight="bold" textAnchor="middle">CAR</text>
-                  </g>
-
-                  {/* Banks & Jewelry Store Heist Blips */}
-                  {CITY_HEIST_TARGETS_CATALOG.map((h) => (
-                    <circle
-                      key={`mm_heist_${h.id}`}
-                      cx={h.x}
-                      cy={h.z}
-                      r={Math.max(7, 30 * zs)}
-                      fill={h.badgeColor}
-                      stroke="#000"
-                      strokeWidth={Math.max(2, 8 * zs)}
-                    />
-                  ))}
-
-                  {/* Buyable Houses & Safehouses Blips */}
-                  {CITY_HOUSES_CATALOG.map((house) => {
-                    const isOwned = cityPursuitStats.ownedHouseIds.includes(house.id);
-                    const sz = Math.max(10, 52 * zs);
-                    return (
-                      <rect
-                        key={`mm_house_${house.id}`}
-                        x={house.x - sz * 0.5}
-                        y={house.z - sz * 0.5}
-                        width={sz}
-                        height={sz}
-                        rx={Math.max(2, 10 * zs)}
-                        fill={isOwned ? '#10b981' : '#64748b'}
-                        stroke="#000"
-                        strokeWidth={Math.max(1.5, 7 * zs)}
-                      />
-                    );
-                  })}
-
-                  {/* Active Safehouse Highlight Ring */}
-                  <circle
-                    cx={mm.activeHome.x}
-                    cy={mm.activeHome.z}
-                    r={Math.max(12, 54 * zs)}
-                    fill="none"
-                    stroke="#10b981"
-                    strokeWidth={Math.max(2.5, 12 * zs)}
-                    strokeDasharray={`${Math.max(4, 20 * zs)} ${Math.max(3, 14 * zs)}`}
-                  />
-
-                  {/* Civilian Traffic Blips */}
-                  {mm.civs.map((c, idx) => (
-                    <circle
-                      key={`mm_civ_${idx}`}
-                      cx={c.x}
-                      cy={c.z}
-                      r={Math.max(4, 16 * zs)}
-                      fill="#94a3b8"
-                      opacity="0.82"
-                    />
-                  ))}
-
-                  {/* Maryland State & Local Police Interceptor Blips + Vision Cones */}
-                  {mm.cops.map((cop, idx) => {
-                    const deg = (-cop.heading * 180) / Math.PI;
-                    const copScale = Math.max(0.28, zs);
-                    return (
-                      <g
-                        key={`mm_cop_${idx}`}
-                        transform={`translate(${cop.x}, ${cop.z}) rotate(${deg})`}
-                      >
-                        {cop.isChasing && (
-                          <polygon
-                            points="0,0 -90,-220 90,-220"
-                            fill={cop.canSeePlayer ? 'rgba(239,68,68,0.42)' : 'rgba(56,189,248,0.25)'}
+                          <polyline
+                            fill="none"
+                            stroke={road.isBridge ? pal.bridge : road.isHighway ? pal.highway : road.isResidential ? pal.localRoad : pal.arterial}
+                            strokeWidth={strokeW}
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            points={pts}
                           />
-                        )}
-                        <circle
-                          cx={0}
-                          cy={0}
-                          r={30 * copScale}
-                          fill={cop.canSeePlayer ? '#ef4444' : '#38bdf8'}
-                          stroke="#ffffff"
-                          strokeWidth={8 * copScale}
-                        />
-                      </g>
-                    );
-                  })}
+                        </React.Fragment>
+                      );
+                    })}
 
-                  {/* Active GPS Destination Target Bullseye */}
-                  {mm.gpsTarget && (
-                    <g transform={`translate(${mm.gpsTarget.x}, ${mm.gpsTarget.z}) scale(${Math.max(0.26, zs)})`}>
-                      <circle
-                        cx={0}
-                        cy={0}
-                        r={60}
-                        fill="none"
-                        stroke={mm.gpsTarget.color}
-                        strokeWidth="14"
-                      />
-                      <circle
-                        cx={0}
-                        cy={0}
-                        r={24}
-                        fill={mm.gpsTarget.color}
-                      />
+                    {/* ICM & Church of the Redeemer Footprints */}
+                    <g transform={`translate(${REDEEMER_CAMPUS_ORIGIN.x}, ${REDEEMER_CAMPUS_ORIGIN.z}) rotate(${(-REDEEMER_CAMPUS_ORIGIN.rotY * 180) / Math.PI})`}>
+                      <rect x={97} y={-22} width={58} height={48} rx={4} fill={isNightMap ? '#334155' : '#d2d6dc'} stroke={pal.localOutline} strokeWidth={Math.max(1.5, 4 * zs)} />
                     </g>
-                  )}
+                    <g transform={`translate(${ICM_CAMPUS_ORIGIN.x}, ${ICM_CAMPUS_ORIGIN.z}) rotate(${(-ICM_CAMPUS_ORIGIN.rotY * 180) / Math.PI})`}>
+                      <rect x={36} y={-3} width={20} height={18} rx={3} fill={isNightMap ? '#334155' : '#d2d6dc'} />
+                      <rect x={109} y={-21} width={58} height={54} rx={5} fill="#0F9D58" stroke="#ffffff" strokeWidth={Math.max(1.5, 4 * zs)} />
+                    </g>
 
-                  {/* Player Vehicle Arrow */}
-                  <g
-                    transform={`translate(${mm.playerX}, ${mm.playerZ}) rotate(${
-                      (-mm.playerHeading * 180) / Math.PI
-                    }) scale(${Math.max(0.24, zs)})`}
-                  >
-                    <polygon
-                      points="0,-68 -46,48 0,24 46,48"
-                      fill="#facc15"
-                      stroke="#000000"
-                      strokeWidth="12"
+                    {/* City & Neighborhood Labels (upright counter-rotated in Heading-Up mode!) */}
+                    {[
+                      { x: -2400, y: -560, txt: 'Deep Creek', col: pal.label, sz: 58 },
+                      { x: -1100, y: -335, txt: 'Frederick', col: pal.label, sz: 58 },
+                      { x: MD_LANDMARKS.isbCampus.x, y: MD_LANDMARKS.isbCampus.z - 55 * labelZoomScale, txt: 'ISB', col: pal.parkLabel, sz: 48 },
+                      { x: MD_LANDMARKS.baltimoreInnerHarbor.x, y: MD_LANDMARKS.baltimoreInnerHarbor.z - 80 * labelZoomScale, txt: 'Baltimore', col: pal.label, sz: 62 },
+                      { x: MD_LANDMARKS.bwiAirport.x, y: MD_LANDMARKS.bwiAirport.z + 75 * labelZoomScale, txt: 'BWI', col: pal.label, sz: 46 },
+                      { x: MD_LANDMARKS.annapolisStateHouse.x, y: MD_LANDMARKS.annapolisStateHouse.z - 55 * labelZoomScale, txt: 'Annapolis', col: pal.label, sz: 54 },
+                      { x: MD_LANDMARKS.oceanCityBoardwalk.x - 160, y: MD_LANDMARKS.oceanCityBoardwalk.z - 55 * labelZoomScale, txt: 'Ocean City', col: pal.label, sz: 52 },
+                      { x: gx(356), y: gz(1845) + 55 * labelZoomScale, txt: 'ICM', col: pal.parkLabel, sz: 48 },
+                      { x: gx(595), y: gz(1455) - 42 * labelZoomScale, txt: 'Hadley Farms', col: pal.parkLabel, sz: 44 },
+                      { x: gx(486), y: gz(1652) + 28 * labelZoomScale, txt: 'Edinburgh', col: pal.parkLabel, sz: 34 },
+                      { x: MD_LANDMARKS.collegeParkUMD.x, y: MD_LANDMARKS.collegeParkUMD.z - 55 * labelZoomScale, txt: 'UMD', col: pal.label, sz: 46 },
+                    ].map((lbl) => (
+                      <text
+                        key={lbl.txt}
+                        x={lbl.x}
+                        y={lbl.y}
+                        fill={lbl.col}
+                        fontSize={lbl.sz * labelZoomScale}
+                        fontWeight="bold"
+                        textAnchor="middle"
+                        transform={isHeadingUp ? `rotate(${-mapWorldRotateDeg} ${lbl.x} ${lbl.y})` : undefined}
+                      >
+                        {lbl.txt}
+                      </text>
+                    ))}
+
+                    {/* Google Maps Signature Blue Navigation Polyline */}
+                    {mm.gpsRoute.length >= 2 && (
+                      <>
+                        <polyline
+                          fill="none"
+                          stroke="#185ABC"
+                          strokeWidth={Math.max(10, 48 * zs)}
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          points={mm.gpsRoute.map((pt) => `${pt.x},${pt.z}`).join(' ')}
+                        />
+                        <polyline
+                          fill="none"
+                          stroke="#4285F4"
+                          strokeWidth={Math.max(6, 32 * zs)}
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          points={mm.gpsRoute.map((pt) => `${pt.x},${pt.z}`).join(' ')}
+                        />
+                      </>
+                    )}
+
+                    {/* PD, Bank, Dealership & Houses Pins */}
+                    <g transform={`translate(${MD_LANDMARKS.baltimorePoliceHQ.x}, ${MD_LANDMARKS.baltimorePoliceHQ.z}) scale(${Math.max(0.26, zs)})`}>
+                      <circle cx={0} cy={0} r={38} fill="#1A73E8" stroke="#ffffff" strokeWidth="8" />
+                      <text x={0} y={11} fill="#ffffff" fontSize="30" fontWeight="bold" textAnchor="middle">PD</text>
+                    </g>
+                    <g transform={`translate(${MD_LANDMARKS.baltimoreBank.x}, ${MD_LANDMARKS.baltimoreBank.z}) scale(${Math.max(0.26, zs)})`}>
+                      <circle cx={0} cy={0} r={38} fill="#F9AB00" stroke="#ffffff" strokeWidth="8" />
+                      <text x={0} y={12} fill="#000000" fontSize="32" fontWeight="bold" textAnchor="middle">$</text>
+                    </g>
+
+                    {CITY_HEIST_TARGETS_CATALOG.map((h) => (
+                      <circle
+                        key={`mm_heist_${h.id}`}
+                        cx={h.x}
+                        cy={h.z}
+                        r={Math.max(6, 26 * zs)}
+                        fill={h.badgeColor}
+                        stroke="#ffffff"
+                        strokeWidth={Math.max(2, 7 * zs)}
+                      />
+                    ))}
+
+                    {CITY_HOUSES_CATALOG.map((house) => {
+                      const isOwned = cityPursuitStats.ownedHouseIds.includes(house.id);
+                      const sz = Math.max(9, 44 * zs);
+                      return (
+                        <rect
+                          key={`mm_house_${house.id}`}
+                          x={house.x - sz * 0.5}
+                          y={house.z - sz * 0.5}
+                          width={sz}
+                          height={sz}
+                          rx={Math.max(2, 9 * zs)}
+                          fill={isOwned ? '#0F9D58' : '#64748b'}
+                          stroke="#ffffff"
+                          strokeWidth={Math.max(1.5, 6 * zs)}
+                        />
+                      );
+                    })}
+
+                    {/* Active Safehouse Highlight */}
+                    <circle
+                      cx={mm.activeHome.x}
+                      cy={mm.activeHome.z}
+                      r={Math.max(11, 48 * zs)}
+                      fill="none"
+                      stroke="#0F9D58"
+                      strokeWidth={Math.max(2.5, 11 * zs)}
+                      strokeDasharray={`${Math.max(4, 18 * zs)} ${Math.max(3, 12 * zs)}`}
                     />
+
+                    {/* Civilian Traffic Dots */}
+                    {mm.civs.map((c, idx) => (
+                      <circle
+                        key={`mm_civ_${idx}`}
+                        cx={c.x}
+                        cy={c.z}
+                        r={Math.max(3.5, 14 * zs)}
+                        fill={isNightMap ? '#9ca3af' : '#5f6368'}
+                        opacity="0.78"
+                      />
+                    ))}
+
+                    {/* Police Units */}
+                    {mm.cops.map((cop, idx) => {
+                      const deg = (-cop.heading * 180) / Math.PI;
+                      const copScale = Math.max(0.26, zs);
+                      return (
+                        <g key={`mm_cop_${idx}`} transform={`translate(${cop.x}, ${cop.z}) rotate(${deg})`}>
+                          {cop.isChasing && (
+                            <polygon
+                              points="0,0 -90,-220 90,-220"
+                              fill={cop.canSeePlayer ? 'rgba(234,67,53,0.38)' : 'rgba(66,133,244,0.25)'}
+                            />
+                          )}
+                          <circle
+                            cx={0}
+                            cy={0}
+                            r={28 * copScale}
+                            fill={cop.canSeePlayer ? '#EA4335' : '#1A73E8'}
+                            stroke="#ffffff"
+                            strokeWidth={8 * copScale}
+                          />
+                        </g>
+                      );
+                    })}
+
+                    {/* Google Maps Red Destination Pin */}
+                    {mm.gpsTarget && (
+                      <g
+                        transform={`translate(${mm.gpsTarget.x}, ${mm.gpsTarget.z}) rotate(${isHeadingUp ? -mapWorldRotateDeg : 0}) scale(${Math.max(0.26, zs)})`}
+                      >
+                        <circle cx={0} cy={0} r={42} fill="#EA4335" stroke="#ffffff" strokeWidth="10" />
+                        <circle cx={0} cy={0} r={15} fill="#ffffff" />
+                      </g>
+                    )}
+                  </g>
+
+                  {/* Google Maps Blue Navigation Puck Chevron + Heading Halo (Always Centered Ahead in Heading-Up) */}
+                  <g
+                    transform={`translate(${mm.playerX}, ${mm.playerZ}) rotate(${playerArrowRotateDeg}) scale(${Math.max(0.26, zs)})`}
+                  >
+                    <polygon points="0,0 -85,-190 85,-190" fill="rgba(66,133,244,0.28)" />
+                    <circle cx={0} cy={0} r={52} fill="#ffffff" stroke="rgba(0,0,0,0.25)" strokeWidth="8" />
+                    <polygon points="0,-38 -28,28 0,14 28,28" fill="#1A73E8" />
                   </g>
                 </svg>
 
-                {/* Compass North Badge */}
-                <span className="absolute top-1.5 right-1.5 px-1.5 py-0.5 rounded bg-black/80 border border-white/15 text-[8px] font-black text-amber-400 pointer-events-none">
-                  N ↑
-                </span>
+                {/* Dynamic Rotating Compass Pill */}
+                <button
+                  type="button"
+                  onClick={() => setIsMinimapHeadingUp((prev) => !prev)}
+                  className={`absolute top-1.5 right-1.5 w-7 h-7 rounded-full flex items-center justify-center text-[9px] font-black shadow border cursor-pointer ${
+                    isNightMap
+                      ? 'bg-[#202124]/90 text-white border-white/20'
+                      : 'bg-white/95 text-zinc-800 border-zinc-300'
+                  }`}
+                  style={{ transform: `rotate(${Math.round(mapWorldRotateDeg)}deg)` }}
+                  title="North Indicator (click to toggle Heading-Up)"
+                >
+                  <span className="text-[#EA4335]">▲</span>
+                </button>
               </div>
+
+              {/* Google Maps Bottom Navigation ETA & Speed Bar */}
+              {tgt && (
+                <div
+                  className={`flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-xl border ${
+                    isNightMap
+                      ? 'bg-[#292a2d] border-white/10 text-white'
+                      : 'bg-zinc-100 border-zinc-200 text-zinc-900'
+                  }`}
+                >
+                  <div className="min-w-0">
+                    <div className="flex items-baseline gap-1.5 leading-none">
+                      <span className="text-xs font-black text-[#0F9D58] tabular-nums">
+                        {etaMins} min
+                      </span>
+                      <span className="text-[10px] font-bold opacity-80 tabular-nums">
+                        ({totalDistFmt?.shortText})
+                      </span>
+                      <span className="text-[9px] opacity-65">· {arrivalClock} ETA</span>
+                    </div>
+                    <div className="text-[9px] opacity-75 truncate mt-0.5">
+                      {tgt.label}
+                    </div>
+                  </div>
+                  <div className="bg-white border-2 border-black rounded px-1.5 py-0.5 text-center leading-none shrink-0">
+                    <span className="text-[11px] font-black text-black">
+                      {cityPursuitStats.currentSpeedLimitMph || 45}
+                    </span>
+                  </div>
+                </div>
+              )}
 
               {/* Quick GPS Shortcut Buttons: Safehouse | Bank | Precinct | Clear */}
               <div className="grid grid-cols-4 gap-1 text-[8px] font-black">
@@ -4118,10 +4679,53 @@ export const RaceView: React.FC<RaceViewProps> = ({
             onClose={() => setShowControlsMappingModal(false)}
           />
 
-          {/* DEDICATED METRO CITY TABLET / OS MODAL ([TAB / M / G]) — CLEAN, ORGANIZED CAREERS & ACTIVITIES */}
-          {(showCityTabletModal || showCityGarageModal) && (
-            <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-5 pointer-events-auto">
-              <div className="bg-zinc-950 border-2 border-sky-500/50 max-w-5xl w-full max-h-[90vh] rounded-3xl p-5 sm:p-6 shadow-2xl flex flex-col gap-4 overflow-hidden font-mono">
+          {/* DEDICATED METRO CITY TABLET / OS MODAL ([TAB / M / G]) — CLEAN, ORGANIZED CAREERS & SHOWROOM GARAGE */}
+          {(showCityTabletModal || showCityGarageModal) && (() => {
+            const isShowroomDock = cityTabletTab === 'garage' || cityTabletTab === 'dealership';
+            return (
+            <div
+              className={`fixed inset-0 z-50 flex justify-center p-2 sm:p-4 pointer-events-auto ${
+                isShowroomDock
+                  ? 'items-end bg-gradient-to-t from-black/80 via-black/15 to-transparent'
+                  : 'items-center bg-black/85 backdrop-blur-md'
+              }`}
+            >
+              {/* Floating Showroom Angle Controls cleanly in top-center when viewing Garage or Dealership */}
+              {isShowroomDock && (
+                <div className="fixed top-3 left-1/2 -translate-x-1/2 z-[52] flex flex-wrap items-center gap-1.5 bg-zinc-950/85 border border-sky-400/40 backdrop-blur-md px-3 py-1.5 rounded-2xl shadow-2xl">
+                  <span className="text-[10px] font-mono font-black text-sky-300 uppercase tracking-wider mr-1">
+                    📷 Showroom View:
+                  </span>
+                  {(
+                    [
+                      ['front34', 'Front 3/4'],
+                      ['front', 'Front Grille'],
+                      ['side', 'Side Profile'],
+                      ['rear', 'Rear 3/4'],
+                      ['orbit', '360° Spin'],
+                    ] as const
+                  ).map(([angleKey, label]) => (
+                    <button
+                      key={angleKey}
+                      type="button"
+                      onClick={() => setGarageCamAngle(angleKey)}
+                      className={`px-2.5 py-1 rounded-lg font-mono text-[10px] font-bold cursor-pointer transition-all ${
+                        garageCamAngle === angleKey
+                          ? 'bg-sky-400 text-black font-black shadow'
+                          : 'bg-zinc-900 text-zinc-300 hover:text-white hover:bg-zinc-800 border border-white/10'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <div
+                className={`bg-zinc-950/95 border-2 border-sky-500/50 max-w-5xl w-full rounded-3xl shadow-2xl flex flex-col gap-3 overflow-hidden font-mono transition-all ${
+                  isShowroomDock ? 'max-h-[48vh] p-4 sm:p-5 backdrop-blur-md' : 'max-h-[90vh] p-5 sm:p-6'
+                }`}
+              >
                 {/* Header: OS Branding, Cash & Close Button */}
                 <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-3">
                   <div>
@@ -5041,7 +5645,8 @@ export const RaceView: React.FC<RaceViewProps> = ({
                 )}
               </div>
             </div>
-          )}
+            );
+          })()}
         </>
       )}
 

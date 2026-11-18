@@ -19,6 +19,13 @@ import { buildGaithersburgDistrict } from './gaithersburgBuilder';
 import { buildBaltimoreDistrict } from './baltimoreBuilder';
 import { buildMarylandStateDistrict } from './marylandStateBuilder';
 import { SuburbanBatchBuilder } from './suburbanBatchBuilder';
+import { WorldChunkManager } from './worldChunkManager';
+import {
+  getAsphaltPBRTextures,
+  getTerrainPBRTextures,
+  getConcretePBRTextures,
+} from './pbrTextures';
+import { buildDetailedSingleTreeGroup, updateFoliageWindTime } from './foliageBuilder';
 
 export interface SurfaceInfo {
   offTrack: boolean;
@@ -58,6 +65,13 @@ export interface GeneratedTrack {
   checkSurfaceType: (pos: THREE.Vector3, hintProgress?: number) => SurfaceInfo;
   updateInfiniteRoadOrigin?: (playerX: number, playerZ: number) => void;
   updateCityTrafficLights?: (timeSec: number, playerX: number, playerZ: number) => void;
+  updateWorldChunks?: (
+    camera: THREE.Camera,
+    playerPos: THREE.Vector3,
+    opts: { isDynamicMode: boolean; qualityFactor: number; chunkLoadScale?: number }
+  ) => void;
+  setReflectionChunkCull?: (active: boolean, playerPos?: THREE.Vector3) => void;
+  setNightIntensity?: (nightFactor: number) => void;
   dispose?: () => void;
 }
 
@@ -195,13 +209,14 @@ function attachCityRoadReflectionShader(
           vec3 viewDir = normalize(cameraPosition - vCityReflWorldPos);
           float ndotv = clamp(abs(viewDir.y), 0.0, 1.0);
           // Dry asphalt uses high Fresnel & minimal grazing sheen; wet/rainy asphalt reflects noticeably across lanes
-          float dryFresnel = pow(1.0 - ndotv, ${isUltra ? '4.4' : '4.8'});
-          float wetFresnel = pow(1.0 - ndotv, ${isUltra ? '1.9' : '2.4'});
-          float dryFactor = ${isUltra ? '0.015 + 0.065 * dryFresnel' : '0.008 + 0.035 * dryFresnel'};
-          float wetFactor = ${isUltra ? '0.20 + 0.62 * wetFresnel' : '0.10 + 0.36 * wetFresnel'};
-          float puddleVar = mix(0.82, 1.18, sin(vCityReflWorldPos.x * 0.11 + vCityReflWorldPos.z * 0.09) * 0.5 + 0.5);
+          float dryFresnel = pow(1.0 - ndotv, ${isUltra ? '4.6' : '5.0'});
+          float wetFresnel = pow(1.0 - ndotv, ${isUltra ? '1.85' : '2.3'});
+          float dryFactor = ${isUltra ? '0.010 + 0.048 * dryFresnel' : '0.006 + 0.025 * dryFresnel'};
+          float wetFactor = ${isUltra ? '0.22 + 0.68 * wetFresnel' : '0.12 + 0.38 * wetFresnel'};
+          float puddleNoise = sin(vCityReflWorldPos.x * 0.11 + vCityReflWorldPos.z * 0.09) * 0.5 + 0.5;
+          float puddleVar = mix(0.62, 1.32, smoothstep(0.25, 0.85, puddleNoise));
           float combinedFactor = mix(dryFactor, wetFactor * puddleVar, wet);
-          float reflWeight = clamp(uReflectionIntensity * combinedFactor, 0.0, mix(${isUltra ? '0.032' : '0.018'}, ${isUltra ? '0.38' : '0.20'}, wet));
+          float reflWeight = clamp(uReflectionIntensity * combinedFactor, 0.0, mix(${isUltra ? '0.026' : '0.015'}, ${isUltra ? '0.44' : '0.22'}, wet));
           gl_FragColor.rgb += reflSample * reflWeight;
         }`
       );
@@ -1820,6 +1835,7 @@ function generateOpenFieldTrack(circuit: CircuitInfo, quality?: GraphicsQuality)
 function generateCityDrivingTrack(circuit: CircuitInfo, quality?: GraphicsQuality): GeneratedTrack {
   const group = new THREE.Group();
   const sceneryGroup = new THREE.Group();
+  sceneryGroup.userData.neverChunkCull = true;
   group.add(sceneryGroup);
   const preset = getGraphicsPresetConfig(quality);
   const isUltra = preset.id === 'ultra';
@@ -1830,22 +1846,39 @@ function generateCityDrivingTrack(circuit: CircuitInfo, quality?: GraphicsQualit
   const makeCityMat = (opts: {
     color?: number;
     map?: THREE.Texture;
+    normalMap?: THREE.Texture;
+    normalScale?: THREE.Vector2;
+    bumpMap?: THREE.Texture;
+    bumpScale?: number;
+    roughnessMap?: THREE.Texture;
     roughness?: number;
     metalness?: number;
     envMapIntensity?: number;
+    emissive?: number;
+    emissiveMap?: THREE.Texture;
+    emissiveIntensity?: number;
   }): THREE.Material =>
     isRetroPixel
       ? new THREE.MeshLambertMaterial({ color: opts.color ?? 0xffffff, map: opts.map })
       : new THREE.MeshStandardMaterial({
           color: opts.color ?? 0xffffff,
           map: opts.map,
+          normalMap: opts.normalMap,
+          normalScale: opts.normalScale,
+          bumpMap: opts.bumpMap,
+          bumpScale: opts.bumpScale ?? 0.04,
+          roughnessMap: opts.roughnessMap,
           roughness: opts.roughness ?? 0.8,
           metalness: opts.metalness ?? 0.05,
-          envMapIntensity: opts.envMapIntensity ?? (isUltra ? 0.95 : 0.6),
+          envMapIntensity: opts.envMapIntensity ?? (isUltra ? 1.05 : 0.72),
+          emissive: opts.emissive !== undefined ? new THREE.Color(opts.emissive) : undefined,
+          emissiveMap: opts.emissiveMap,
+          emissiveIntensity: opts.emissiveIntensity ?? 0.0,
         });
 
   const disposables: { dispose: () => void }[] = [];
   const reflectorToggleables: THREE.Object3D[] = [];
+  const nightWindowMats: THREE.MeshStandardMaterial[] = [];
   const suburbanBatch = new SuburbanBatchBuilder();
 
   const reflectionUniforms = {
@@ -1858,107 +1891,107 @@ function generateCityDrivingTrack(circuit: CircuitInfo, quality?: GraphicsQualit
   const curve = new THREE.CatmullRomCurve3(points, true, 'catmullrom', 0.25);
   const trackLength = curve.getLength();
 
-  // 1. Natural Maryland Countryside Terrain (Lush Meadow, Wooded Piedmont & Earth)
-  const texDim = isRetroPixel ? 128 : 512;
-  const texScale = texDim / 512;
-  const grassCanvas = document.createElement('canvas');
-  grassCanvas.width = texDim;
-  grassCanvas.height = texDim;
-  const gCtx = grassCanvas.getContext('2d');
-  if (gCtx) {
-    gCtx.fillStyle = '#2d4f28';
-    gCtx.fillRect(0, 0, texDim, texDim);
-    const grassCount = isRetroPixel ? 320 : 1800;
-    for (let i = 0; i < grassCount; i++) {
-      const shade = i % 3 === 0 ? '#365f30' : i % 3 === 1 ? '#244120' : '#3d6634';
-      gCtx.fillStyle = shade;
-      gCtx.globalAlpha = 0.28;
-      const gx = (i * 73) % texDim;
-      const gy = (i * 139) % texDim;
-      const gw = Math.max(2, Math.round((10 + (i % 14)) * texScale));
-      gCtx.fillRect(gx, gy, gw, gw);
-    }
-    gCtx.globalAlpha = 1;
-  }
-  const baseGrassTex = new THREE.CanvasTexture(grassCanvas);
-  baseGrassTex.colorSpace = THREE.SRGBColorSpace;
-  baseGrassTex.wrapS = THREE.RepeatWrapping;
-  baseGrassTex.wrapT = THREE.RepeatWrapping;
-  baseGrassTex.repeat.set(90, 90);
-  baseGrassTex.anisotropy = preset.anisotropy;
-  if (isRetroPixel) {
-    baseGrassTex.minFilter = THREE.NearestFilter;
-    baseGrassTex.magFilter = THREE.NearestFilter;
-  }
-  reflectionUniforms.uPlanarReflectionMap.value = baseGrassTex;
+  // 1. Natural Maryland Countryside Terrain (Multi-Octave Piedmont Meadow, Soil & Oak Shade Variation)
+  const terrainPBR = getTerrainPBRTextures(isRetroPixel, preset.anisotropy);
+  const useNormalDetail = !isRetroPixel && (isUltra || preset.id === 'high' || preset.id === 'dynamic_aggressive');
+  reflectionUniforms.uPlanarReflectionMap.value = terrainPBR.map;
 
   const baseAsphaltMat = makeCityMat({
-    map: baseGrassTex,
-    roughness: 0.92,
+    map: terrainPBR.map,
+    normalMap: useNormalDetail ? terrainPBR.normalMap : undefined,
+    normalScale: useNormalDetail ? new THREE.Vector2(0.55, 0.55) : undefined,
+    roughness: 0.94,
     metalness: 0.0,
+    envMapIntensity: isUltra ? 0.55 : 0.4,
   });
+
+  // World-space macro-biome variation breaks up any repeating ground tile pattern across Maryland
+  if (!isRetroPixel && baseAsphaltMat instanceof THREE.MeshStandardMaterial) {
+    baseAsphaltMat.onBeforeCompile = (shader) => {
+      shader.vertexShader =
+        `varying vec3 vTerrainWorldPos;\n` +
+        shader.vertexShader.replace(
+          '#include <project_vertex>',
+          `#include <project_vertex>
+          vTerrainWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;`
+        );
+      shader.fragmentShader =
+        `varying vec3 vTerrainWorldPos;\n` +
+        shader.fragmentShader.replace(
+          '#include <map_fragment>',
+          `#include <map_fragment>
+          float macroA = sin(vTerrainWorldPos.x * 0.011 + sin(vTerrainWorldPos.z * 0.009) * 1.4) * 0.5 + 0.5;
+          float macroB = cos(vTerrainWorldPos.z * 0.017 - vTerrainWorldPos.x * 0.008) * 0.5 + 0.5;
+          float detailM = sin(vTerrainWorldPos.x * 0.075) * cos(vTerrainWorldPos.z * 0.075) * 0.5 + 0.5;
+          vec3 cloverTint = vec3(0.96, 1.06, 0.92);
+          vec3 dryPiedmont = vec3(1.12, 1.02, 0.84);
+          vec3 oakShade = vec3(0.76, 0.84, 0.72);
+          vec3 biomeMod = mix(oakShade, cloverTint, macroA);
+          biomeMod = mix(biomeMod, dryPiedmont, smoothstep(0.62, 0.96, macroB) * 0.45);
+          biomeMod *= mix(0.90, 1.08, detailM);
+          diffuseColor.rgb *= biomeMod;`
+        );
+    };
+    baseAsphaltMat.needsUpdate = true;
+  }
+
   const baseRoadMesh = new THREE.Mesh(new THREE.PlaneGeometry(8000, 8000), baseAsphaltMat);
   baseRoadMesh.rotation.x = -Math.PI / 2;
   baseRoadMesh.position.y = 0.22;
   baseRoadMesh.receiveShadow = isUltra;
+  baseRoadMesh.userData.neverChunkCull = true;
   group.add(baseRoadMesh);
 
-  // 2. Authentic American Charcoal Asphalt Texture (Matte Aggregate, Tire-Worn Sheen)
-  const roadCanvas = document.createElement('canvas');
-  roadCanvas.width = texDim;
-  roadCanvas.height = texDim;
-  const rCtx = roadCanvas.getContext('2d');
-  if (rCtx) {
-    rCtx.fillStyle = '#2a2e35';
-    rCtx.fillRect(0, 0, texDim, texDim);
-    const speckCount = isRetroPixel ? 450 : 3600;
-    for (let i = 0; i < speckCount; i++) {
-      const rx = (i * 97 + (i % 13) * 19) % texDim;
-      const ry = (i * 151 + (i % 7) * 29) % texDim;
-      rCtx.fillStyle = i % 2 === 0 ? 'rgba(255,255,255,0.035)' : 'rgba(0,0,0,0.075)';
-      rCtx.fillRect(rx, ry, 2, 2);
-    }
-    // Subtle dark tire tracks in lanes
-    rCtx.fillStyle = 'rgba(15, 18, 24, 0.22)';
-    rCtx.fillRect(Math.round(108 * texScale), 0, Math.max(8, Math.round(44 * texScale)), texDim);
-    rCtx.fillRect(Math.round(360 * texScale), 0, Math.max(8, Math.round(44 * texScale)), texDim);
-  }
-  const streetAsphaltTex = new THREE.CanvasTexture(roadCanvas);
-  streetAsphaltTex.colorSpace = THREE.SRGBColorSpace;
-  streetAsphaltTex.wrapS = THREE.RepeatWrapping;
-  streetAsphaltTex.wrapT = THREE.RepeatWrapping;
-  streetAsphaltTex.repeat.set(4, 48);
-  streetAsphaltTex.anisotropy = preset.anisotropy;
-  if (isRetroPixel) {
-    streetAsphaltTex.minFilter = THREE.NearestFilter;
-    streetAsphaltTex.magFilter = THREE.NearestFilter;
-  }
-
+  // 2. Forza-Grade American Asphalt PBR (Aggregate Normal Relief + Tire-Worn Roughness Map + Tar Seams)
+  const asphaltPBR = getAsphaltPBRTextures(isRetroPixel, preset.anisotropy);
   const streetAsphaltMat = makeCityMat({
-    map: streetAsphaltTex,
-    roughness: isUltra ? 0.78 : 0.84,
+    map: asphaltPBR.map,
+    normalMap: useNormalDetail ? asphaltPBR.normalMap : undefined,
+    normalScale: useNormalDetail ? new THREE.Vector2(isUltra ? 0.85 : 0.55, isUltra ? 0.85 : 0.55) : undefined,
+    roughnessMap: useNormalDetail ? asphaltPBR.roughnessMap : undefined,
+    roughness: isUltra ? 0.96 : 0.94,
     metalness: isUltra ? 0.04 : 0.03,
-    envMapIntensity: isUltra ? 0.45 : 0.35,
+    envMapIntensity: isUltra ? 0.62 : 0.42,
   });
   if (!isRetroPixel && (isUltra || preset.id === 'high')) {
     attachCityRoadReflectionShader(streetAsphaltMat, reflectionUniforms, isUltra);
   }
-  const yellowLineMat = new THREE.MeshBasicMaterial({ color: 0xfacc15, side: THREE.DoubleSide });
-  const whiteLineMat = new THREE.MeshBasicMaterial({ color: 0xf8fafc, side: THREE.DoubleSide });
-  const stopBarMat = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide });
+  const yellowLineMat = new THREE.MeshStandardMaterial({
+    color: 0xeab308,
+    roughness: 0.62,
+    metalness: 0.04,
+    side: THREE.DoubleSide,
+  });
+  const whiteLineMat = new THREE.MeshStandardMaterial({
+    color: 0xe2e8f0,
+    roughness: 0.58,
+    metalness: 0.04,
+    side: THREE.DoubleSide,
+  });
+  const stopBarMat = new THREE.MeshStandardMaterial({
+    color: 0xf1f5f9,
+    roughness: 0.55,
+    metalness: 0.04,
+    side: THREE.DoubleSide,
+  });
 
   const cityStreetRoadMeshes: THREE.Mesh[] = [];
   const cityBuildings: CityBuildingBox[] = [];
   const suburbanHouses: BuiltSuburbanHouse[] = [];
 
+  const concretePBR = getConcretePBRTextures(isRetroPixel, preset.anisotropy);
   const sidewalkMat = makeCityMat({
-    color: 0x94a3b8,
-    roughness: 0.86,
-    metalness: 0.04,
+    color: 0xbac4d0,
+    map: concretePBR.map,
+    normalMap: useNormalDetail ? concretePBR.normalMap : undefined,
+    normalScale: useNormalDetail ? new THREE.Vector2(0.55, 0.55) : undefined,
+    roughness: 0.88,
+    metalness: 0.03,
+    envMapIntensity: isUltra ? 0.55 : 0.4,
   });
-  const treeTrunkMat = makeCityMat({ color: 0x5c3a21, roughness: 0.92 });
-  const treeFoliageMat = makeCityMat({ color: 0x2d6a2e, roughness: 0.8 });
-  const goldMat = makeCityMat({ color: 0xf59e0b, roughness: 0.2, metalness: 0.85 });
+  const treeTrunkMat = makeCityMat({ color: 0x4b3322, roughness: 0.94, metalness: 0.0 });
+  const treeFoliageMat = makeCityMat({ color: 0x2c5829, roughness: 0.86, metalness: 0.02, envMapIntensity: 0.48 });
+  const goldMat = makeCityMat({ color: 0xf59e0b, roughness: 0.18, metalness: 0.88, envMapIntensity: 1.45 });
 
   // =========================================================================================
   // Procedural Texture Helpers for Authentic Maryland Brick, Windows, Street Signs & Neon
@@ -2007,11 +2040,11 @@ function generateCityDrivingTrack(circuit: CircuitInfo, quality?: GraphicsQualit
         map: tex,
         emissive: new THREE.Color(emissiveHex),
         emissiveMap: tex,
-        emissiveIntensity: 0.95,
-        roughness: 0.35,
+        emissiveIntensity: 1.25,
+        roughness: 0.32,
       });
     }
-    return new THREE.MeshStandardMaterial({ map: tex, roughness: 0.55, metalness: 0.1 });
+    return new THREE.MeshStandardMaterial({ map: tex, roughness: 0.48, metalness: 0.14 });
   };
 
   const makeBrickFacadeMat = (
@@ -2022,59 +2055,139 @@ function generateCityDrivingTrack(circuit: CircuitInfo, quality?: GraphicsQualit
     rows: number,
     archedWindows = false
   ) => {
-    const dim = isRetroPixel ? 128 : 256;
+    const dim = isRetroPixel ? 128 : 512;
     const sc = dim / 256;
     const c = document.createElement('canvas');
     c.width = dim;
     c.height = dim;
     const ctx = c.getContext('2d');
+
+    const bumpCanvas = useNormalDetail ? document.createElement('canvas') : null;
+    if (bumpCanvas) {
+      bumpCanvas.width = dim;
+      bumpCanvas.height = dim;
+    }
+    const bCtx = bumpCanvas ? bumpCanvas.getContext('2d') : null;
+
+    const emCanvas = useNormalDetail ? document.createElement('canvas') : null;
+    if (emCanvas) {
+      emCanvas.width = dim;
+      emCanvas.height = dim;
+    }
+    const eCtx = emCanvas ? emCanvas.getContext('2d') : null;
+
     if (ctx) {
       ctx.fillStyle = brickHex;
       ctx.fillRect(0, 0, dim, dim);
-      // Subtle horizontal brick courses
+      if (bCtx) {
+        bCtx.fillStyle = '#c8c8c8';
+        bCtx.fillRect(0, 0, dim, dim);
+      }
+      if (eCtx) {
+        eCtx.fillStyle = '#000000';
+        eCtx.fillRect(0, 0, dim, dim);
+      }
+
+      // Brick courses & subtle per-brick tonal variation
+      if (!isRetroPixel) {
+        for (let y = 0; y < dim; y += Math.round(8 * sc)) {
+          for (let x = 0; x < dim; x += Math.round(16 * sc)) {
+            const h = Math.abs(Math.sin(x * 12.9898 + y * 78.233) * 43758.5453) % 1;
+            ctx.fillStyle = h > 0.65 ? 'rgba(255,255,255,0.06)' : h < 0.35 ? 'rgba(0,0,0,0.09)' : 'rgba(0,0,0,0)';
+            ctx.fillRect(x, y, Math.round(16 * sc), Math.round(8 * sc));
+          }
+        }
+      }
+
       ctx.fillStyle = mortarHex;
       const stepY = Math.max(4, Math.round(8 * sc));
       for (let y = 0; y < dim; y += stepY) {
         ctx.fillRect(0, y, dim, Math.max(1, 1.2 * sc));
+        if (bCtx) {
+          bCtx.fillStyle = '#888888';
+          bCtx.fillRect(0, y, dim, Math.max(1, 1.2 * sc));
+        }
       }
       if (!isRetroPixel) {
-        for (let y = 0; y < dim; y += 16) {
-          for (let x = (y % 32 === 0 ? 0 : 10); x < dim; x += 20) {
-            ctx.fillRect(x, y, 1.2, 8);
+        for (let y = 0; y < dim; y += stepY * 2) {
+          for (let x = (y % (stepY * 4) === 0 ? 0 : Math.round(10 * sc)); x < dim; x += Math.round(20 * sc)) {
+            ctx.fillRect(x, y, 1.2 * sc, stepY);
           }
         }
       }
-      // Architectural windows with limestone lintels, sills & reflective mullions
+
+      // Stone top cornice & ground-floor water table plinth
+      if (!isRetroPixel) {
+        ctx.fillStyle = '#d6d3d1';
+        ctx.fillRect(0, 0, dim, Math.max(4, Math.round(7 * sc)));
+        ctx.fillStyle = '#94a3b8';
+        ctx.fillRect(0, dim - Math.max(5, Math.round(8 * sc)), dim, Math.max(5, Math.round(8 * sc)));
+      }
+
+      // Architectural windows with limestone lintels, recessed panes, brick pilasters & glazed retail ground bays
       const cellW = dim / cols;
       const cellH = dim / rows;
-      const winW = cellW * 0.50;
+      const winW = cellW * 0.52;
       const winH = cellH * 0.56;
       for (let r = 0; r < rows; r++) {
+        const isGroundRow = r === rows - 1 && rows >= 2;
         for (let col = 0; col < cols; col++) {
           const wx = col * cellW + (cellW - winW) * 0.5;
-          const wy = r * cellH + (cellH - winH) * 0.5;
-          // Stone lintel & sill
-          ctx.fillStyle = '#cbd5e1';
-          ctx.fillRect(wx - 2 * sc, wy - 3 * sc, winW + 4 * sc, Math.max(1, 2.6 * sc));
-          ctx.fillStyle = '#e2e8f0';
-          ctx.fillRect(wx - 2 * sc, wy + winH, winW + 4 * sc, Math.max(1, 3 * sc));
-          ctx.fillStyle = windowColorHex;
-          if (archedWindows && !isRetroPixel) {
+          const wy = isGroundRow ? r * cellH + cellH * 0.18 : r * cellH + (cellH - winH) * 0.5;
+          const activeW = isGroundRow ? cellW * 0.72 : winW;
+          const activeWx = isGroundRow ? col * cellW + (cellW - activeW) * 0.5 : wx;
+          const activeH = isGroundRow ? cellH * 0.7 : winH;
+          const seed = (r * 31 + col * 17 + cols * 7) % 11;
+          const isLitAtNight = isGroundRow || seed < 6;
+
+          if (!isGroundRow) {
+            ctx.fillStyle = '#cbd5e1';
+            ctx.fillRect(activeWx - 2 * sc, wy - 3 * sc, activeW + 4 * sc, Math.max(1, 2.8 * sc));
+            ctx.fillStyle = '#e2e8f0';
+            ctx.fillRect(activeWx - 2 * sc, wy + activeH, activeW + 4 * sc, Math.max(1, 3.2 * sc));
+          } else if (!isRetroPixel) {
+            // Retail ground storefront dark bronze aluminum bay surround
+            ctx.fillStyle = '#1e293b';
+            ctx.fillRect(activeWx - 3 * sc, wy - 3 * sc, activeW + 6 * sc, activeH + 5 * sc);
+          }
+
+          if (bCtx) {
+            bCtx.fillStyle = '#f2f2f2';
+            bCtx.fillRect(activeWx - 2 * sc, wy - 3 * sc, activeW + 4 * sc, 3 * sc);
+            bCtx.fillRect(activeWx - 2 * sc, wy + activeH, activeW + 4 * sc, 3.2 * sc);
+            bCtx.fillStyle = '#383838';
+            bCtx.fillRect(activeWx, wy, activeW, activeH);
+          }
+
+          ctx.fillStyle = isGroundRow ? '#0c233c' : windowColorHex;
+          if (archedWindows && !isGroundRow && !isRetroPixel) {
             ctx.beginPath();
-            ctx.arc(wx + winW * 0.5, wy + winW * 0.45, winW * 0.5, Math.PI, 0);
-            ctx.lineTo(wx + winW, wy + winH);
-            ctx.lineTo(wx, wy + winH);
+            ctx.arc(activeWx + activeW * 0.5, wy + activeW * 0.45, activeW * 0.5, Math.PI, 0);
+            ctx.lineTo(activeWx + activeW, wy + activeH);
+            ctx.lineTo(activeWx, wy + activeH);
             ctx.closePath();
             ctx.fill();
           } else {
-            ctx.fillRect(wx, wy, winW, winH);
+            ctx.fillRect(activeWx, wy, activeW, activeH);
           }
-          // Glass diagonal highlight + cross mullions
-          ctx.fillStyle = 'rgba(255,255,255,0.16)';
-          ctx.fillRect(wx + 2 * sc, wy + 2 * sc, winW * 0.35, winH * 0.42);
-          ctx.fillStyle = '#94a3b8';
-          ctx.fillRect(wx + winW * 0.48, wy + 2 * sc, Math.max(1, 1.5 * sc), winH - 2 * sc);
-          ctx.fillRect(wx + 2 * sc, wy + winH * 0.48, winW - 4 * sc, Math.max(1, 1.2 * sc));
+
+          if (eCtx && isLitAtNight) {
+            eCtx.fillStyle = isGroundRow ? '#ffdf9e' : seed % 2 === 0 ? '#ffd79a' : '#ffedb8';
+            eCtx.fillRect(activeWx + 2 * sc, wy + 2 * sc, activeW - 4 * sc, activeH - 4 * sc);
+            eCtx.fillStyle = '#000000';
+            eCtx.fillRect(activeWx + activeW * 0.48, wy, Math.max(1, 1.5 * sc), activeH);
+            eCtx.fillRect(activeWx, wy + activeH * 0.48, activeW, Math.max(1, 1.5 * sc));
+          }
+
+          ctx.fillStyle = isGroundRow ? 'rgba(186, 230, 253, 0.34)' : 'rgba(186, 230, 253, 0.24)';
+          ctx.fillRect(activeWx + 2 * sc, wy + 2 * sc, activeW - 4 * sc, activeH * 0.42);
+          ctx.fillStyle = isGroundRow ? '#334155' : '#64748b';
+          ctx.fillRect(activeWx + activeW * 0.48, wy + 2 * sc, Math.max(1, 1.5 * sc), activeH - 2 * sc);
+          if (!isGroundRow) {
+            ctx.fillRect(activeWx + 2 * sc, wy + activeH * 0.48, activeW - 4 * sc, Math.max(1, 1.2 * sc));
+          } else {
+            ctx.fillRect(activeWx + 2 * sc, wy + activeH * 0.28, activeW - 4 * sc, Math.max(1, 1.6 * sc));
+          }
         }
       }
     }
@@ -2087,7 +2200,40 @@ function generateCityDrivingTrack(circuit: CircuitInfo, quality?: GraphicsQualit
       tex.minFilter = THREE.NearestFilter;
       tex.magFilter = THREE.NearestFilter;
     }
-    return makeCityMat({ map: tex, roughness: 0.72, metalness: 0.08 });
+
+    let bumpTex: THREE.CanvasTexture | undefined;
+    if (bumpCanvas) {
+      bumpTex = new THREE.CanvasTexture(bumpCanvas);
+      bumpTex.wrapS = THREE.RepeatWrapping;
+      bumpTex.wrapT = THREE.RepeatWrapping;
+      bumpTex.anisotropy = preset.anisotropy;
+      disposables.push(bumpTex);
+    }
+    let emTex: THREE.CanvasTexture | undefined;
+    if (emCanvas) {
+      emTex = new THREE.CanvasTexture(emCanvas);
+      emTex.colorSpace = THREE.SRGBColorSpace;
+      emTex.wrapS = THREE.RepeatWrapping;
+      emTex.wrapT = THREE.RepeatWrapping;
+      emTex.anisotropy = preset.anisotropy;
+      disposables.push(emTex);
+    }
+    disposables.push(tex);
+
+    const mat = makeCityMat({
+      map: tex,
+      bumpMap: bumpTex,
+      bumpScale: isUltra ? 0.075 : 0.045,
+      emissive: emTex ? 0xffdfb0 : undefined,
+      emissiveMap: emTex,
+      emissiveIntensity: 0.0,
+      roughness: 0.76,
+      metalness: 0.1,
+    });
+    if (mat instanceof THREE.MeshStandardMaterial && emTex) {
+      nightWindowMats.push(mat);
+    }
+    return mat;
   };
 
   const getNearestRoadClearance = (px: number, pz: number) => {
@@ -2165,18 +2311,10 @@ function generateCityDrivingTrack(circuit: CircuitInfo, quality?: GraphicsQualit
     // Safety guard: never allow a landscaped tree to spawn inside or brushing a road corridor
     const clr = getNearestRoadClearance(tx, tz);
     if (clr.minEdge < 3.2 * scale) return;
-    const trunk = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.26 * scale, 0.36 * scale, 3.2 * scale, isRetroPixel ? 5 : 7),
-      treeTrunkMat
-    );
-    trunk.position.set(tx, 0.24 + 1.6 * scale, tz);
-    sceneryGroup.add(trunk);
-    const crown = new THREE.Mesh(
-      new THREE.DodecahedronGeometry(2.3 * scale, isRetroPixel ? 0 : 1),
-      treeFoliageMat
-    );
-    crown.position.set(tx, 0.24 + 4.1 * scale, tz);
-    sceneryGroup.add(crown);
+    const species: 'oak' | 'pine' = Math.abs(Math.round(tx * 0.3 + tz * 0.7)) % 5 === 0 ? 'pine' : 'oak';
+    const builtTree = buildDetailedSingleTreeGroup(tx, tz, scale, isRetroPixel, isUltra, species);
+    sceneryGroup.add(builtTree.group);
+    disposables.push(...builtTree.disposables);
   };
 
   const drawParkingLotBay = (cx: number, cz: number, width: number, depth: number, rotY = 0) => {
@@ -2298,6 +2436,7 @@ function generateCityDrivingTrack(circuit: CircuitInfo, quality?: GraphicsQualit
     addLandscapedTree,
     drawParkingLotBay,
     suburbanBatch,
+    disposables,
   });
 
   // Commit all batched suburban houses + 2048x2048 street-facing address plaque atlases
@@ -2459,6 +2598,18 @@ function generateCityDrivingTrack(circuit: CircuitInfo, quality?: GraphicsQualit
     });
   }
 
+  // Partition the 5,200m x 3,150m Maryland world into 240m x 240m spatial chunks + wide road corridors
+  const chunkManager = new WorldChunkManager(240);
+  chunkManager.partitionStaticGroups([sceneryGroup, group]);
+
+  const baseChunkMaxDistance = isUltra
+    ? 820
+    : preset.id === 'high'
+    ? 740
+    : preset.id === 'medium'
+    ? 540
+    : 420;
+
   // Dummy startGantry for interface compatibility
   const startGantry = new THREE.Group();
   const startLights: THREE.Mesh[] = [];
@@ -2470,10 +2621,15 @@ function generateCityDrivingTrack(circuit: CircuitInfo, quality?: GraphicsQualit
     startLights.push(m);
   }
 
-  // Updates all 49 intersection Red/Yellow/Green traffic signal bulbs in real time
-  const updateCityTrafficLights = (timeSec: number, _playerX: number, _playerZ: number) => {
+  // Updates intersection Red/Yellow/Green traffic signal bulbs within 300m of player & drives subtle grass/foliage wind sway
+  const updateCityTrafficLights = (timeSec: number, playerX: number, playerZ: number) => {
+    updateFoliageWindTime(timeSec);
+    const maxDistSq = 300 * 300;
     for (let i = 0; i < trafficLightGantries.length; i++) {
       const g = trafficLightGantries[i];
+      const dx = g.ix - playerX;
+      const dz = g.iz - playerZ;
+      if (dx * dx + dz * dz > maxDistSq) continue;
       const state = getIntersectionSignalState(g.ix, g.iz, timeSec);
 
       g.nsBulbs.red.color.setHex(state.ns === 'RED' ? 0xff1e1e : 0x2a0808);
@@ -2483,6 +2639,27 @@ function generateCityDrivingTrack(circuit: CircuitInfo, quality?: GraphicsQualit
       g.ewBulbs.red.color.setHex(state.ew === 'RED' ? 0xff1e1e : 0x2a0808);
       g.ewBulbs.yellow.color.setHex(state.ew === 'YELLOW' ? 0xfacc15 : 0x282004);
       g.ewBulbs.green.color.setHex(state.ew === 'GREEN' ? 0x10b981 : 0x052814);
+    }
+  };
+
+  const updateWorldChunks = (
+    camera: THREE.Camera,
+    playerPos: THREE.Vector3,
+    opts: { isDynamicMode: boolean; qualityFactor: number; chunkLoadScale?: number }
+  ) => {
+    chunkManager.update(camera, playerPos, {
+      isDynamicMode: opts.isDynamicMode,
+      qualityFactor: opts.qualityFactor,
+      baseMaxDistance: baseChunkMaxDistance,
+      chunkLoadScale: opts.chunkLoadScale,
+    });
+  };
+
+  const setReflectionChunkCull = (active: boolean, playerPos?: THREE.Vector3) => {
+    if (active && playerPos) {
+      chunkManager.applyReflectionRange(playerPos, 170);
+    } else {
+      chunkManager.restoreAfterReflection();
     }
   };
 
@@ -2533,9 +2710,19 @@ function generateCityDrivingTrack(circuit: CircuitInfo, quality?: GraphicsQualit
     const w = Math.max(0, Math.min(1, wetness));
     reflectionUniforms.uRoadWetness.value = w;
     if (streetAsphaltMat instanceof THREE.MeshStandardMaterial) {
-      streetAsphaltMat.roughness = isUltra ? 0.78 - 0.56 * w : 0.84 - 0.46 * w;
-      streetAsphaltMat.metalness = isUltra ? 0.04 + 0.18 * w : 0.03 + 0.12 * w;
-      streetAsphaltMat.envMapIntensity = isUltra ? 0.45 + 0.95 * w : 0.35 + 0.55 * w;
+      streetAsphaltMat.roughness = isUltra ? 0.96 - 0.58 * w : 0.94 - 0.44 * w;
+      streetAsphaltMat.metalness = isUltra ? 0.04 + 0.16 * w : 0.03 + 0.10 * w;
+      streetAsphaltMat.envMapIntensity = isUltra ? 0.62 + 0.95 * w : 0.42 + 0.55 * w;
+    }
+  };
+  let lastAppliedNight = -1;
+  const setNightIntensity = (nightFactor: number) => {
+    const clamped = Math.max(0, Math.min(1, nightFactor));
+    if (Math.abs(clamped - lastAppliedNight) < 0.03) return;
+    lastAppliedNight = clamped;
+    const emInt = clamped * (isUltra ? 1.15 : 0.85);
+    for (let i = 0; i < nightWindowMats.length; i++) {
+      nightWindowMats[i].emissiveIntensity = emInt;
     }
   };
   const setReflectionPassMode = (active: boolean) => {
@@ -2566,11 +2753,14 @@ function generateCityDrivingTrack(circuit: CircuitInfo, quality?: GraphicsQualit
     setReflectionTexture,
     setReflectionPassMode,
     setRoadWetness,
+    setNightIntensity,
     getTrackPointAtProgress,
     getTargetCornerSpeedKmh,
     checkSurfaceType,
     updateInfiniteRoadOrigin,
     updateCityTrafficLights,
+    updateWorldChunks,
+    setReflectionChunkCull,
     dispose: () => {
       for (let i = 0; i < disposables.length; i++) {
         disposables[i].dispose();

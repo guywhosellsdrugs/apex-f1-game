@@ -12,6 +12,12 @@ import {
   buildSuburbanHouseMesh,
 } from './cityTrafficBuilder';
 import { SuburbanBatchBuilder } from './suburbanBatchBuilder';
+import {
+  GrassPatchPlacement,
+  WoodlandTreePlacement,
+  populateChunkedGrassAndShrubs,
+  populateInstancedWoodlandTrees,
+} from './foliageBuilder';
 
 export interface MarylandStateBuilderContext {
   group: THREE.Group;
@@ -19,6 +25,7 @@ export interface MarylandStateBuilderContext {
   cityBuildings: CityBuildingBox[];
   suburbanHouses: BuiltSuburbanHouse[];
   suburbanBatch: SuburbanBatchBuilder;
+  disposables: { dispose: () => void }[];
   streetAsphaltMat: THREE.Material;
   whiteLineMat: THREE.Material;
   treeTrunkMat: THREE.Material;
@@ -53,6 +60,7 @@ export function buildMarylandStateDistrict(ctx: MarylandStateBuilderContext): vo
     cityBuildings,
     suburbanHouses,
     suburbanBatch,
+    disposables,
     streetAsphaltMat,
     whiteLineMat,
     treeTrunkMat,
@@ -1274,13 +1282,41 @@ export function buildMarylandStateDistrict(ctx: MarylandStateBuilderContext): vo
   }
 
   // =========================================================================
-  // 8. STATEWIDE INSTANCED WOODLAND BELTS (Appalachian Pines & Piedmont Oaks)
+  // 8. STATEWIDE INSTANCED BRANCHED WOODLAND BELTS & 3D MEADOW GRASS TUFTS
   // =========================================================================
   {
-    const treePlacements: { x: number; z: number; s: number }[] = [];
-    const seeds = 420;
+    const treePlacements: WoodlandTreePlacement[] = [];
+    const grassPatches: GrassPatchPlacement[] = [];
+
+    const isInvalidStateSpot = (tx: number, tz: number, roadPad: number, bldgPad: number) => {
+      if (tx > 1520 && tx < 2030) return true; // Chesapeake Bay
+      if (tx > 2500) return true; // Ocean
+      if (tx < -2320 && tx > -2505 && tz > -580 && tz < -340) return true; // Deep Creek
+      if (tz > 1880 && tx < -20 && tx > -960) return true; // Potomac
+      if (tx > 1060 && tx < 1600 && tz > -520 && tz < 110) return true; // Urban Baltimore core
+      if (tx > 910 && tx < 1210 && tz > 280 && tz < 490) return true; // BWI runways
+      if (tx > -1200 && tx < -10 && tz > 160 && tz < 1260) return true; // Gaithersburg handles its own dense trees
+
+      const clrSq = roadPad * roadPad;
+      for (let rIdx = 0; rIdx < ALL_MARYLAND_ROADS.length; rIdx++) {
+        const road = ALL_MARYLAND_ROADS[rIdx];
+        for (let k = 0; k < road.points.length - 1; k++) {
+          const a = road.points[k];
+          const b = road.points[k + 1];
+          if (distSqPointToSeg(tx, tz, a.x, a.z, b.x, b.z) < clrSq) return true;
+        }
+      }
+      for (let b = 0; b < cityBuildings.length; b++) {
+        const box = cityBuildings[b];
+        if (tx >= box.minX - bldgPad && tx <= box.maxX + bldgPad && tz >= box.minZ - bldgPad && tz <= box.maxZ + bldgPad) {
+          return true;
+        }
+      }
+      return false;
+    };
+
+    const seeds = 440;
     for (let i = 0; i < seeds; i++) {
-      // Deterministic Halton-like statewide scatter avoiding all roads, cities, water & airports
       const rx = Math.sin(i * 12.9898 + 1.3) * 43758.5453;
       const rz = Math.sin(i * 78.233 + 4.7) * 29431.1237;
       const ux = rx - Math.floor(rx);
@@ -1288,74 +1324,34 @@ export function buildMarylandStateDistrict(ctx: MarylandStateBuilderContext): vo
       const tx = -2550 + ux * 4950;
       const tz = -880 + uz * 2820;
 
-      // Skip Bay, Atlantic, Potomac, Deep Creek, Harbor, Gaithersburg urban bowl & BWI
-      if (tx > 1520 && tx < 2030) continue; // Chesapeake Bay
-      if (tx > 2500) continue; // Ocean
-      if (tx < -2320 && tx > -2505 && tz > -580 && tz < -340) continue; // Deep Creek
-      if (tz > 1880 && tx < -20 && tx > -960) continue; // Potomac
-      if (tx > 1060 && tx < 1600 && tz > -520 && tz < 110) continue; // Urban Baltimore core
-      if (tx > 910 && tx < 1210 && tz > 280 && tz < 490) continue; // BWI runways
-      if (tx > -1200 && tx < -10 && tz > 160 && tz < 1260) continue; // Gaithersburg handles its own dense trees
-
-      // Check clearance from all statewide roads (>= 32m from centerline)
-      let nearRoad = false;
-      for (let rIdx = 0; rIdx < ALL_MARYLAND_ROADS.length; rIdx++) {
-        const road = ALL_MARYLAND_ROADS[rIdx];
-        for (let k = 0; k < road.points.length - 1; k++) {
-          const a = road.points[k];
-          const b = road.points[k + 1];
-          if (distSqPointToSeg(tx, tz, a.x, a.z, b.x, b.z) < 34 * 34) {
-            nearRoad = true;
-            break;
-          }
-        }
-        if (nearRoad) break;
-      }
-      if (nearRoad) continue;
-
-      // Check clearance from building footprints
-      let nearBldg = false;
-      for (let b = 0; b < cityBuildings.length; b++) {
-        const box = cityBuildings[b];
-        if (tx >= box.minX - 10 && tx <= box.maxX + 10 && tz >= box.minZ - 10 && tz <= box.maxZ + 10) {
-          nearBldg = true;
-          break;
-        }
-      }
-      if (nearBldg) continue;
-
-      treePlacements.push({ x: tx, z: tz, s: 0.9 + (i % 5) * 0.16 });
+      if (isInvalidStateSpot(tx, tz, 34, 10)) continue;
+      // Western Maryland mountains get more Eastern Pines; Piedmont/Shore get mixed Oaks & Pines
+      const isAppalachian = tx < -950;
+      treePlacements.push({
+        x: tx,
+        z: tz,
+        s: 0.9 + (i % 5) * 0.16,
+        species: isAppalachian ? (i % 3 === 0 ? 'oak' : 'pine') : i % 4 === 0 ? 'pine' : 'oak',
+      });
     }
 
-    if (treePlacements.length > 0) {
-      const trunkGeo = new THREE.CylinderGeometry(0.32, 0.45, 3.8, isRetroPixel ? 5 : 6);
-      const crownGeo = new THREE.DodecahedronGeometry(2.7, isRetroPixel ? 0 : 1);
-      const trunkInst = new THREE.InstancedMesh(trunkGeo, treeTrunkMat, treePlacements.length);
-      const crownInst = new THREE.InstancedMesh(crownGeo, treeFoliageMat, treePlacements.length);
-      const dummy = new THREE.Object3D();
-      const foliageTint = new THREE.Color();
+    populateInstancedWoodlandTrees(sceneryGroup, treePlacements, { isUltra, isRetroPixel }, disposables);
 
-      for (let i = 0; i < treePlacements.length; i++) {
-        const tp = treePlacements[i];
-        dummy.position.set(tp.x, 0.25 + 1.9 * tp.s, tp.z);
-        dummy.rotation.set(0, (i * 0.9) % (Math.PI * 2), 0);
-        dummy.scale.setScalar(tp.s);
-        dummy.updateMatrix();
-        trunkInst.setMatrixAt(i, dummy.matrix);
-
-        dummy.position.set(tp.x, 0.25 + 4.8 * tp.s, tp.z);
-        dummy.updateMatrix();
-        crownInst.setMatrixAt(i, dummy.matrix);
-
-        foliageTint.setHex(i % 3 === 0 ? 0x2d6a2e : i % 3 === 1 ? 0x1e5628 : 0x3b7a36);
-        crownInst.setColorAt(i, foliageTint);
-      }
-      trunkInst.instanceMatrix.needsUpdate = true;
-      crownInst.instanceMatrix.needsUpdate = true;
-      if (crownInst.instanceColor) crownInst.instanceColor.needsUpdate = true;
-      trunkInst.computeBoundingSphere();
-      crownInst.computeBoundingSphere();
-      sceneryGroup.add(trunkInst, crownInst);
+    for (let i = 0; i < 650; i++) {
+      const rx = Math.sin(i * 41.31 + 2.9) * 19384.217;
+      const rz = Math.sin(i * 93.17 + 7.1) * 35712.883;
+      const ux = rx - Math.floor(rx);
+      const uz = rz - Math.floor(rz);
+      const tx = -2500 + ux * 4850;
+      const tz = -860 + uz * 2760;
+      if (isInvalidStateSpot(tx, tz, 22, 4)) continue;
+      grassPatches.push({
+        x: tx,
+        z: tz,
+        s: 1.0 + (i % 4) * 0.18,
+        kind: i % 8 === 0 ? 'shrub' : 'grass',
+      });
     }
+    populateChunkedGrassAndShrubs(sceneryGroup, grassPatches, { isUltra, isRetroPixel }, disposables);
   }
 }
