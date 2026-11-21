@@ -669,6 +669,7 @@ const MapInnerWorkspace: React.FC<
   }, [playerWorldPos]);
 
   const [mapType, setMapType] = useState<'roadmap' | 'hybrid' | 'satellite' | 'terrain'>('roadmap');
+  const [isDarkMap, setIsDarkMap] = useState<boolean>(true);
   const [showTraffic, setShowTraffic] = useState<boolean>(true);
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
   const [openLandmarkId, setOpenLandmarkId] = useState<string | null>(null);
@@ -825,6 +826,19 @@ const MapInnerWorkspace: React.FC<
                 {t}
               </button>
             ))}
+
+            <button
+              type="button"
+              onClick={() => setIsDarkMap((prev) => !prev)}
+              className={`ml-1 px-2.5 py-1 rounded-lg font-bold cursor-pointer border transition-colors ${
+                isDarkMap
+                  ? 'bg-indigo-500/20 border-indigo-400 text-indigo-200'
+                  : 'bg-amber-400/20 border-amber-300 text-amber-200'
+              }`}
+              title="Toggle Dark / Day Google Maps style"
+            >
+              {isDarkMap ? '🌙 Dark' : '☀️ Day'}
+            </button>
 
             <button
               type="button"
@@ -987,7 +1001,7 @@ const MapInnerWorkspace: React.FC<
 
             {/* Category Filter Pills */}
             <div className="px-3 py-2 border-b border-white/10 flex flex-wrap gap-1 shrink-0">
-              {['ALL', 'Mosque', 'Neighborhood', 'Landmarks', 'Highway & Transit', 'Heist / City'].map((cat) => (
+              {['ALL', 'Mosque', 'Sports', 'Pit & Meets', 'Neighborhood', 'Landmarks', 'Highway & Transit', 'Heist / City'].map((cat) => (
                 <button
                   key={cat}
                   type="button"
@@ -1067,6 +1081,7 @@ const MapInnerWorkspace: React.FC<
                 defaultCenter={playerLatLng}
                 defaultZoom={12}
                 mapTypeId={mapType}
+                colorScheme={isDarkMap ? 'DARK' : 'LIGHT'}
                 gestureHandling="greedy"
                 streetViewControl={true}
                 mapTypeControl={false}

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useMemo, useState } from 'react';
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
@@ -24,8 +24,12 @@ import {
   CITY_REGULAR_JOBS_CATALOG,
   CITY_HEIST_TARGETS_CATALOG,
   CITY_HOUSES_CATALOG,
+  CITY_SPORTS_CATALOG,
+  CITY_SERVICE_STATIONS,
+  CITY_CAR_MEET_ZONES,
   getEffectiveStreetCarSpec,
   searchMarylandGpsDirectory,
+  snapWorldPointToNearestRoad,
   MarylandGpsEntry,
   GpsManeuverType,
 } from '../game/cityTrafficBuilder';
@@ -46,6 +50,7 @@ import { BroadcastHUD } from './BroadcastHUD';
 import { ControlsSettingsModal } from './ControlsSettingsModal';
 import { BankHeistMinigame } from './BankHeistMinigame';
 import { LockpickMinigame } from './LockpickMinigame';
+import { SportsMinigame } from './SportsMinigame';
 import { MarylandGoogleMapModal } from './MarylandGoogleMapModal';
 import { multiplayerService, RoomPublicState } from '../services/multiplayerService';
 import { recordCircuitLapTime } from '../services/firebase';
@@ -65,11 +70,13 @@ import {
   onMotionBlurChange,
 } from '../utils/graphicsSettings';
 
-// High-speed radial/velocity motion blur shader for cinematic flow and sense of speed
+// High-speed cinematic radial velocity motion blur shader with sharp player-car focus cutout
 const MotionBlurShader = {
   uniforms: {
     tDiffuse: { value: null },
     uCenter: { value: new THREE.Vector2(0.5, 0.5) },
+    uCarUv: { value: new THREE.Vector2(0.5, 0.36) },
+    uFocusRadius: { value: 0.23 },
     uIntensity: { value: 0.0 },
     uResolution: { value: new THREE.Vector2(1920, 1080) },
   },
@@ -83,6 +90,8 @@ const MotionBlurShader = {
   fragmentShader: `
     uniform sampler2D tDiffuse;
     uniform vec2 uCenter;
+    uniform vec2 uCarUv;
+    uniform float uFocusRadius;
     uniform float uIntensity;
     uniform vec2 uResolution;
     varying vec2 vUv;
@@ -93,12 +102,16 @@ const MotionBlurShader = {
         return;
       }
 
+      float aspect = max(1.0, uResolution.x / max(1.0, uResolution.y));
+      vec2 carDelta = (vUv - uCarUv) * vec2(aspect * 0.72, 1.15);
+      float carDist = length(carDelta);
+      // Keep ~28% directional speed blur on the car itself so it conveys speed while remaining sharp & clear
+      float carMask = mix(0.28, 1.0, smoothstep(uFocusRadius * 0.65, uFocusRadius + 0.22, carDist));
+
       vec2 dir = (uCenter - vUv);
       float dist = length(dir);
-
-      // Keep center of screen (cockpit/road ahead) clear; peripheral edges blur along velocity
-      float mask = smoothstep(0.06, 0.72, dist);
-      float strength = uIntensity * (0.35 + mask * 0.65);
+      float edgeMask = smoothstep(0.08, 0.76, dist);
+      float strength = uIntensity * carMask * (0.28 + edgeMask * 0.72);
 
       if (strength <= 0.0005) {
         gl_FragColor = texture2D(tDiffuse, vUv);
@@ -113,8 +126,8 @@ const MotionBlurShader = {
         float stepFraction = (float(i) / float(SAMPLES - 1)) - 0.5;
         vec2 sampleUv = clamp(vUv + dir * stepFraction * strength, 0.0, 1.0);
 
-        // Chromatic split on peripheral streaks for high-speed cinematic optics
-        float chromatic = strength * 0.018 * float(i - 6);
+        // Subtle peripheral chromatic dispersion scaled down near center car
+        float chromatic = strength * 0.004 * float(i - 6) * smoothstep(uFocusRadius, uFocusRadius + 0.25, carDist);
         vec2 uvR = clamp(sampleUv + dir * chromatic, 0.0, 1.0);
         vec2 uvB = clamp(sampleUv - dir * chromatic, 0.0, 1.0);
 
@@ -281,6 +294,20 @@ export const RaceView: React.FC<RaceViewProps> = ({
   const isPausedRef = useRef<boolean>(false);
   const [restartQualifyingKey, setRestartQualifyingKey] = useState<number>(0);
   const [isOpenFieldHudCollapsed, setIsOpenFieldHudCollapsed] = useState<boolean>(false);
+
+  const handleSportsMinigameComplete = useCallback((cashEarned: number, summaryBanner: string) => {
+    if (physicsRef.current) {
+      physicsRef.current.completeSportsMinigame(cashEarned, summaryBanner);
+      setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
+    }
+  }, []);
+
+  const handleSportsMinigameAbort = useCallback(() => {
+    if (physicsRef.current) {
+      physicsRef.current.abortSportsMinigame();
+      setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
+    }
+  }, []);
 
   const togglePause = (forceState?: boolean) => {
     if (physicsRef.current?.raceFinished) return;
@@ -546,7 +573,7 @@ export const RaceView: React.FC<RaceViewProps> = ({
       : '';
     const isSoftwareGl = /SwiftShader|llvmpipe|Software/i.test(gpuRendererStr);
 
-    const ultraPixelCap = width > 1600 ? 1.35 : 1.5;
+    const ultraPixelCap = width > 1600 ? 1.5 : 1.65;
     const basePresetPixelRatio =
       gfxPreset.id === 'ultra' ? Math.min(gfxPreset.maxPixelRatio, ultraPixelCap) : gfxPreset.maxPixelRatio;
     const initialPixelRatio = isSoftwareGl
@@ -562,8 +589,8 @@ export const RaceView: React.FC<RaceViewProps> = ({
     }
     const isHighOrUltra = gfxPreset.id === 'high' || gfxPreset.id === 'ultra';
     const isRetroAny = gfxPreset.id === 'retro' || gfxPreset.id === 'retro_pixel';
-    renderer.toneMapping = isHighOrUltra ? THREE.ACESFilmicToneMapping : THREE.NoToneMapping;
-    renderer.toneMappingExposure = gfxPreset.id === 'ultra' ? 1.06 : 1.0;
+    renderer.toneMapping = isHighOrUltra ? THREE.AgXToneMapping : THREE.NoToneMapping;
+    renderer.toneMappingExposure = gfxPreset.id === 'ultra' ? 1.03 : 1.0;
 
     // Apply crisp nearest-neighbor pixel upscaling ONLY for 'retro_pixel' (leave 'retro' completely untouched)
     renderer.domElement.style.imageRendering = gfxPreset.id === 'retro_pixel' ? 'pixelated' : 'auto';
@@ -720,32 +747,31 @@ export const RaceView: React.FC<RaceViewProps> = ({
       const sunCol = new THREE.Color(sunHex);
       const gndCol = new THREE.Color(gndHex);
       const eGrad = eCtx.createLinearGradient(0, 0, 0, 256);
-      // High-contrast Forza sky zenith -> sunlit horizon -> dark asphalt ground bounce
-      eGrad.addColorStop(0.0, `#${skyCol.clone().multiplyScalar(0.52).getHexString()}`);
-      eGrad.addColorStop(0.36, `#${skyCol.clone().multiplyScalar(0.95).getHexString()}`);
-      eGrad.addColorStop(0.485, `#${sunCol.clone().lerp(skyCol, 0.32).multiplyScalar(1.08).getHexString()}`);
-      eGrad.addColorStop(0.525, '#171b24');
-      eGrad.addColorStop(1.0, `#${gndCol.clone().multiplyScalar(0.28).getHexString()}`);
+      // Photorealistic atmospheric zenith -> horizon scatter -> natural dark ground bounce
+      eGrad.addColorStop(0.0, `#${skyCol.clone().multiplyScalar(0.55).getHexString()}`);
+      eGrad.addColorStop(0.38, `#${skyCol.clone().multiplyScalar(0.92).getHexString()}`);
+      eGrad.addColorStop(0.488, `#${sunCol.clone().lerp(skyCol, 0.42).getHexString()}`);
+      eGrad.addColorStop(0.525, '#1b1f26');
+      eGrad.addColorStop(1.0, `#${gndCol.clone().multiplyScalar(0.32).getHexString()}`);
       eCtx.fillStyle = eGrad;
       eCtx.fillRect(0, 0, 512, 256);
 
-      // Soft horizon atmospheric scattering band + distant urban reflection streaks
-      const horizonBand = eCtx.createLinearGradient(0, 102, 0, 140);
+      // Soft horizon atmospheric scattering band (zero artificial stripes!)
+      const horizonBand = eCtx.createLinearGradient(0, 102, 0, 142);
       horizonBand.addColorStop(0, 'rgba(255, 255, 255, 0.0)');
-      horizonBand.addColorStop(0.46, `rgba(255, 246, 232, ${glowAlpha.toFixed(2)})`);
-      horizonBand.addColorStop(0.54, `rgba(${Math.round(skyCol.r * 255)}, ${Math.round(skyCol.g * 255)}, ${Math.round(skyCol.b * 255)}, ${(glowAlpha * 0.6).toFixed(2)})`);
+      horizonBand.addColorStop(0.46, `rgba(255, 248, 236, ${(glowAlpha * 0.65).toFixed(2)})`);
+      horizonBand.addColorStop(0.56, `rgba(${Math.round(skyCol.r * 255)}, ${Math.round(skyCol.g * 255)}, ${Math.round(skyCol.b * 255)}, ${(glowAlpha * 0.45).toFixed(2)})`);
       horizonBand.addColorStop(1, 'rgba(255, 255, 255, 0.0)');
       eCtx.fillStyle = horizonBand;
-      eCtx.fillRect(0, 102, 512, 38);
+      eCtx.fillRect(0, 102, 512, 40);
 
-      for (let x = 16; x < 512; x += 48) {
-        const beamGrad = eCtx.createLinearGradient(x, 86, x, 134);
-        beamGrad.addColorStop(0, 'rgba(255, 255, 255, 0.0)');
-        beamGrad.addColorStop(0.65, `rgba(255, 248, 230, ${(glowAlpha * 0.72).toFixed(2)})`);
-        beamGrad.addColorStop(1, 'rgba(255, 255, 255, 0.0)');
-        eCtx.fillStyle = beamGrad;
-        eCtx.fillRect(x, 86, 16, 48);
-      }
+      // Natural solar aureole glow on sky dome
+      const sunGlow = eCtx.createRadialGradient(256, 84, 4, 256, 84, 72);
+      sunGlow.addColorStop(0, `rgba(255, 252, 240, ${Math.min(0.85, glowAlpha * 1.15).toFixed(2)})`);
+      sunGlow.addColorStop(0.4, `rgba(255, 244, 220, ${(glowAlpha * 0.42).toFixed(2)})`);
+      sunGlow.addColorStop(1, 'rgba(255, 255, 255, 0.0)');
+      eCtx.fillStyle = sunGlow;
+      eCtx.fillRect(180, 12, 152, 144);
 
       const envDomeTex = new THREE.CanvasTexture(envCanvas);
       envDomeTex.colorSpace = THREE.SRGBColorSpace;
@@ -755,26 +781,7 @@ export const RaceView: React.FC<RaceViewProps> = ({
       );
       envScene.add(envSphere);
 
-      const softPanelMat = new THREE.MeshBasicMaterial({
-        color: sunCol.clone().lerp(new THREE.Color(0xffffff), 0.55).multiplyScalar(0.95),
-        side: THREE.DoubleSide,
-      });
-      const panelLeft = new THREE.Mesh(new THREE.PlaneGeometry(38, 7.5), softPanelMat);
-      panelLeft.position.set(-28, 32, 0);
-      panelLeft.lookAt(0, 0, 0);
-      envScene.add(panelLeft);
-
-      const panelRight = new THREE.Mesh(new THREE.PlaneGeometry(38, 7.5), softPanelMat);
-      panelRight.position.set(28, 28, -10);
-      panelRight.lookAt(0, 0, 0);
-      envScene.add(panelRight);
-
-      const panelFront = new THREE.Mesh(new THREE.PlaneGeometry(32, 6), softPanelMat);
-      panelFront.position.set(0, 26, -34);
-      panelFront.lookAt(0, 0, 0);
-      envScene.add(panelFront);
-
-      const nextRT = pmremGenerator.fromScene(envScene, 0.025);
+      const nextRT = pmremGenerator.fromScene(envScene, 0.035);
       if (pmremRenderTarget) {
         pmremRenderTarget.dispose();
       }
@@ -784,48 +791,44 @@ export const RaceView: React.FC<RaceViewProps> = ({
       envSphere.geometry.dispose();
       (envSphere.material as THREE.MeshBasicMaterial).dispose();
       envDomeTex.dispose();
-      panelLeft.geometry.dispose();
-      panelRight.geometry.dispose();
-      panelFront.geometry.dispose();
-      softPanelMat.dispose();
     };
 
     if (gfxPreset.useEnvironmentReflections) {
       pmremGenerator = new THREE.PMREMGenerator(renderer);
       pmremGenerator.compileCubemapShader();
-      rebuildPmremEnvironment(hemiSky, sunColor, hemiGround, 0.45);
+      rebuildPmremEnvironment(hemiSky, sunColor, hemiGround, 0.42);
     }
 
-    // Calibrate direct vs ambient contrast so sun shadows and normal maps pop with Forza Horizon depth
-    const hemiIntensity = gfxPreset.id === 'ultra' ? 0.54 : gfxPreset.id === 'high' ? 0.62 : 0.92;
+    // Calibrate direct vs ambient contrast for rich photorealistic shadow depth without crushing midtones
+    const hemiIntensity = gfxPreset.id === 'ultra' ? 0.66 : gfxPreset.id === 'high' ? 0.64 : 0.92;
     const hemiLight = new THREE.HemisphereLight(hemiSky, hemiGround, hemiIntensity);
     scene.add(hemiLight);
 
-    const baseAmbient = gfxPreset.id === 'ultra' ? 0.24 : gfxPreset.id === 'high' ? 0.36 : Math.max(0.68, circuit.ambientLight * 0.85);
+    const baseAmbient = gfxPreset.id === 'ultra' ? 0.34 : gfxPreset.id === 'high' ? 0.38 : Math.max(0.68, circuit.ambientLight * 0.85);
     const ambientLight = new THREE.AmbientLight(0xffffff, baseAmbient);
     scene.add(ambientLight);
 
     const calibratedSunIntensity =
       gfxPreset.id === 'ultra'
-        ? sunIntensity * 1.38
+        ? sunIntensity * 1.24
         : gfxPreset.id === 'high'
-        ? sunIntensity * 1.18
+        ? sunIntensity * 1.12
         : sunIntensity;
     const sunLight = new THREE.DirectionalLight(sunColor, calibratedSunIntensity);
     sunLight.castShadow = renderer.shadowMap.enabled;
     if (renderer.shadowMap.enabled) {
       sunLight.shadow.mapSize.width = gfxPreset.shadowMapSize;
       sunLight.shadow.mapSize.height = gfxPreset.shadowMapSize;
-      const shadowRange = gfxPreset.id === 'ultra' ? 62 : isCityDrivingMode ? 80 : 78;
+      const shadowRange = gfxPreset.id === 'ultra' ? 64 : isCityDrivingMode ? 80 : 78;
       sunLight.shadow.camera.left = -shadowRange;
       sunLight.shadow.camera.right = shadowRange;
       sunLight.shadow.camera.top = shadowRange;
       sunLight.shadow.camera.bottom = -shadowRange;
       sunLight.shadow.camera.near = 2;
       sunLight.shadow.camera.far = 230;
-      sunLight.shadow.bias = -0.00032;
-      sunLight.shadow.normalBias = 0.022;
-      sunLight.shadow.radius = gfxPreset.id === 'ultra' ? 1.6 : 2.0;
+      sunLight.shadow.bias = -0.00022;
+      sunLight.shadow.normalBias = 0.018;
+      sunLight.shadow.radius = gfxPreset.id === 'ultra' ? 2.2 : 2.0;
     }
     scene.add(sunLight);
     scene.add(sunLight.target);
@@ -884,11 +887,12 @@ export const RaceView: React.FC<RaceViewProps> = ({
         {
           minFilter: THREE.LinearFilter,
           magFilter: THREE.LinearFilter,
-          colorSpace: THREE.SRGBColorSpace,
+          colorSpace: THREE.NoColorSpace,
+          type: gfxPreset.id === 'ultra' ? THREE.HalfFloatType : THREE.UnsignedByteType,
         }
       );
       reflectionCamera = new THREE.PerspectiveCamera(camera.fov, width / height, 0.1, 1600);
-      track.setReflectionTexture(planarReflectionRT.texture, gfxPreset.id === 'ultra' ? 0.22 : 0.12);
+      track.setReflectionTexture(planarReflectionRT.texture, gfxPreset.id === 'ultra' ? 0.20 : 0.12);
       track.setRoadWetness?.(0.0);
     }
     const reflectionBgColor = new THREE.Color(0x020308);
@@ -903,9 +907,10 @@ export const RaceView: React.FC<RaceViewProps> = ({
         samples: isUltra && rtWidth < 1950 && !isSoftwareGl ? 2 : 0,
         type: isUltra ? THREE.HalfFloatType : THREE.UnsignedByteType,
       });
-      const effectivePixelRatio = motionBlurEnabledRef.current
-        ? Math.min(1.15, pixelRatio * 0.85)
-        : pixelRatio;
+      const effectivePixelRatio =
+        !isUltra && motionBlurEnabledRef.current
+          ? Math.min(1.15, pixelRatio * 0.85)
+          : pixelRatio;
       composer = new EffectComposer(renderer, rt);
       composer.setSize(width, height);
       composer.setPixelRatio(effectivePixelRatio);
@@ -916,9 +921,9 @@ export const RaceView: React.FC<RaceViewProps> = ({
       if (isUltra && !isSoftwareGl) {
         bloomPassRef = new UnrealBloomPass(
           new THREE.Vector2(Math.floor(width * 0.5), Math.floor(height * 0.5)),
-          0.26, // crisp Forza-style specular bloom on LED headlights, taillights, and neon signage
-          0.48,
-          0.86
+          0.16, // tight photoreal HDR bloom exclusively on headlights, brake LEDs, and sun glints
+          0.38,
+          1.08
         );
         composer.addPass(bloomPassRef);
       }
@@ -974,7 +979,9 @@ export const RaceView: React.FC<RaceViewProps> = ({
       physics.setPracticeBotCount(practiceBotCount ?? 19);
     }
     if (isCityDrivingMode) {
-      soundEngine.setStreetCarEngineProfile(physics.cityPursuitStats.currentStreetCar.id);
+      const initCarId = physics.cityPursuitStats.currentStreetCar.id;
+      const initTrimId = physics.cityPursuitStats.activeTrimByCar[initCarId];
+      soundEngine.setStreetCarEngineProfile(initCarId, initTrimId);
       try {
         const pendingRaw = localStorage.getItem('apex26_pending_md_gps');
         if (pendingRaw) {
@@ -1257,12 +1264,27 @@ export const RaceView: React.FC<RaceViewProps> = ({
     const scratchTargetLook = new THREE.Vector3();
     const scratchExtrapolated = new THREE.Vector3();
     const scratchGarageRight = new THREE.Vector3();
+    const scratchCarProj = new THREE.Vector3();
     const cityTrafficProjMatrix = new THREE.Matrix4();
     const cityTrafficFrustum = new THREE.Frustum();
     const cityTrafficSphere = new THREE.Sphere(new THREE.Vector3(), 4.2);
 
     const renderLoop = (time: number) => {
       animFrameId = requestAnimationFrame(renderLoop);
+
+      // FULLSCREEN MINIGAME GPU SUSPEND: Skip all 3D scene/shadow/reflection GPU draw calls until player exits
+      const inFullscreenMinigame = Boolean(
+        physics.cityPursuitStats.activeBankMinigameTarget ||
+          physics.cityPursuitStats.activeLockpickTarget ||
+          physics.cityPursuitStats.activeSportsMinigame
+      );
+      if (inFullscreenMinigame) {
+        lastTime = time;
+        lastFpsSampleTime = time;
+        fpsSampleFrames = 0;
+        return;
+      }
+
       frameCount++;
       fpsSampleFrames++;
 
@@ -1876,11 +1898,22 @@ export const RaceView: React.FC<RaceViewProps> = ({
         if (motionBlurPass) {
           motionBlurPass.enabled = motionBlurEnabledRef.current;
           if (motionBlurPass.enabled) {
-            const spd = Math.abs(physics.playerSpeedKmh || 0);
-            // Smoothly ramp up above 28 km/h, reaching full cinematic feel at 200+ km/h
-            const speedNorm = Math.max(0.0, Math.min(1.0, (spd - 28) / 210));
-            motionBlurPass.uniforms.uIntensity.value = speedNorm * 0.17;
-            motionBlurPass.uniforms.uResolution.value.set(window.innerWidth, window.innerHeight);
+            const isCockpitOrShowroom =
+              isGarageShowroomOpenRef.current || activeView === 'cockpit' || activeView === 'nose';
+            if (isCockpitOrShowroom) {
+              motionBlurPass.uniforms.uIntensity.value = 0.0;
+            } else {
+              const spd = Math.abs(physics.playerSpeedKmh || 0);
+              const speedNorm = Math.max(0.0, Math.min(1.0, (spd - 28) / 200));
+              motionBlurPass.uniforms.uIntensity.value = speedNorm * 0.165;
+              scratchCarProj.set(carPos.x, carPos.y + 0.85, carPos.z).project(camera);
+              motionBlurPass.uniforms.uCarUv.value.set(
+                THREE.MathUtils.clamp(0.5 * (scratchCarProj.x + 1), 0.15, 0.85),
+                THREE.MathUtils.clamp(0.5 * (scratchCarProj.y + 1), 0.1, 0.85)
+              );
+              motionBlurPass.uniforms.uFocusRadius.value = activeView === 'close' ? 0.24 : 0.19;
+              motionBlurPass.uniforms.uResolution.value.set(window.innerWidth, window.innerHeight);
+            }
           }
         }
         comp.render(delta);
@@ -2083,6 +2116,10 @@ export const RaceView: React.FC<RaceViewProps> = ({
         return;
       }
 
+      if (physicsRef.current?.cityPursuitStats.activeSportsMinigame) {
+        return;
+      }
+
       if (isCityDrivingMode) {
         if (e.key === 'g' || e.key === 'G' || e.code === 'KeyG') {
           e.preventDefault();
@@ -2095,6 +2132,16 @@ export const RaceView: React.FC<RaceViewProps> = ({
             return next;
           });
           return;
+        }
+        if (e.key === 'b' || e.key === 'B' || e.code === 'KeyB') {
+          if (physicsRef.current?.cityPursuitStats.nearbySportsPrompt && !physicsRef.current.cityPursuitStats.activeSportsMinigame) {
+            e.preventDefault();
+            physicsRef.current.triggerSportsMinigame(
+              physicsRef.current.cityPursuitStats.nearbySportsPrompt.venueId
+            );
+            setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
+            return;
+          }
         }
         if (e.key === 'c' || e.key === 'C' || e.code === 'KeyC') {
           if (physicsRef.current?.cityPursuitStats.civilianAtFaultClaim?.active) {
@@ -2160,6 +2207,25 @@ export const RaceView: React.FC<RaceViewProps> = ({
             e.preventDefault();
             physicsRef.current?.arrestTargetVehicle();
             if (physicsRef.current) setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
+            return;
+          }
+          if (physicsRef.current?.cityPursuitStats.nearbyServicePrompt) {
+            e.preventDefault();
+            physicsRef.current.triggerServiceStationPitStop(
+              physicsRef.current.cityPursuitStats.nearbyServicePrompt.id
+            );
+            setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
+            return;
+          }
+          if (
+            physicsRef.current?.cityPursuitStats.nearbyCarMeetPrompt &&
+            physicsRef.current.cityPursuitStats.nearbyCarMeetPrompt.cooldownLeftSec <= 0
+          ) {
+            e.preventDefault();
+            physicsRef.current.triggerCarMeetShowcase(
+              physicsRef.current.cityPursuitStats.nearbyCarMeetPrompt.id
+            );
+            setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
             return;
           }
         }
@@ -2536,10 +2602,20 @@ export const RaceView: React.FC<RaceViewProps> = ({
           {/* POLICE TRAFFIC STOP & PURSUIT PULL-OVER ORDER */}
           {(cityPursuitStats.playerBeingPulledOver || (!cityPursuitStats.isPoliceOnDuty && cityPursuitStats.wantedStars > 0)) && (
             <div className="absolute bottom-28 left-1/2 -translate-x-1/2 z-50 w-[94%] max-w-lg pointer-events-auto">
-              <div className="bg-zinc-950/95 border-2 border-emerald-400 rounded-2xl p-3.5 shadow-[0_0_35px_rgba(16,185,129,0.55)] backdrop-blur-md flex flex-col sm:flex-row items-center justify-between gap-3 font-mono">
+              <div
+                className={`bg-zinc-950/95 border-2 rounded-2xl p-3.5 backdrop-blur-md flex flex-col sm:flex-row items-center justify-between gap-3 font-mono ${
+                  cityPursuitStats.pendingHeistLoot
+                    ? 'border-red-500 shadow-[0_0_35px_rgba(239,68,68,0.55)]'
+                    : 'border-emerald-400 shadow-[0_0_35px_rgba(16,185,129,0.55)]'
+                }`}
+              >
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="px-2 py-0.5 rounded bg-emerald-400 text-black font-black text-[10px] uppercase animate-pulse">
+                    <span
+                      className={`px-2 py-0.5 rounded text-black font-black text-[10px] uppercase animate-pulse ${
+                        cityPursuitStats.pendingHeistLoot ? 'bg-red-400' : 'bg-emerald-400'
+                      }`}
+                    >
                       🛑 {cityPursuitStats.wantedStars > 0 ? `WANTED ★${cityPursuitStats.wantedStars} PURSUIT` : 'PULL-OVER ORDER'}
                       {cityPursuitStats.playerBeingPulledOver?.timeLeftSec ? ` (${Math.ceil(cityPursuitStats.playerBeingPulledOver.timeLeftSec)}s)` : ''}
                     </span>
@@ -2548,7 +2624,15 @@ export const RaceView: React.FC<RaceViewProps> = ({
                     </span>
                   </div>
                   <p className="text-[11px] text-zinc-300 mt-1">
-                    Slow down below 45 km/h & pull to the side, then press <strong className="text-emerald-300">[Enter]</strong> to accept ticket — police will issue citation and stop chasing!
+                    {cityPursuitStats.pendingHeistLoot ? (
+                      <>
+                        ⚠️ <strong className="text-red-400">STOLEN HEIST CASH IN TRUNK!</strong> Pulling over with <strong className="text-amber-300">[Enter]</strong> will <strong className="text-red-300">BUST YOU FOR THE HEIST</strong> (lose trunk cash + 2× fine)! Lose cops &amp; stash it at home!
+                      </>
+                    ) : (
+                      <>
+                        Slow down below 45 km/h &amp; pull to the side, then press <strong className="text-emerald-300">[Enter]</strong> to accept ticket — police will issue citation and stop chasing!
+                      </>
+                    )}
                   </p>
                 </div>
                 <button
@@ -2557,9 +2641,13 @@ export const RaceView: React.FC<RaceViewProps> = ({
                     physicsRef.current?.complyWithPolicePullOver();
                     if (physicsRef.current) setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
                   }}
-                  className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-400 to-teal-400 hover:from-emerald-300 hover:to-teal-300 text-black font-black text-xs uppercase tracking-wider shadow-lg cursor-pointer shrink-0 animate-pulse"
+                  className={`px-4 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider shadow-lg cursor-pointer shrink-0 animate-pulse ${
+                    cityPursuitStats.pendingHeistLoot
+                      ? 'bg-gradient-to-r from-red-500 to-rose-500 hover:from-red-400 hover:to-rose-400 text-white'
+                      : 'bg-gradient-to-r from-emerald-400 to-teal-400 hover:from-emerald-300 hover:to-teal-300 text-black'
+                  }`}
                 >
-                  🛑 Pull Over [Enter]
+                  {cityPursuitStats.pendingHeistLoot ? '🚨 Surrender (Bust) [Enter]' : '🛑 Pull Over [Enter]'}
                 </button>
               </div>
             </div>
@@ -2765,8 +2853,139 @@ export const RaceView: React.FC<RaceViewProps> = ({
             </div>
           )}
 
+          {/* PROXIMITY TOP-DOWN RETRO SPORTS MINIGAME PROMPT (BASKETBALL / GOLF / BASEBALL) */}
+          {cityPursuitStats.nearbySportsPrompt && !cityPursuitStats.nearbyHeistPrompt && (
+            <div className="absolute bottom-24 right-4 md:right-6 z-50 w-[92%] max-w-md pointer-events-auto">
+              <div className="bg-zinc-950/95 border-2 border-emerald-400 rounded-2xl p-3.5 shadow-[0_0_32px_rgba(16,185,129,0.48)] backdrop-blur-md flex items-center justify-between gap-3 font-mono">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <span className="px-2 py-0.5 rounded bg-emerald-400 text-black font-black text-[10px] uppercase">
+                      {cityPursuitStats.nearbySportsPrompt.icon} RETRO {cityPursuitStats.nearbySportsPrompt.sport.toUpperCase()}
+                    </span>
+                    <span className="text-xs font-black text-white truncate">
+                      {cityPursuitStats.nearbySportsPrompt.name}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-zinc-300 mt-1">
+                    {cityPursuitStats.nearbySportsPrompt.rewardDesc} · Press{' '}
+                    <strong className="text-emerald-300">[B]</strong> to play Top-Down Arcade!
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    physicsRef.current?.triggerSportsMinigame(
+                      cityPursuitStats.nearbySportsPrompt?.venueId
+                    );
+                    if (physicsRef.current) {
+                      setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
+                    }
+                  }}
+                  className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-emerald-400 to-cyan-400 hover:from-emerald-300 hover:to-cyan-300 text-black font-black text-xs uppercase tracking-wider shadow-lg cursor-pointer shrink-0"
+                >
+                  {cityPursuitStats.nearbySportsPrompt.icon} [B] PLAY
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* PROXIMITY PIT STOP SERVICE / GAS / EV STATION PROMPT */}
+          {cityPursuitStats.nearbyServicePrompt &&
+            !cityPursuitStats.nearbyHeistPrompt &&
+            !cityPursuitStats.nearbySportsPrompt && (
+              <div className="absolute bottom-24 right-4 md:right-6 z-50 w-[92%] max-w-md pointer-events-auto">
+                <div className="bg-zinc-950/95 border-2 border-amber-400 rounded-2xl p-3.5 shadow-[0_0_28px_rgba(251,191,36,0.45)] backdrop-blur-md flex items-center justify-between gap-3 font-mono">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="px-2 py-0.5 rounded bg-amber-400 text-black font-black text-[10px] uppercase">
+                        {cityPursuitStats.nearbyServicePrompt.icon} PIT SERVICE
+                      </span>
+                      <span className="text-xs font-black text-white truncate">
+                        {cityPursuitStats.nearbyServicePrompt.name}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-zinc-300 mt-1">
+                      100% Nitro + Fresh Tires + Wash · Press{' '}
+                      <strong className="text-amber-300">[F]</strong> (
+                      {cityPursuitStats.nearbyServicePrompt.cost > 0
+                        ? `$${cityPursuitStats.nearbyServicePrompt.cost}`
+                        : 'Free'}
+                      )
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      physicsRef.current?.triggerServiceStationPitStop(
+                        cityPursuitStats.nearbyServicePrompt?.id
+                      );
+                      if (physicsRef.current) {
+                        setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
+                      }
+                    }}
+                    className="px-3.5 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-black font-black text-xs uppercase tracking-wider shadow-lg cursor-pointer shrink-0"
+                  >
+                    ⛽ [F] SERVICE
+                  </button>
+                </div>
+              </div>
+            )}
+
+          {/* PROXIMITY CAR MEET SHOWCASE PROMPT */}
+          {cityPursuitStats.nearbyCarMeetPrompt &&
+            !cityPursuitStats.nearbyHeistPrompt &&
+            !cityPursuitStats.nearbySportsPrompt &&
+            !cityPursuitStats.nearbyServicePrompt && (
+              <div className="absolute bottom-24 right-4 md:right-6 z-50 w-[92%] max-w-md pointer-events-auto">
+                <div className="bg-zinc-950/95 border-2 border-fuchsia-400 rounded-2xl p-3.5 shadow-[0_0_28px_rgba(232,121,249,0.45)] backdrop-blur-md flex items-center justify-between gap-3 font-mono">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="px-2 py-0.5 rounded bg-fuchsia-400 text-black font-black text-[10px] uppercase">
+                        {cityPursuitStats.nearbyCarMeetPrompt.icon} CAR MEET
+                      </span>
+                      <span className="text-xs font-black text-white truncate">
+                        {cityPursuitStats.nearbyCarMeetPrompt.name}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-zinc-300 mt-1">
+                      Showcase Prize:{' '}
+                      <strong className="text-emerald-400">
+                        +${cityPursuitStats.nearbyCarMeetPrompt.payoutCash.toLocaleString()}
+                      </strong>{' '}
+                      + 100% Nitro · Press <strong className="text-fuchsia-300">[F]</strong>
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={cityPursuitStats.nearbyCarMeetPrompt.cooldownLeftSec > 0}
+                    onClick={() => {
+                      physicsRef.current?.triggerCarMeetShowcase(
+                        cityPursuitStats.nearbyCarMeetPrompt?.id
+                      );
+                      if (physicsRef.current) {
+                        setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
+                      }
+                    }}
+                    className={`px-3.5 py-2 rounded-xl font-black text-xs uppercase tracking-wider shadow-lg shrink-0 ${
+                      cityPursuitStats.nearbyCarMeetPrompt.cooldownLeftSec > 0
+                        ? 'bg-zinc-800 text-zinc-400 cursor-not-allowed'
+                        : 'bg-gradient-to-r from-fuchsia-400 to-cyan-400 hover:from-fuchsia-300 hover:to-cyan-300 text-black cursor-pointer'
+                    }`}
+                  >
+                    {cityPursuitStats.nearbyCarMeetPrompt.cooldownLeftSec > 0
+                      ? `⏳ ${cityPursuitStats.nearbyCarMeetPrompt.cooldownLeftSec}s`
+                      : '🏁 [F] SHOW OFF'}
+                  </button>
+                </div>
+              </div>
+            )}
+
           {/* PROXIMITY REAL ESTATE HOUSE / PENTHOUSE BUY, SET HOME, OR ROB PROMPT */}
-          {cityPursuitStats.nearbyHousePrompt && !cityPursuitStats.nearbyHeistPrompt && (
+          {cityPursuitStats.nearbyHousePrompt &&
+            !cityPursuitStats.nearbyHeistPrompt &&
+            !cityPursuitStats.nearbySportsPrompt &&
+            !cityPursuitStats.nearbyServicePrompt &&
+            !cityPursuitStats.nearbyCarMeetPrompt && (
             <div className="absolute bottom-24 right-4 md:right-6 z-50 w-[92%] max-w-lg pointer-events-auto">
               <div className="bg-zinc-950/95 border-2 border-emerald-400 rounded-2xl p-3.5 shadow-[0_0_28px_rgba(16,185,129,0.45)] backdrop-blur-md flex items-center justify-between gap-3 font-mono">
                 <div className="min-w-0">
@@ -3606,8 +3825,8 @@ export const RaceView: React.FC<RaceViewProps> = ({
             {!isCockpitMinimized && (
               <>
 
-            {/* Mid Row: Turn Signals, Hazards, Headlights & Horn */}
-            <div className="grid grid-cols-5 gap-1 font-mono text-[9px]">
+            {/* Mid Row: Turn Signals, Hazards, Headlights, E-Brake & Horn */}
+            <div className="grid grid-cols-6 gap-1 font-mono text-[9px]">
               <button
                 type="button"
                 onClick={() => {
@@ -3685,6 +3904,18 @@ export const RaceView: React.FC<RaceViewProps> = ({
                 <span>💡</span>
                 <span>{(cityPursuitStats.headlightMode || 'auto').toUpperCase()}</span>
               </button>
+
+              <div
+                className={`py-1.5 px-1 rounded-lg border font-black flex items-center justify-center gap-0.5 transition-all ${
+                  cityPursuitStats.handbrakeActive || telemetry?.handbrakeActive
+                    ? 'bg-rose-500 text-white border-rose-300 shadow-[0_0_12px_#f43f5e] animate-pulse'
+                    : 'bg-zinc-900 text-amber-300 border-white/10'
+                }`}
+                title="Handbrake / E-Brake Drift & Parking Hold [SPACE]"
+              >
+                <span>🅿️</span>
+                <span>SPC</span>
+              </div>
 
               <button
                 type="button"
@@ -4159,7 +4390,11 @@ export const RaceView: React.FC<RaceViewProps> = ({
                       worldX = mm.playerX + dx * Math.cos(rad) - dz * Math.sin(rad);
                       worldZ = mm.playerZ + dx * Math.sin(rad) + dz * Math.cos(rad);
                     }
-                    physicsRef.current?.setCityGpsTarget(Math.round(worldX), Math.round(worldZ), 'Dropped Pin', '#EA4335');
+                    const snapped = snapWorldPointToNearestRoad(worldX, worldZ, 42);
+                    const pinLabel = snapped.snapped
+                      ? `Pin · ${snapped.roadName.split('(')[0].trim()}`
+                      : 'Dropped Pin';
+                    physicsRef.current?.setCityGpsTarget(snapped.x, snapped.z, pinLabel, '#EA4335');
                     if (physicsRef.current) {
                       setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
                     }
@@ -4264,8 +4499,8 @@ export const RaceView: React.FC<RaceViewProps> = ({
                       { x: MD_LANDMARKS.annapolisStateHouse.x, y: MD_LANDMARKS.annapolisStateHouse.z - 55 * labelZoomScale, txt: 'Annapolis', col: pal.label, sz: 54 },
                       { x: MD_LANDMARKS.oceanCityBoardwalk.x - 160, y: MD_LANDMARKS.oceanCityBoardwalk.z - 55 * labelZoomScale, txt: 'Ocean City', col: pal.label, sz: 52 },
                       { x: gx(356), y: gz(1845) + 55 * labelZoomScale, txt: 'ICM', col: pal.parkLabel, sz: 48 },
-                      { x: gx(595), y: gz(1455) - 42 * labelZoomScale, txt: 'Hadley Farms', col: pal.parkLabel, sz: 44 },
-                      { x: gx(486), y: gz(1652) + 28 * labelZoomScale, txt: 'Edinburgh', col: pal.parkLabel, sz: 34 },
+                      { x: gx(480), y: gz(1300), txt: 'Hadley Farms', col: pal.parkLabel, sz: 44 },
+                      { x: gx(620), y: gz(1692), txt: 'Edinburgh', col: pal.parkLabel, sz: 34 },
                       { x: MD_LANDMARKS.collegeParkUMD.x, y: MD_LANDMARKS.collegeParkUMD.z - 55 * labelZoomScale, txt: 'UMD', col: pal.label, sz: 46 },
                     ].map((lbl) => (
                       <text
@@ -4323,6 +4558,44 @@ export const RaceView: React.FC<RaceViewProps> = ({
                         fill={h.badgeColor}
                         stroke="#ffffff"
                         strokeWidth={Math.max(2, 7 * zs)}
+                      />
+                    ))}
+
+                    {CITY_SPORTS_CATALOG.map((sp) => (
+                      <circle
+                        key={`mm_sport_${sp.id}`}
+                        cx={sp.x}
+                        cy={sp.z}
+                        r={Math.max(6.5, 28 * zs)}
+                        fill={sp.badgeColor}
+                        stroke="#fef08a"
+                        strokeWidth={Math.max(2, 7 * zs)}
+                      />
+                    ))}
+
+                    {CITY_SERVICE_STATIONS.map((svc) => (
+                      <rect
+                        key={`mm_svc_${svc.id}`}
+                        x={svc.x - Math.max(5.5, 20 * zs)}
+                        y={svc.z - Math.max(5.5, 20 * zs)}
+                        width={Math.max(11, 40 * zs)}
+                        height={Math.max(11, 40 * zs)}
+                        rx={Math.max(3, 10 * zs)}
+                        fill="#0284c7"
+                        stroke="#bae6fd"
+                        strokeWidth={Math.max(1.5, 6 * zs)}
+                      />
+                    ))}
+
+                    {CITY_CAR_MEET_ZONES.map((mz) => (
+                      <circle
+                        key={`mm_meet_${mz.id}`}
+                        cx={mz.x}
+                        cy={mz.z}
+                        r={Math.max(6, 24 * zs)}
+                        fill="#9333ea"
+                        stroke="#f3e8ff"
+                        strokeWidth={Math.max(1.8, 6 * zs)}
                       />
                     ))}
 
@@ -4655,6 +4928,96 @@ export const RaceView: React.FC<RaceViewProps> = ({
                   title="Navigate to RIO Washingtonian Lakefront"
                 >
                   🌊 RIO
+                </button>
+              </div>
+              <div className="grid grid-cols-4 gap-1 text-[8px] font-black">
+                <button
+                  type="button"
+                  onClick={() => {
+                    physicsRef.current?.setCityGpsTarget(MD_LANDMARKS.icmBasketballCourt.x, MD_LANDMARKS.icmBasketballCourt.z, '🏀 ICM Basketball Gym', '#f97316');
+                    if (physicsRef.current) setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
+                  }}
+                  className="py-1 px-0.5 rounded bg-orange-900/50 hover:bg-orange-400 hover:text-black border border-orange-400/40 text-orange-300 cursor-pointer truncate"
+                  title="Navigate to ICM Indoor Gym Basketball Court (Press [B] on court)"
+                >
+                  🏀 Hoops
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    physicsRef.current?.setCityGpsTarget(MD_LANDMARKS.gaithersburgGolfField.x, MD_LANDMARKS.gaithersburgGolfField.z, '⛳ Gaithersburg Golf Field', '#22c55e');
+                    if (physicsRef.current) setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
+                  }}
+                  className="py-1 px-0.5 rounded bg-emerald-900/50 hover:bg-emerald-400 hover:text-black border border-emerald-400/40 text-emerald-300 cursor-pointer truncate"
+                  title="Navigate to Gaithersburg Country Club Golf Field (Press [B] at tee)"
+                >
+                  ⛳ Golf
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    physicsRef.current?.setCityGpsTarget(MD_LANDMARKS.bohrerBaseballField.x, MD_LANDMARKS.bohrerBaseballField.z, '⚾ Bohrer Park Baseball', '#eab308');
+                    if (physicsRef.current) setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
+                  }}
+                  className="py-1 px-0.5 rounded bg-yellow-900/50 hover:bg-yellow-400 hover:text-black border border-yellow-400/40 text-yellow-300 cursor-pointer truncate"
+                  title="Navigate to Bohrer Park Baseball Diamond (Press [B])"
+                >
+                  ⚾ Baseb
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    physicsRef.current?.setCityGpsTarget(MD_LANDMARKS.bohrerFootballField.x, MD_LANDMARKS.bohrerFootballField.z, '🏈 Bohrer Football Stadium', '#dc2626');
+                    if (physicsRef.current) setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
+                  }}
+                  className="py-1 px-0.5 rounded bg-red-900/50 hover:bg-red-400 hover:text-black border border-red-400/40 text-red-300 cursor-pointer truncate"
+                  title="Navigate to Bohrer Park Gridiron Football Stadium (Press [B])"
+                >
+                  🏈 Footb
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    physicsRef.current?.setCityGpsTarget(MD_LANDMARKS.bohrerSoccerField.x, MD_LANDMARKS.bohrerSoccerField.z, '⚽ Bohrer Soccer Pitch', '#10b981');
+                    if (physicsRef.current) setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
+                  }}
+                  className="py-1 px-0.5 rounded bg-teal-900/50 hover:bg-teal-400 hover:text-black border border-teal-400/40 text-teal-300 cursor-pointer truncate"
+                  title="Navigate to Bohrer Park Turf Soccer Pitch (Press [B])"
+                >
+                  ⚽ Socc
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    physicsRef.current?.setCityGpsTarget(MD_LANDMARKS.rioBowlingArcade.x, MD_LANDMARKS.rioBowlingArcade.z, '🎳 Crown Neon Bowling', '#a855f7');
+                    if (physicsRef.current) setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
+                  }}
+                  className="py-1 px-0.5 rounded bg-purple-900/50 hover:bg-purple-400 hover:text-black border border-purple-400/40 text-purple-300 cursor-pointer truncate"
+                  title="Navigate to Downtown Crown Neon Bowling Lanes (Press [B])"
+                >
+                  🎳 Bowl
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    physicsRef.current?.setCityGpsTarget(MD_LANDMARKS.rioFishingPier.x, MD_LANDMARKS.rioFishingPier.z, '🎣 RIO Fishing Pier', '#06b6d4');
+                    if (physicsRef.current) setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
+                  }}
+                  className="py-1 px-0.5 rounded bg-cyan-900/50 hover:bg-cyan-400 hover:text-black border border-cyan-400/40 text-cyan-300 cursor-pointer truncate"
+                  title="Navigate to RIO Lakefront Fishing Pier (Press [B])"
+                >
+                  🎣 Fish
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    physicsRef.current?.setCityGpsTarget(MD_LANDMARKS.baltimoreCamdenYards.x, MD_LANDMARKS.baltimoreCamdenYards.z, '🏟️ Camden Yards / Ravens', '#f59e0b');
+                    if (physicsRef.current) setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
+                  }}
+                  className="py-1 px-0.5 rounded bg-amber-900/50 hover:bg-amber-400 hover:text-black border border-amber-400/40 text-amber-300 cursor-pointer truncate"
+                  title="Navigate to Baltimore Camden Yards & M&T Bank Stadium"
+                >
+                  🏟️ Balt
                 </button>
               </div>
             </div>
@@ -6217,6 +6580,15 @@ export const RaceView: React.FC<RaceViewProps> = ({
               setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
             }
           }}
+        />
+      )}
+
+      {/* TOP-DOWN RETRO SPORTS MINIGAMES (BASKETBALL / GOLF / BASEBALL / SOCCER / BOWLING / FISHING) */}
+      {isCityDrivingMode && cityPursuitStats?.activeSportsMinigame && (
+        <SportsMinigame
+          venue={cityPursuitStats.activeSportsMinigame}
+          onComplete={handleSportsMinigameComplete}
+          onAbort={handleSportsMinigameAbort}
         />
       )}
 

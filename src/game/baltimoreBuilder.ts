@@ -497,10 +497,19 @@ export function buildBaltimoreDistrict(ctx: BaltimoreBuilderContext): {
     sceneryGroup.add(ravTurf);
     const ravSign = new THREE.Mesh(
       new THREE.BoxGeometry(34, 4.2, 0.7),
-      makeTextSignMat(['M&T BANK STADIUM · BALTIMORE'], '#1e1b4b', '#e9d5ff', '#7c3aed', '#6d28d9')
+      makeTextSignMat(['M&T BANK STADIUM · BALTIMORE', 'PRESS [B] AT PLAZA · RETRO FOOTBALL'], '#1e1b4b', '#e9d5ff', '#7c3aed', '#6d28d9')
     );
     ravSign.position.set(ravX, 18.5, ravZ - 34);
     sceneryGroup.add(ravSign);
+
+    const ravRing = new THREE.Mesh(
+      new THREE.RingGeometry(4.2, 5.4, 24),
+      new THREE.MeshBasicMaterial({ color: 0xa855f7, side: THREE.DoubleSide, transparent: true, opacity: 0.78 })
+    );
+    ravRing.rotation.x = -Math.PI / 2;
+    ravRing.position.set(1132, 0.34, -6);
+    sceneryGroup.add(ravRing);
+
     cityBuildings.push({
       minX: ravX - 34,
       maxX: ravX + 34,

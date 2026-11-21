@@ -340,6 +340,18 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
       rim.position.set(endDir * 13.0, 2.95, 0);
       courtGroup.add(rim);
     }
+    const courtSign = new THREE.Mesh(
+      new THREE.BoxGeometry(10.5, 1.4, 0.28),
+      makeTextSignMat(['ICM BASKETBALL COURT', 'PRESS [B] · 1v1 TO 5v5'], '#7c2d12', '#fde047', '#f97316')
+    );
+    courtSign.position.set(0, 3.35, -10.8);
+    courtGroup.add(courtSign);
+    const bballRingMat = new THREE.MeshBasicMaterial({ color: 0xf97316, side: THREE.DoubleSide, transparent: true, opacity: 0.72 });
+    disposables.push(bballRingMat);
+    const bballRing = new THREE.Mesh(new THREE.RingGeometry(2.6, 3.4, 24), bballRingMat);
+    bballRing.rotation.x = -Math.PI / 2;
+    bballRing.position.set(0, 0.06, -13.6);
+    courtGroup.add(bballRing);
     icmGroup.add(courtGroup);
 
     // 4C. Bigger 2-Story Sand-Beige Back Main Center Building (Academy, Multipurpose Hall, Clinic — NO dome)
@@ -562,7 +574,7 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
     }
 
     // =======================================================================================
-    // 7. EDINBURGH VILLAGE (100-Home Real-Street Community — Including 19624 Kildonan Dr)
+    // 7. EDINBURGH VILLAGE (Spacious Real-Street Community — Including 19624, 19625, 19626, 19627 Kildonan Dr)
     // =======================================================================================
     const edBrickMat = makeCityMat({ color: 0x8f3a2e, roughness: 0.65 });
     for (const [px, pz] of [[gx(434), gz(1656)], [gx(430), gz(1672)]] as [number, number][]) {
@@ -578,97 +590,161 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
     edSignFace.position.set(gx(434), 1.25, gz(1652));
     sceneryGroup.add(edSignFace);
 
-    const totMulch = new THREE.Mesh(new THREE.BoxGeometry(10, 0.02, 8), makeCityMat({ color: 0x78350f, roughness: 0.95 }));
-    totMulch.position.set(gx(526), 0.232, gz(1628.5));
+    // Spacious Edinburgh Community Pocket Park & Playground in wide 78m center greenbelt
+    const totMulch = new THREE.Mesh(new THREE.BoxGeometry(12, 0.02, 9), makeCityMat({ color: 0x78350f, roughness: 0.95 }));
+    totMulch.position.set(gx(535), 0.232, gz(1653));
     sceneryGroup.add(totMulch);
-    const pergolaRoof = new THREE.Mesh(new THREE.ConeGeometry(2.8, 1.5, 4), makeCityMat({ color: 0x0ea5e9, roughness: 0.5 }));
+    const pergolaRoof = new THREE.Mesh(new THREE.ConeGeometry(3.0, 1.6, 4), makeCityMat({ color: 0x0ea5e9, roughness: 0.5 }));
     pergolaRoof.rotation.y = Math.PI / 4;
-    pergolaRoof.position.set(gx(526), 3.2, gz(1628.5));
+    pergolaRoof.position.set(gx(535), 3.2, gz(1653));
     sceneryGroup.add(pergolaRoof);
 
     let edinburghCount = 0;
-    const EDINBURGH_TARGET = 100;
     const addEdinburghLot = (x: number, z: number, rotY: number, houseNum: string, street: string) => {
-      if (edinburghCount >= EDINBURGH_TARGET) return;
       if (addSuburbanSlot(x, z, rotY, houseNum, street, edinburghCount)) {
         edinburghCount++;
       }
     };
 
-    // Place 19624 Kildonan Dr explicitly at the corner of Kildonan Dr (x=gx(468)) & Brenish Dr (z=gz(1652))
-    addEdinburghLot(gx(484), gz(1636.5), 0, '19624', 'Kildonan Dr');
+    // Featured Estate: 19624 Kildonan Dr on wide, airy lot right alongside 19622, 19625, 19626, 19627 Kildonan Dr
+    {
+      const estateX = gx(556);
+      const estateZ = gz(1594.5);
+      const estate = buildSuburbanHouseMesh(estateX, estateZ, 0, {
+        address: '19624 Kildonan Dr',
+        wallColor: 0x991b1b,
+        roofColor: 0x0f172a,
+        tier: 'luxury',
+      });
+      estate.group.scale.set(1.36, 1.30, 1.26);
+      estate.collider = {
+        minX: estateX - 11.2,
+        maxX: estateX + 11.2,
+        minZ: estateZ - 8.0,
+        maxZ: estateZ + 8.2,
+        height: 12.5,
+        name: '19624 Kildonan Dr',
+      };
+      const estateStoneMat = makeCityMat({ color: 0xd6d3d1, roughness: 0.78 });
+      const motorCourt = new THREE.Mesh(new THREE.BoxGeometry(19.0, 0.08, 7.0), estateStoneMat);
+      motorCourt.position.set(estateX, 0.27, estateZ + 10.4);
+      motorCourt.receiveShadow = isUltra;
+      sceneryGroup.add(motorCourt);
 
-    const edWestCols = [486, 500, 514, 528, 542, 556]; // 6 cols clear of Kildonan W (468) & Kilcreggan Way (580)
-    const edEastCols = [598, 612, 626, 640, 654, 668, 682, 696, 710]; // 9 cols clear of Kilcreggan Way (580) & Kildonan E (740)
+      const cornerHedgeMat = makeCityMat({ color: 0x14532d, roughness: 0.88 });
+      const eastCornerHedge = new THREE.Mesh(new THREE.BoxGeometry(1.1, 1.05, 16.0), cornerHedgeMat);
+      eastCornerHedge.position.set(estateX + 13.4, 0.72, estateZ + 1.5);
+      sceneryGroup.add(eastCornerHedge);
 
-    // 7A. Kildonan Dr (real range 19301-19709): 30 North E-W lots + 8 East N-S lots (+ 19624 corner = 39 total)
-    let kilEven = 19600;
-    let kilOdd = 19601;
-    const nextKilEven = () => {
-      kilEven += 2;
-      if (kilEven === 19624) kilEven += 2;
-      return String(kilEven);
-    };
-    const nextKilOdd = () => {
-      kilOdd += 2;
-      return String(kilOdd);
-    };
-    for (const xOff of [...edWestCols, ...edEastCols]) {
-      addEdinburghLot(gx(xOff), gz(1586.5), 0, nextKilEven(), 'Kildonan Dr');
-      addEdinburghLot(gx(xOff), gz(1617.5), Math.PI, nextKilOdd(), 'Kildonan Dr');
-    }
-    const kilEastLegZs = [1620, 1635, 1669, 1684, 1718, 1733, 1766, 1781];
-    for (const kz of kilEastLegZs) {
-      addEdinburghLot(gx(755.5), gz(kz), -Math.PI / 2, nextKilEven(), 'Kildonan Dr');
-    }
+      for (const [px, pz] of [
+        [estateX - 9.0, estateZ + 13.2],
+        [estateX + 9.0, estateZ + 13.2],
+        [estateX + 13.4, estateZ - 6.2],
+      ] as [number, number][]) {
+        const pil = new THREE.Mesh(new THREE.BoxGeometry(0.95, 1.85, 0.95), edBrickMat);
+        pil.position.set(px, 1.15, pz);
+        sceneryGroup.add(pil);
+      }
 
-    // 7B. Brenish Dr (real range 7320-7545): North cols (skipping 484 corner) + South cols = 26 homes
-    let brEven = 7320;
-    let brOdd = 7321;
-    for (const xOff of [500, 514, 528, 542, 556, ...edEastCols]) {
-      brEven += 4;
-      addEdinburghLot(gx(xOff), gz(1636.5), 0, String(brEven), 'Brenish Dr');
-    }
-    for (const xOff of [534, 548, 562, ...edEastCols]) {
-      brOdd += 4;
-      addEdinburghLot(gx(xOff), gz(1667.5), Math.PI, String(brOdd), 'Brenish Dr');
-    }
+      const estatePlaque = new THREE.Mesh(
+        new THREE.BoxGeometry(4.6, 0.95, 0.3),
+        makeTextSignMat(['19624 KILDONAN DR', 'EDINBURGH VILLAGE'], '#1e293b', '#fde047', '#d97706')
+      );
+      estatePlaque.position.set(estateX + 11.0, 1.35, estateZ + 13.1);
+      sceneryGroup.add(estatePlaque);
 
-    // 7C. Tarfside Ln (real range 7300-7418): 4 homes branching south off Brenish Dr
-    addEdinburghLot(gx(496.5), gz(1686), Math.PI / 2, '7402', 'Tarfside Ln');
-    addEdinburghLot(gx(512), gz(1703.5), Math.PI, '7408', 'Tarfside Ln');
-    addEdinburghLot(gx(527.5), gz(1686), -Math.PI / 2, '7412', 'Tarfside Ln');
-    addEdinburghLot(gx(527.5), gz(1703), -Math.PI / 2, '7416', 'Tarfside Ln');
-
-    // 7D. Kilcreggan Way (real range 19500-19630): E-W loop at z=1702 (18 homes) + N-S west-side lots (5 homes)
-    let kwNum = 19500;
-    for (const xOff of edEastCols) {
-      kwNum += 4;
-      addEdinburghLot(gx(xOff), gz(1686.5), 0, String(kwNum), 'Kilcreggan Way');
-      kwNum += 2;
-      addEdinburghLot(gx(xOff), gz(1717.5), Math.PI, String(kwNum), 'Kilcreggan Way');
-    }
-    for (const mz of [1718, 1733, 1766, 1781]) {
-      kwNum += 4;
-      addEdinburghLot(gx(564.5), gz(mz), Math.PI / 2, String(kwNum), 'Kilcreggan Way');
+      sceneryGroup.add(estate.group);
+      suburbanHouses.push(estate);
+      cityBuildings.push(estate.collider);
+      edinburghCount++;
     }
 
-    // 7E. Kilcreggan Ter (real range 7400-7437): E-W streets at z=1748 & z=1795 (fills exact 100-home total)
-    let ktNum = 7400;
-    for (const xOff of edEastCols) {
-      ktNum += 1;
-      addEdinburghLot(gx(xOff), gz(1732.5), 0, String(ktNum), 'Kilcreggan Ter');
-      ktNum += 1;
-      addEdinburghLot(gx(xOff), gz(1763.5), Math.PI, String(ktNum), 'Kilcreggan Ter');
+    // 7A. Kildonan Dr (z=1614 main stretch + West/East loops) — 19620..19635 in clean even/odd facing order!
+    const kildonanMainLots: [number, string, string][] = [
+      [500, '19620', '19621'],
+      [526, '19622', '19623'],
+      // x=556 North is 19624 Kildonan Dr (Estate above); x=556 South is 19625 Kildonan Dr!
+      [588, '19626', '19627'],
+      // Kilcreggan Way intersects at x=620
+      [648, '19628', '19629'],
+      [676, '19630', '19631'],
+      [704, '19632', '19633'],
+      [732, '19634', '19635'],
+    ];
+    for (const [kx, evenNum, oddNum] of kildonanMainLots) {
+      addEdinburghLot(gx(kx), gz(1596.5), 0, evenNum, 'Kildonan Dr');
+      addEdinburghLot(gx(kx), gz(1631.5), Math.PI, oddNum, 'Kildonan Dr');
     }
-    for (const xOff of edEastCols) {
-      ktNum += 1;
-      addEdinburghLot(gx(xOff), gz(1779.5), 0, String(ktNum), 'Kilcreggan Ter');
+    // 19625 Kildonan Dr sits directly across Kildonan Dr from 19624 Kildonan Dr
+    addEdinburghLot(gx(556), gz(1631.5), Math.PI, '19625', 'Kildonan Dr');
+
+    // West & East N-S legs of Kildonan Dr (spacious 24-27m lot spacing)
+    addEdinburghLot(gx(457.5), gz(1638), Math.PI / 2, '19616', 'Kildonan Dr');
+    addEdinburghLot(gx(457.5), gz(1662), Math.PI / 2, '19618', 'Kildonan Dr');
+    for (const [kz, num] of [
+      [1640, '19636'],
+      [1666, '19638'],
+      [1717, '19640'],
+      [1743, '19642'],
+    ] as [number, string][]) {
+      addEdinburghLot(gx(792.5), gz(kz), -Math.PI / 2, num, 'Kildonan Dr');
     }
+
+    // 7B. Brenish Dr (z=1692): spacious 28m lots on North & South sides
+    const brenishNorthCols: [number, string][] = [
+      [500, '7404'],
+      [528, '7408'],
+      [556, '7412'],
+      [584, '7416'],
+      [648, '7420'],
+      [676, '7424'],
+      [704, '7428'],
+      [732, '7432'],
+    ];
+    for (const [bx, num] of brenishNorthCols) {
+      addEdinburghLot(gx(bx), gz(1674.5), 0, num, 'Brenish Dr');
+    }
+    const brenishSouthCols: [number, string][] = [
+      [508, '7405'],
+      [536, '7409'],
+      [648, '7421'],
+      [676, '7425'],
+      [704, '7429'],
+      [732, '7433'],
+    ];
+    for (const [bx, num] of brenishSouthCols) {
+      addEdinburghLot(gx(bx), gz(1709.5), Math.PI, num, 'Brenish Dr');
+    }
+
+    // 7C. Tarfside Ln Cul-de-Sac (x=574, z=1692..1736)
+    addEdinburghLot(gx(556.5), gz(1722), Math.PI / 2, '7404', 'Tarfside Ln');
+    addEdinburghLot(gx(591.5), gz(1718), -Math.PI / 2, '7406', 'Tarfside Ln');
+    addEdinburghLot(gx(591.5), gz(1742), -Math.PI / 2, '7410', 'Tarfside Ln');
+    addEdinburghLot(gx(574), gz(1754), Math.PI, '7408', 'Tarfside Ln');
+
+    // 7D. Kilcreggan Way (z=1768)
+    for (const [kx, num] of [
+      [648, '19520'],
+      [676, '19524'],
+      [704, '19528'],
+      [732, '19532'],
+    ] as [number, string][]) {
+      addEdinburghLot(gx(kx), gz(1750.5), 0, num, 'Kilcreggan Way');
+    }
+    addEdinburghLot(gx(648), gz(1785.5), Math.PI, '19521', 'Kilcreggan Way');
+    addEdinburghLot(gx(674), gz(1785.5), Math.PI, '19525', 'Kilcreggan Way');
+    addEdinburghLot(gx(738), gz(1785.5), Math.PI, '19533', 'Kilcreggan Way');
+
+    // 7E. Kilcreggan Ter Cul-de-Sac (x=706, z=1768..1808 bulb)
+    addEdinburghLot(gx(686), gz(1816), Math.PI * 0.65, '7406', 'Kilcreggan Ter');
+    addEdinburghLot(gx(706), gz(1827), Math.PI, '7408', 'Kilcreggan Ter');
+    addEdinburghLot(gx(726), gz(1816), -Math.PI * 0.65, '7410', 'Kilcreggan Ter');
+
     addStreetNamePost(gx(426), gz(1660), 'BRENISH DR', 0);
+    addStreetNamePost(gx(568), gz(1605), 'KILDONAN DR · 19624', 0);
 
     // =======================================================================================
-    // 8. HADLEY FARMS (Expansive 300-Home Real-Street Community + Townhomes + Resnik ES + Pool)
+    // 8. HADLEY FARMS (Spacious Master-Planned Community + 2 Mayhill Ct + Resnik ES + Pool)
     // =======================================================================================
     const hfBrickMat = makeCityMat({ color: 0x8f3a2e, roughness: 0.65 });
     for (const [px, pz] of [[gx(464), gz(1572)], [gx(470), gz(1564)]] as [number, number][]) {
@@ -678,125 +754,155 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
     }
     const hfSign = new THREE.Mesh(
       new THREE.BoxGeometry(0.25, 1.0, 4.6),
-      makeTextSignMat(['HADLEY FARMS', 'HADLEY FARMS DR · RESNIK ES'], '#14532d', '#f8fafc', '#d4d4d8')
+      makeTextSignMat(['HADLEY FARMS', 'HADLEY FARMS DR · MAYHILL CT'], '#14532d', '#f8fafc', '#d4d4d8')
     );
     hfSign.rotation.y = -0.336;
     hfSign.position.set(gx(467), 1.25, gz(1568));
     sceneryGroup.add(hfSign);
 
     const tennis = new THREE.Mesh(new THREE.BoxGeometry(14, 0.02, 12), makeCityMat({ color: 0x15803d, roughness: 0.88 }));
-    tennis.position.set(gx(526), 0.232, gz(1539));
+    tennis.position.set(gx(524), 0.232, gz(1552));
     sceneryGroup.add(tennis);
     const clubWallMat = makeSidingMat('#e6decb');
     const clubRoofMat = makeCityMat({ color: 0x292524, roughness: 0.78 });
     const clubHouse = new THREE.Mesh(new THREE.BoxGeometry(16, 4.8, 10), clubWallMat);
-    clubHouse.position.set(gx(526), 2.65, gz(1553));
+    clubHouse.position.set(gx(524), 2.65, gz(1565));
     clubHouse.castShadow = isUltra;
     sceneryGroup.add(clubHouse);
     const clubRoof = buildPitchedRoofGroup(16.4, 10.4, 2.2, clubWallMat, clubRoofMat, 'x');
-    clubRoof.position.set(gx(526), 5.05, gz(1553));
+    clubRoof.position.set(gx(524), 5.05, gz(1565));
     sceneryGroup.add(clubRoof);
-    const poolWater = new THREE.Mesh(new THREE.PlaneGeometry(14, 12), makeCityMat({ color: 0x0ea5e9, roughness: 0.14, metalness: 0.45 }));
+    const poolWater = new THREE.Mesh(new THREE.PlaneGeometry(14, 10), makeCityMat({ color: 0x0ea5e9, roughness: 0.14, metalness: 0.45 }));
     poolWater.rotation.x = -Math.PI / 2;
-    poolWater.position.set(gx(526), 0.28, gz(1569));
+    poolWater.position.set(gx(524), 0.28, gz(1577));
     sceneryGroup.add(poolWater);
-    cityBuildings.push({ minX: gx(518), maxX: gx(534), minZ: gz(1547), maxZ: gz(1559), height: 7, name: 'Hadley Farms Community Pool & Clubhouse' });
+    cityBuildings.push({ minX: gx(515), maxX: gx(533), minZ: gz(1559), maxZ: gz(1571), height: 7, name: 'Hadley Farms Community Pool & Clubhouse' });
 
-    drawGaithParkingLot(gx(578), gz(1554), 22, 34, 0);
+    drawGaithParkingLot(gx(577), gz(1565), 22, 30, 0);
     const schGroup = new THREE.Group();
-    schGroup.position.set(gx(610), 0.25, gz(1554));
+    schGroup.position.set(gx(610), 0.25, gz(1564));
     const schBrickMat = makeBrickFacadeMat('#9b3b2c', '#e5e7eb', '#1e3a5f', 7, 2, false);
     const schTrimMat = makeCityMat({ color: 0xede5d4, roughness: 0.58 });
-    const mainWing = new THREE.Mesh(new THREE.BoxGeometry(30, 7.4, 20), boxWithRoofMat(schBrickMat, flatRoofMat));
-    mainWing.position.set(0, 3.7, -3);
+    const mainWing = new THREE.Mesh(new THREE.BoxGeometry(30, 7.4, 18), boxWithRoofMat(schBrickMat, flatRoofMat));
+    mainWing.position.set(0, 3.7, -2);
     mainWing.castShadow = isUltra;
     schGroup.add(mainWing);
-    const gymWing = new THREE.Mesh(new THREE.BoxGeometry(20, 8.8, 14), schTrimMat);
-    gymWing.position.set(-5, 4.4, 11);
+    const gymWing = new THREE.Mesh(new THREE.BoxGeometry(20, 8.8, 12), schTrimMat);
+    gymWing.position.set(-5, 4.4, 8);
     gymWing.castShadow = isUltra;
     schGroup.add(gymWing);
     const schSign = new THREE.Mesh(
       new THREE.BoxGeometry(0.3, 1.2, 9.6),
       makeTextSignMat(['JUDITH A. RESNIK ES', '7301 HADLEY FARMS DR'], '#1e3a8a', '#f8fafc', '#fde047')
     );
-    schSign.position.set(-15.4, 4.6, -3);
+    schSign.position.set(-15.4, 4.6, -2);
     schGroup.add(schSign);
     sceneryGroup.add(schGroup);
-    cityBuildings.push({ minX: gx(594), maxX: gx(626), minZ: gz(1540), maxZ: gz(1574), height: 10, name: 'Judith A. Resnik Elementary School (7301 Hadley Farms Dr)' });
+    cityBuildings.push({ minX: gx(594), maxX: gx(626), minZ: gz(1552), maxZ: gz(1579), height: 10, name: 'Judith A. Resnik Elementary School (7301 Hadley Farms Dr)' });
 
-    // 8A. 300 Batched Single-Family Homes across Hadley Farms East & West (ONLY real Hadley Farms streets & ranges)
     let hadleyCount = 0;
-    const HADLEY_TARGET = 300;
     const addHadleyLot = (x: number, z: number, rotY: number, houseNum: string, street: string) => {
-      if (hadleyCount >= HADLEY_TARGET) return;
       if (addSuburbanSlot(x, z, rotY, houseNum, street, hadleyCount + 100)) {
         hadleyCount++;
       }
     };
 
-    // Hadley Farms West (5 streets x 2 sides x 10 houses = 100 homes)
-    const hfWestCols = [286, 302.2, 318.4, 334.6, 350.8, 392, 408.5, 425, 441.5, 458];
-    for (const [stName, stZ, baseNum] of [
-      ['Filbert Dr', 1250, 19700],
-      ['Boxberry Dr', 1296, 19701],
-      ['Mayhill Ter', 1342, 19702],
-      ['Tygart Ln', 1388, 19901],
-      ['Mattingly Ter', 1434, 20001],
-    ] as [string, number, number][]) {
+    // 8A. Hadley Farms West (Spacious 76m E-W corridors & 28-32m lot spacing across x=130..492)
+    const hfWestBayA = [160, 192, 224]; // 32m lot spacing between Electra Dr (130) & Cinnabar Dr (260)
+    const hfWestBayB = [288, 316, 344]; // 28m lot spacing between Cinnabar Dr (260) & Tygart Ct (372)
+    const hfWestBayC = [400, 428, 456]; // 28m lot spacing between Tygart Ct (372) & Woodfield Rd (492)
+    for (const [stName, stZ, baseNum, hasBayA] of [
+      ['Filbert Dr', 1160, 19700, false],
+      ['Boxberry Dr', 1236, 19701, true],
+      ['Mayhill Ter', 1312, 19702, true],
+      ['Tygart Ln', 1388, 19901, true],
+      ['Mattingly Ter', 1464, 20001, false],
+    ] as [string, number, number, boolean][]) {
       let n = baseNum;
-      for (const xOff of hfWestCols) {
+      const cols = hasBayA ? [...hfWestBayA, ...hfWestBayB, ...hfWestBayC] : [...hfWestBayB, ...hfWestBayC];
+      for (const xOff of cols) {
         n += 2;
-        addHadleyLot(gx(xOff), gz(stZ - 15.5), 0, String(n), stName);
+        addHadleyLot(gx(xOff), gz(stZ - 17.5), 0, String(n), stName);
         n += 2;
-        addHadleyLot(gx(xOff), gz(stZ + 15.5), Math.PI, String(n), stName);
+        addHadleyLot(gx(xOff), gz(stZ + 17.5), Math.PI, String(n), stName);
+      }
+    }
+    // Filbert Dr West Bay North-West corner (200..260) + Midas Ct Cul-de-Sac (1..5 Midas Ct)
+    addHadleyLot(gx(224), gz(1142.5), 0, '19702', 'Filbert Dr');
+    addHadleyLot(gx(224), gz(1177.5), Math.PI, '19703', 'Filbert Dr');
+    addHadleyLot(gx(206), gz(1450), -0.22, '2', 'Midas Ct');
+    addHadleyLot(gx(178), gz(1446), -0.22, '4', 'Midas Ct');
+    addHadleyLot(gx(200), gz(1486), Math.PI - 0.22, '1', 'Midas Ct');
+    addHadleyLot(gx(172), gz(1482), Math.PI - 0.22, '3', 'Midas Ct');
+    addHadleyLot(gx(146), gz(1460), Math.PI / 2, '5', 'Midas Ct');
+
+    // 8B. Hadley Farms East & North (Spacious 76m E-W corridors & 26-30m lot spacing)
+    const hfEastBayA = [518, 546, 574]; // 28m spacing (492..600)
+    const hfEastBayB = [626, 652, 678]; // 26m spacing (600..702)
+    const hfEastBayC = [732, 762];      // 30m spacing (702..792)
+    for (const [stName, stZ, baseNum, cols] of [
+      ['Cliff Pine Dr', 1084, 7100, [...hfEastBayA, ...hfEastBayB, ...hfEastBayC]],
+      ['Barcellona Dr', 1160, 7200, [...hfEastBayA, ...hfEastBayB, ...hfEastBayC]],
+      ['Torran Rocks Way', 1236, 7300, [...hfEastBayA, ...hfEastBayB, ...hfEastBayC]],
+      ['Cinnabar Ter', 1312, 7404, [...hfEastBayA, ...hfEastBayB]],
+      ['Elioak Ter', 1388, 7400, hfEastBayA],
+    ] as [string, number, number, number[]][]) {
+      let n = baseNum;
+      for (const xOff of cols) {
+        n += 2;
+        addHadleyLot(gx(xOff), gz(stZ - 17.5), 0, String(n), stName);
+        n += 2;
+        addHadleyLot(gx(xOff), gz(stZ + 17.5), Math.PI, String(n), stName);
       }
     }
 
-    // Hadley Farms East (10 streets: up to 200 more homes -> 300 total)
-    const hfEastBayA = [524, 537.5, 551, 564.5, 578];
-    const hfEastBayB = [620, 635.2, 650.4, 665.6, 680.8];
-    const hfEastBayC = [722, 738.2, 754.4, 770.6];
-    for (const [stName, stZ, baseNum, hasBayC] of [
-      ['Cliff Pine Dr', 1066, 7100, true],
-      ['Barcellona Dr', 1112, 7200, true],
-      ['Torran Rocks Way', 1158, 7300, true],
-      ['Cinnabar Ter', 1204, 7404, true],
-      ['Elioak Ter', 1250, 7400, true],
-      ['Filbert Ter', 1296, 7500, false],
-      ['Electra Ct', 1342, 7400, false],
-      ['Harkness Ct', 1388, 19600, false],
-      ['Mayhill Ct', 1434, 19700, false],
-      ['Cinnabar Dr', 1480, 19800, false],
-    ] as [string, number, number, boolean][]) {
-      let n = baseNum;
-      const cols = hasBayC ? [...hfEastBayA, ...hfEastBayB, ...hfEastBayC] : [...hfEastBayA, ...hfEastBayB];
-      for (const xOff of cols) {
-        n += 2;
-        addHadleyLot(gx(xOff), gz(stZ - 15.5), 0, String(n), stName);
-        if (stZ < 1480) {
-          n += 2;
-          addHadleyLot(gx(xOff), gz(stZ + 15.5), Math.PI, String(n), stName);
-        }
-      }
-    }
-    // Fill remaining Hadley Farms slots on south edge of Hadley Farms Dr East of Resnik ES
+    // Electra Ct Cul-de-Sac (z=1388, x=600..676)
+    addHadleyLot(gx(624), gz(1370.5), 0, '2', 'Electra Ct');
+    addHadleyLot(gx(650), gz(1370.5), 0, '4', 'Electra Ct');
+    addHadleyLot(gx(676), gz(1370.5), 0, '6', 'Electra Ct');
+    addHadleyLot(gx(624), gz(1405.5), Math.PI, '1', 'Electra Ct');
+    addHadleyLot(gx(650), gz(1405.5), Math.PI, '3', 'Electra Ct');
+    addHadleyLot(gx(676), gz(1405.5), Math.PI, '5', 'Electra Ct');
+    addHadleyLot(gx(695), gz(1388), -Math.PI / 2, '7', 'Electra Ct');
+
+    // Harkness Ct Cul-de-Sac (z=1464, x=482..562)
+    addHadleyLot(gx(510), gz(1446.5), 0, '2', 'Harkness Ct');
+    addHadleyLot(gx(538), gz(1446.5), 0, '4', 'Harkness Ct');
+    addHadleyLot(gx(510), gz(1481.5), Math.PI, '1', 'Harkness Ct');
+    addHadleyLot(gx(538), gz(1481.5), Math.PI, '3', 'Harkness Ct');
+    addHadleyLot(gx(579), gz(1464), -Math.PI / 2, '5', 'Harkness Ct');
+
+    // Mayhill Ct Cul-de-Sac (z=1464, x=600..676) — Featuring 2 Mayhill Ct + 1, 3, 4, 5, 6, 7, 8 Mayhill Ct!
+    addHadleyLot(gx(622), gz(1446.5), 0, '2', 'Mayhill Ct');
+    addHadleyLot(gx(648), gz(1446.5), 0, '4', 'Mayhill Ct');
+    addHadleyLot(gx(674), gz(1446.5), 0, '6', 'Mayhill Ct');
+    addHadleyLot(gx(622), gz(1481.5), Math.PI, '1', 'Mayhill Ct');
+    addHadleyLot(gx(648), gz(1481.5), Math.PI, '3', 'Mayhill Ct');
+    addHadleyLot(gx(674), gz(1481.5), Math.PI, '5', 'Mayhill Ct');
+    addHadleyLot(gx(695), gz(1453), -Math.PI * 0.35, '8', 'Mayhill Ct');
+    addHadleyLot(gx(695), gz(1475), -Math.PI * 0.65, '7', 'Mayhill Ct');
+    addStreetNamePost(gx(606), gz(1454), 'MAYHILL CT · 1–8', 0);
+
+    // Hadley Farms Dr North-Side Homes (z=1540, facing South)
     for (const [hx, hz, rotY, hNum, hSt] of [
-      [gx(654), gz(1539.5), Math.PI, '7310', 'Hadley Farms Dr'],
-      [gx(672), gz(1539.5), Math.PI, '7314', 'Hadley Farms Dr'],
-      [gx(690), gz(1539.5), Math.PI, '7318', 'Hadley Farms Dr'],
+      [gx(522), gz(1522.5), 0, '7302', 'Hadley Farms Dr'],
+      [gx(554), gz(1522.5), 0, '7306', 'Hadley Farms Dr'],
+      [gx(630), gz(1522.5), 0, '7310', 'Hadley Farms Dr'],
+      [gx(658), gz(1522.5), 0, '7314', 'Hadley Farms Dr'],
+      [gx(686), gz(1522.5), 0, '7318', 'Hadley Farms Dr'],
     ] as [number, number, number, string, string][]) {
       addHadleyLot(hx, hz, rotY, hNum, hSt);
     }
 
-    // 5 Brick Townhome Rows in Hadley Farms South Plaza (real street names, clear of roads & Resnik ES)
+    // Hadley Farms South Townhomes (along south edge of Hadley Farms Dr, clear of Resnik ES & Kildonan Dr)
     const hfThBrick = makeBrickFacadeMat('#8b3728', '#f1f5f9', '#1e293b', 6, 3, false);
     const hfThRoof = makeCityMat({ color: 0x1e293b, roughness: 0.75 });
     for (const [tx, tz, rotY, label] of [
-      [gx(656), gz(1558), 0, 'Barcellona Dr Townhomes (Hadley Farms)'],
+      [gx(656), gz(1560), 0, 'Barcellona Dr Townhomes (Hadley Farms)'],
       [gx(656), gz(1576), 0, 'Filbert Ter Townhomes (Hadley Farms)'],
-      [gx(690), gz(1558), 0, 'Elioak Ter Townhomes (Hadley Farms)'],
+      [gx(690), gz(1560), 0, 'Elioak Ter Townhomes (Hadley Farms)'],
       [gx(690), gz(1576), 0, 'Hadley Farms Dr Townhomes'],
-      [gx(498), gz(1558), Math.PI / 2, 'Torran Rocks Way Townhomes'],
+      [gx(496), gz(1572), 0, 'Torran Rocks Way Townhomes'],
     ] as [number, number, number, string][]) {
       const thGrp = new THREE.Group();
       thGrp.position.set(tx, 0.25, tz);
@@ -813,7 +919,7 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
       const halfZ = Math.abs(Math.cos(rotY)) > 0.5 ? 6 : 12;
       cityBuildings.push({ minX: tx - halfX, maxX: tx + halfX, minZ: tz - halfZ, maxZ: tz + halfZ, height: 11, name: label });
     }
-    addStreetNamePost(gx(466), gz(1548), 'HADLEY FARMS DR', 0);
+    addStreetNamePost(gx(466), gz(1552), 'HADLEY FARMS DR', 0);
   }
 
   // =========================================================================================
@@ -1023,6 +1129,375 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
     bohrerRoof.position.set(gx(-48), 10.25, gz(2102));
     sceneryGroup.add(bohrerRoof);
     cityBuildings.push({ minX: gx(-72), maxX: gx(-24), minZ: gz(2088), maxZ: gz(2116), height: 14, name: 'Bohrer Park Activity Center' });
+
+    // 10B. BOHRER PARK BASEBALL DIAMOND (East of Bohrer Park Activity Center, gx(32), gz(2096))
+    {
+      const bbGroup = new THREE.Group();
+      bbGroup.position.set(gx(32), 0.24, gz(2096));
+      const outfieldGrassMat = makeCityMat({ color: 0x15803d, roughness: 0.9 });
+      const infieldGrassMat = makeCityMat({ color: 0x22c55e, roughness: 0.88 });
+      const clayMat = makeCityMat({ color: 0xc27849, roughness: 0.92 });
+      const chalkMat = makeCityMat({ color: 0xf8fafc, roughness: 0.65 });
+      const fenceWallMat = makeCityMat({ color: 0x14532d, roughness: 0.72 });
+      const fenceCapMat = makeCityMat({ color: 0xfacc15, roughness: 0.55 });
+
+      const turfBase = new THREE.Mesh(new THREE.CircleGeometry(33.5, 28), outfieldGrassMat);
+      turfBase.rotation.x = -Math.PI / 2;
+      turfBase.receiveShadow = isUltra;
+      bbGroup.add(turfBase);
+
+      // Mowed outfield stripes
+      for (let s = -2; s <= 2; s += 2) {
+        const stripe = new THREE.Mesh(new THREE.PlaneGeometry(7.2, 52), infieldGrassMat);
+        stripe.rotation.x = -Math.PI / 2;
+        stripe.position.set(s * 7.2, 0.008, -2);
+        bbGroup.add(stripe);
+      }
+
+      // Clay infield diamond & basepath arc
+      const clayArc = new THREE.Mesh(new THREE.CircleGeometry(19.5, 24), clayMat);
+      clayArc.rotation.x = -Math.PI / 2;
+      clayArc.position.set(0, 0.015, 7);
+      bbGroup.add(clayArc);
+
+      const innerDiamondGrass = new THREE.Mesh(new THREE.PlaneGeometry(17.5, 17.5), infieldGrassMat);
+      innerDiamondGrass.rotation.order = 'YXZ';
+      innerDiamondGrass.rotation.y = Math.PI / 4;
+      innerDiamondGrass.rotation.x = -Math.PI / 2;
+      innerDiamondGrass.position.set(0, 0.022, 6);
+      bbGroup.add(innerDiamondGrass);
+
+      // Pitcher's mound + rubber
+      const mound = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 2.2, 0.28, 14), clayMat);
+      mound.position.set(0, 0.14, 6);
+      bbGroup.add(mound);
+      const rubber = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.06, 0.28), chalkMat);
+      rubber.position.set(0, 0.29, 6);
+      bbGroup.add(rubber);
+
+      // Home plate & 3 bases (1B, 2B, 3B)
+      const baseCoords: [number, number][] = [
+        [0, 18.2],
+        [12.2, 6.0],
+        [0, -6.2],
+        [-12.2, 6.0],
+      ];
+      for (const [bx, bz] of baseCoords) {
+        const bag = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.08, 0.95), chalkMat);
+        bag.rotation.y = Math.PI / 4;
+        bag.position.set(bx, 0.06, bz);
+        bbGroup.add(bag);
+      }
+
+      // Crisp chalk foul lines
+      for (const side of [-1, 1]) {
+        const foul = new THREE.Mesh(new THREE.PlaneGeometry(0.28, 38), chalkMat);
+        foul.rotation.order = 'YXZ';
+        foul.rotation.y = side * (Math.PI / 4);
+        foul.rotation.x = -Math.PI / 2;
+        foul.position.set(side * 13.4, 0.028, 4.8);
+        bbGroup.add(foul);
+      }
+
+      // Outfield perimeter fence & yellow HR cap along northern arc
+      const segs = 14;
+      for (let i = 0; i < segs; i++) {
+        const a0 = -Math.PI * 0.85 + (i / segs) * Math.PI * 0.7;
+        const aMid = a0 + (Math.PI * 0.7) / (segs * 2);
+        const fx = Math.cos(aMid) * 32.8;
+        const fz = Math.sin(aMid) * 32.8;
+        const panel = new THREE.Mesh(new THREE.BoxGeometry(5.3, 2.2, 0.35), fenceWallMat);
+        panel.position.set(fx, 1.1, fz);
+        panel.rotation.y = -aMid + Math.PI / 2;
+        bbGroup.add(panel);
+        const cap = new THREE.Mesh(new THREE.BoxGeometry(5.35, 0.24, 0.42), fenceCapMat);
+        cap.position.set(fx, 2.24, fz);
+        cap.rotation.y = -aMid + Math.PI / 2;
+        bbGroup.add(cap);
+      }
+
+      // Dugouts & Backstop
+      for (const side of [-1, 1]) {
+        const dugout = new THREE.Mesh(new THREE.BoxGeometry(8.5, 2.4, 2.6), makeCityMat({ color: 0x334155, roughness: 0.7 }));
+        dugout.rotation.y = side * (Math.PI / 4);
+        dugout.position.set(side * 16.5, 1.2, 16.5);
+        bbGroup.add(dugout);
+      }
+      const backstop = new THREE.Mesh(new THREE.BoxGeometry(9.2, 3.6, 0.35), makeCityMat({ color: 0x64748b, roughness: 0.4, metalness: 0.6 }));
+      backstop.position.set(0, 1.8, 24.5);
+      bbGroup.add(backstop);
+
+      const bbSign = new THREE.Mesh(
+        new THREE.BoxGeometry(14, 2.0, 0.4),
+        makeTextSignMat(['BOHRER PARK BASEBALL', 'GAITHERSBURG · PRESS [B] TO PLAY'], '#14532d', '#fde047', '#ffffff')
+      );
+      bbSign.position.set(0, 4.4, -31.5);
+      bbGroup.add(bbSign);
+
+      // Glowing yellow sport interaction ring at home-plate entrance
+      const ringMat = new THREE.MeshBasicMaterial({ color: 0xfacc15, side: THREE.DoubleSide, transparent: true, opacity: 0.7 });
+      disposables.push(ringMat);
+      const bbRing = new THREE.Mesh(new THREE.RingGeometry(4.2, 5.2, 24), ringMat);
+      bbRing.rotation.x = -Math.PI / 2;
+      bbRing.position.set(0, 0.05, 0);
+      bbGroup.add(bbRing);
+
+      sceneryGroup.add(bbGroup);
+    }
+
+    // 10B2. BOHRER PARK TURF SOCCER PITCH (South of Baseball Diamond at gx(32), gz(2152))
+    {
+      const scGroup = new THREE.Group();
+      scGroup.position.set(gx(32), 0.24, gz(2152));
+      const pitchDark = makeCityMat({ color: 0x15803d, roughness: 0.88 });
+      const pitchLight = makeCityMat({ color: 0x22c55e, roughness: 0.86 });
+      const chalkMat = makeCityMat({ color: 0xf8fafc, roughness: 0.6 });
+      const goalPostMat = makeCityMat({ color: 0xf8fafc, roughness: 0.35, metalness: 0.35 });
+      const netMat = new THREE.MeshBasicMaterial({ color: 0xe2e8f0, wireframe: true, transparent: true, opacity: 0.5 });
+      disposables.push(netMat);
+
+      const turfPad = new THREE.Mesh(new THREE.PlaneGeometry(48, 30), pitchDark);
+      turfPad.rotation.x = -Math.PI / 2;
+      turfPad.receiveShadow = isUltra;
+      scGroup.add(turfPad);
+
+      for (let s = -3; s <= 3; s += 2) {
+        const band = new THREE.Mesh(new THREE.PlaneGeometry(6.0, 26), pitchLight);
+        band.rotation.x = -Math.PI / 2;
+        band.position.set(s * 6.0, 0.008, 0);
+        scGroup.add(band);
+      }
+
+      // Chalk touchlines & center circle
+      for (const zLine of [-13, 13]) {
+        const line = new THREE.Mesh(new THREE.PlaneGeometry(42, 0.26), chalkMat);
+        line.rotation.x = -Math.PI / 2;
+        line.position.set(0, 0.015, zLine);
+        scGroup.add(line);
+      }
+      for (const xLine of [-21, 0, 21]) {
+        const line = new THREE.Mesh(new THREE.PlaneGeometry(0.26, 26), chalkMat);
+        line.rotation.x = -Math.PI / 2;
+        line.position.set(xLine, 0.015, 0);
+        scGroup.add(line);
+      }
+      const centerRing = new THREE.Mesh(new THREE.RingGeometry(4.0, 4.3, 24), chalkMat);
+      centerRing.rotation.x = -Math.PI / 2;
+      centerRing.position.set(0, 0.016, 0);
+      scGroup.add(centerRing);
+
+      // Twin 3D Soccer Goals (West & East ends)
+      for (const side of [-1, 1]) {
+        const gxGoal = side * 21.6;
+        for (const gzPost of [-3.4, 3.4]) {
+          const post = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 2.5, 8), goalPostMat);
+          post.position.set(gxGoal, 1.25, gzPost);
+          scGroup.add(post);
+        }
+        const crossbar = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 6.9, 8), goalPostMat);
+        crossbar.rotation.x = Math.PI / 2;
+        crossbar.position.set(gxGoal, 2.5, 0);
+        scGroup.add(crossbar);
+        const netBox = new THREE.Mesh(new THREE.BoxGeometry(1.8, 2.4, 6.7), netMat);
+        netBox.position.set(gxGoal + side * 0.9, 1.2, 0);
+        scGroup.add(netBox);
+      }
+
+      const scSign = new THREE.Mesh(
+        new THREE.BoxGeometry(13, 1.8, 0.35),
+        makeTextSignMat(['BOHRER SOCCER PITCH', 'PRESS [B] · STRIKER SHOOTOUT'], '#065f46', '#fde047', '#10b981')
+      );
+      scSign.position.set(0, 3.8, -16.5);
+      scGroup.add(scSign);
+
+      const scRingMat = new THREE.MeshBasicMaterial({ color: 0x10b981, side: THREE.DoubleSide, transparent: true, opacity: 0.78 });
+      disposables.push(scRingMat);
+      const scRing = new THREE.Mesh(new THREE.RingGeometry(4.0, 5.0, 24), scRingMat);
+      scRing.rotation.x = -Math.PI / 2;
+      scRing.position.set(0, 0.04, 0);
+      scGroup.add(scRing);
+
+      sceneryGroup.add(scGroup);
+    }
+
+    // 10B3. BOHRER PARK GRIDIRON FOOTBALL STADIUM (gx(-42), gz(2242))
+    {
+      const fbGroup = new THREE.Group();
+      fbGroup.position.set(gx(-42), 0.24, gz(2242));
+      const turfDark = makeCityMat({ color: 0x15803d, roughness: 0.88 });
+      const turfLight = makeCityMat({ color: 0x16a34a, roughness: 0.86 });
+      const endzoneMat = makeCityMat({ color: 0x991b1b, roughness: 0.85 });
+      const yardMat = makeCityMat({ color: 0xf8fafc, roughness: 0.6 });
+      const postMat = makeCityMat({ color: 0xfacc15, roughness: 0.35, metalness: 0.4 });
+      const bleacherMat = makeCityMat({ color: 0x334155, roughness: 0.7 });
+
+      const fbPad = new THREE.Mesh(new THREE.PlaneGeometry(54, 30), turfDark);
+      fbPad.rotation.x = -Math.PI / 2;
+      fbPad.receiveShadow = isUltra;
+      fbGroup.add(fbPad);
+
+      // Alternating 10-yard turf bands + crisp white yard lines
+      for (let yIdx = -4; yIdx <= 4; yIdx++) {
+        if (yIdx % 2 === 0) {
+          const band = new THREE.Mesh(new THREE.PlaneGeometry(4.2, 24), turfLight);
+          band.rotation.x = -Math.PI / 2;
+          band.position.set(yIdx * 4.2, 0.008, 0);
+          fbGroup.add(band);
+        }
+        const yLine = new THREE.Mesh(new THREE.PlaneGeometry(0.18, 24), yardMat);
+        yLine.rotation.x = -Math.PI / 2;
+        yLine.position.set(yIdx * 4.2 - 2.1, 0.015, 0);
+        fbGroup.add(yLine);
+      }
+      // Midfield 50-yd accent + endzones + yellow goalposts
+      const midLogo = new THREE.Mesh(new THREE.CircleGeometry(2.6, 16), endzoneMat);
+      midLogo.rotation.x = -Math.PI / 2;
+      midLogo.position.set(0, 0.016, 0);
+      fbGroup.add(midLogo);
+
+      for (const side of [-1, 1]) {
+        const ez = new THREE.Mesh(new THREE.PlaneGeometry(5.2, 24), endzoneMat);
+        ez.rotation.x = -Math.PI / 2;
+        ez.position.set(side * 22.8, 0.012, 0);
+        fbGroup.add(ez);
+
+        const gxPost = side * 25.4;
+        const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 2.2, 8), postMat);
+        stem.position.set(gxPost, 1.1, 0);
+        fbGroup.add(stem);
+        const cross = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 4.2, 8), postMat);
+        cross.rotation.x = Math.PI / 2;
+        cross.position.set(gxPost, 2.2, 0);
+        fbGroup.add(cross);
+        for (const zUp of [-2.1, 2.1]) {
+          const upright = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 3.6, 8), postMat);
+          upright.position.set(gxPost, 4.0, zUp);
+          fbGroup.add(upright);
+        }
+      }
+
+      // North sideline bleachers & scoreboard sign
+      const stand = new THREE.Mesh(new THREE.BoxGeometry(34, 3.2, 3.6), bleacherMat);
+      stand.position.set(0, 1.6, -15.2);
+      fbGroup.add(stand);
+
+      const fbSign = new THREE.Mesh(
+        new THREE.BoxGeometry(15, 2.0, 0.4),
+        makeTextSignMat(['BOHRER GRIDIRON STADIUM', 'PRESS [B] · RETRO FOOTBALL'], '#450a0a', '#fde047', '#ef4444')
+      );
+      fbSign.position.set(0, 4.6, -15.2);
+      fbGroup.add(fbSign);
+
+      const fbRingMat = new THREE.MeshBasicMaterial({ color: 0xef4444, side: THREE.DoubleSide, transparent: true, opacity: 0.78 });
+      disposables.push(fbRingMat);
+      const fbRing = new THREE.Mesh(new THREE.RingGeometry(4.0, 5.0, 24), fbRingMat);
+      fbRing.rotation.x = -Math.PI / 2;
+      fbRing.position.set(0, 0.05, 0);
+      fbGroup.add(fbRing);
+
+      sceneryGroup.add(fbGroup);
+      cityBuildings.push({ minX: gx(-60), maxX: gx(-24), minZ: gz(2225), maxZ: gz(2229), height: 5, name: 'Bohrer Gridiron Bleachers' });
+    }
+
+    // 10C. GAITHERSBURG COUNTRY CLUB GOLF FIELD (Clean open meadow at gx(515), gz(2275))
+    {
+      const golfGroup = new THREE.Group();
+      golfGroup.position.set(gx(515), 0.24, gz(2275));
+      const roughMat = makeCityMat({ color: 0x166534, roughness: 0.92 });
+      const fairwayDarkMat = makeCityMat({ color: 0x15803d, roughness: 0.88 });
+      const fairwayLightMat = makeCityMat({ color: 0x22c55e, roughness: 0.86 });
+      const greenMat = makeCityMat({ color: 0x4ade80, roughness: 0.78 });
+      const sandMat = makeCityMat({ color: 0xfde68a, roughness: 0.95 });
+      const golfWaterMat = makeCityMat({ color: 0x0284c7, roughness: 0.14, metalness: 0.4 });
+
+      const linksBase = new THREE.Mesh(new THREE.PlaneGeometry(116, 64), roughMat);
+      linksBase.rotation.x = -Math.PI / 2;
+      linksBase.receiveShadow = isUltra;
+      golfGroup.add(linksBase);
+
+      // Alternating mowed fairway stripes running West-to-East toward the green
+      for (let i = 0; i < 10; i++) {
+        const fStripe = new THREE.Mesh(
+          new THREE.PlaneGeometry(9.2, 32),
+          i % 2 === 0 ? fairwayLightMat : fairwayDarkMat
+        );
+        fStripe.rotation.x = -Math.PI / 2;
+        fStripe.position.set(-40 + i * 9.2, 0.014, 0);
+        golfGroup.add(fStripe);
+      }
+
+      // Putting green oval + pin + fluttering red pennant on the East end
+      const puttingGreen = new THREE.Mesh(new THREE.CircleGeometry(14, 24), greenMat);
+      puttingGreen.rotation.x = -Math.PI / 2;
+      puttingGreen.scale.set(1.25, 0.95, 1);
+      puttingGreen.position.set(36, 0.024, 0);
+      golfGroup.add(puttingGreen);
+
+      const cupMesh = new THREE.Mesh(new THREE.CircleGeometry(0.45, 12), makeCityMat({ color: 0x0f172a, roughness: 0.8 }));
+      cupMesh.rotation.x = -Math.PI / 2;
+      cupMesh.position.set(38, 0.032, 0);
+      golfGroup.add(cupMesh);
+
+      const pinPole = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 5.2, 8), makeCityMat({ color: 0xf8fafc, roughness: 0.3 }));
+      pinPole.position.set(38, 2.6, 0);
+      golfGroup.add(pinPole);
+
+      const flagCloth = new THREE.Mesh(new THREE.BoxGeometry(1.8, 1.0, 0.08), makeCityMat({ color: 0xef4444, roughness: 0.45 }));
+      flagCloth.position.set(38.9, 4.65, 0);
+      golfGroup.add(flagCloth);
+
+      // 3 Golden Sand Bunkers
+      for (const [bx, bz, rx, rz] of [
+        [24, -14, 6.2, 4.2],
+        [34, 15, 7.0, 4.4],
+        [-4, -13, 5.5, 3.8],
+      ] as [number, number, number, number][]) {
+        const sand = new THREE.Mesh(new THREE.CircleGeometry(1, 16), sandMat);
+        sand.rotation.x = -Math.PI / 2;
+        sand.scale.set(rx, rz, 1);
+        sand.position.set(bx, 0.02, bz);
+        golfGroup.add(sand);
+      }
+
+      // Scenic Water Hazard Pond on South Edge
+      const golfPond = new THREE.Mesh(new THREE.CircleGeometry(1, 18), golfWaterMat);
+      golfPond.rotation.x = -Math.PI / 2;
+      golfPond.scale.set(14, 7.5, 1);
+      golfPond.position.set(4, 0.018, 20);
+      golfGroup.add(golfPond);
+
+      // Tee box + Asphalt Cart Apron + Pro Shop Starter Kiosk at West Entrance (gx(468), gz(2275))
+      const teePad = new THREE.Mesh(new THREE.PlaneGeometry(14, 10), fairwayLightMat);
+      teePad.rotation.x = -Math.PI / 2;
+      teePad.position.set(-46, 0.024, 0);
+      golfGroup.add(teePad);
+
+      const kioskMat = makeSidingMat('#f1f5f9');
+      const kioskRoofMat = makeCityMat({ color: 0x14532d, roughness: 0.65 });
+      const kiosk = new THREE.Mesh(new THREE.BoxGeometry(8, 3.8, 6), kioskMat);
+      kiosk.position.set(-51, 1.9, -12);
+      golfGroup.add(kiosk);
+      const kioskRoof = buildPitchedRoofGroup(8.6, 6.6, 2.0, kioskMat, kioskRoofMat, 'x');
+      kioskRoof.position.set(-51, 3.8, -12);
+      golfGroup.add(kioskRoof);
+      const golfSign = new THREE.Mesh(
+        new THREE.BoxGeometry(12, 1.8, 0.35),
+        makeTextSignMat(['GAITHERSBURG GOLF FIELD', 'PRESS [B] · 3-HOLE RETRO LINKS'], '#064e3b', '#fde047', '#22c55e')
+      );
+      golfSign.rotation.y = Math.PI / 2;
+      golfSign.position.set(-55.4, 3.2, -12);
+      golfGroup.add(golfSign);
+
+      const golfRingMat = new THREE.MeshBasicMaterial({ color: 0x22c55e, side: THREE.DoubleSide, transparent: true, opacity: 0.72 });
+      disposables.push(golfRingMat);
+      const golfRing = new THREE.Mesh(new THREE.RingGeometry(4.2, 5.2, 24), golfRingMat);
+      golfRing.rotation.x = -Math.PI / 2;
+      golfRing.position.set(-47, 0.05, 0);
+      golfGroup.add(golfRing);
+
+      sceneryGroup.add(golfGroup);
+      cityBuildings.push({ minX: gx(460), maxX: gx(468), minZ: gz(2260), maxZ: gz(2266), height: 6, name: 'Gaithersburg Golf Starter Kiosk' });
+    }
   }
 
   // =========================================================================================
@@ -1136,7 +1611,23 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
     postInst.computeBoundingSphere();
     sceneryGroup.add(postInst);
 
-    // Timber Boardwalk promenade, Waterfront Pergolas, Festive String-Light Patio Posts & Americana Carousel
+    // Central Dancing Lake Fountain + Timber Pier Fishing Jetty + Arched Footbridge
+    const limestoneMat = makeCityMat({ color: 0xe2e8f0, roughness: 0.52 });
+    const fountainFoamMat = new THREE.MeshBasicMaterial({ color: 0xbae6fd, transparent: true, opacity: 0.85 });
+    const fountainGlowMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.72 });
+    disposables.push(fountainFoamMat, fountainGlowMat);
+
+    const fountainRing = new THREE.Mesh(new THREE.CylinderGeometry(5.6, 6.2, 0.85, 22), limestoneMat);
+    fountainRing.position.set(rioX - 10, 0.48, rioLakeZ + 4);
+    sceneryGroup.add(fountainRing);
+    const fountainPlume = new THREE.Mesh(new THREE.ConeGeometry(1.8, 5.8, 12), fountainFoamMat);
+    fountainPlume.position.set(rioX - 10, 3.6, rioLakeZ + 4);
+    sceneryGroup.add(fountainPlume);
+    const fountainCrownJet = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.65, 7.6, 10), fountainGlowMat);
+    fountainCrownJet.position.set(rioX - 10, 4.4, rioLakeZ + 4);
+    sceneryGroup.add(fountainCrownJet);
+
+    // Timber Boardwalk promenade, Fishing Pier Jetty, Waterfront Pergolas & Americana Carousel
     const woodDeckMat = makeCityMat({ color: 0x7c4a26, roughness: 0.78 });
     const whitePergolaMat = makeCityMat({ color: 0xf8fafc, roughness: 0.45 });
     const brassPoleMat = makeCityMat({ color: 0xfbbf24, roughness: 0.25, metalness: 0.85 });
@@ -1153,6 +1644,66 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
     southPatioDeck.position.set(rioX + 2, 0.38, rioLakeZ + 29);
     southPatioDeck.receiveShadow = isUltra;
     sceneryGroup.add(southPatioDeck);
+
+    // Scenic Pedestrian Arch Bridge across East end of RIO Lake (gx(-432), gz(2304))
+    {
+      const brX = gx(-432);
+      const brDeck = new THREE.Mesh(new THREE.BoxGeometry(4.6, 0.4, 24), woodDeckMat);
+      brDeck.position.set(brX, 1.45, rioLakeZ);
+      sceneryGroup.add(brDeck);
+      for (const side of [-2.1, 2.1]) {
+        const rail = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.9, 24), ironRailMat);
+        rail.position.set(brX + side, 2.05, rioLakeZ);
+        sceneryGroup.add(rail);
+      }
+      for (const endZ of [-12, 12]) {
+        const ramp = new THREE.Mesh(new THREE.BoxGeometry(4.6, 0.36, 9.5), woodDeckMat);
+        ramp.rotation.x = endZ < 0 ? -0.14 : 0.14;
+        ramp.position.set(brX, 0.88, rioLakeZ + endZ * 1.25);
+        sceneryGroup.add(ramp);
+      }
+    }
+
+    // RIO Lakefront Fishing Pier Jetty at MD_LANDMARKS.rioFishingPier (gx(-464), gz(2274))
+    {
+      const pierX = gx(-464);
+      const pierZ = gz(2274);
+      const pierDeck = new THREE.Mesh(new THREE.BoxGeometry(6.8, 0.42, 12), woodDeckMat);
+      pierDeck.position.set(pierX, 0.56, pierZ + 3.5);
+      sceneryGroup.add(pierDeck);
+      for (const px of [-2.8, 2.8]) {
+        for (const pz of [-1, 4, 8.5]) {
+          const piling = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.28, 1.8, 8), makeCityMat({ color: 0x451a03, roughness: 0.9 }));
+          piling.position.set(pierX + px, 0.72, pierZ + pz);
+          sceneryGroup.add(piling);
+        }
+      }
+      const fishSign = new THREE.Mesh(
+        new THREE.BoxGeometry(8.5, 1.4, 0.3),
+        makeTextSignMat(['RIO FISHING PIER', 'PRESS [B] · BASS & CRAB'], '#0e7490', '#f8fafc', '#22d3ee')
+      );
+      fishSign.position.set(pierX, 3.1, pierZ - 2.2);
+      sceneryGroup.add(fishSign);
+      const fishRingMat = new THREE.MeshBasicMaterial({ color: 0x06b6d4, side: THREE.DoubleSide, transparent: true, opacity: 0.8 });
+      disposables.push(fishRingMat);
+      const fishRing = new THREE.Mesh(new THREE.RingGeometry(3.5, 4.4, 24), fishRingMat);
+      fishRing.rotation.x = -Math.PI / 2;
+      fishRing.position.set(pierX, 0.29, pierZ - 3.5);
+      sceneryGroup.add(fishRing);
+    }
+
+    // Waterfront Umbrella Cafe Tables along North & South Boardwalk
+    const umbColors = [0xdc2626, 0x0284c7, 0xd97706, 0x059669];
+    for (let u = 0; u < 8; u++) {
+      const ux = rioX - 31 + u * 8.8;
+      const uz = u % 2 === 0 ? rioLakeZ - 28.5 : rioLakeZ + 28.5;
+      const uPole = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 2.4, 6), whitePergolaMat);
+      uPole.position.set(ux, 1.5, uz);
+      sceneryGroup.add(uPole);
+      const uCanopy = new THREE.Mesh(new THREE.ConeGeometry(1.65, 0.75, 8), makeCityMat({ color: umbColors[u % umbColors.length], roughness: 0.55 }));
+      uCanopy.position.set(ux, 2.85, uz);
+      sceneryGroup.add(uCanopy);
+    }
 
     // Architectural Timber Pergolas & Warm String-Light Lantern Poles along RIO Boardwalk
     for (const px of [-34, 0, 34]) {
@@ -1206,7 +1757,7 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
     carouselFinial.position.set(rioX, 10.6, rioLakeZ - 15);
     sceneryGroup.add(carouselFinial);
 
-    // Waterfront Stores & Restaurants surrounding all 4 sides of RIO Lake with awnings, glazed storefronts & signature architecture
+    // Waterfront Stores & Restaurants surrounding all 4 sides of RIO Lake (cleanly West of Washingtonian Blvd x = gx(-378))
     const rioStores: {
       x: number;
       z: number;
@@ -1228,9 +1779,9 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
       // West Row (facing lake East)
       { x: gx(-516), z: gz(2289), w: 14, h: 10.5, d: 22, brickHex: '#a16207', winHex: '#fef08a', awningHex: 0x9a3412, signLines: ['UNCLE JULIO\'S RIO'], signSide: 'E', name: 'Uncle Julio\'s Rio Grande Cafe' },
       { x: gx(-516), z: gz(2317), w: 14, h: 10.0, d: 22, brickHex: '#475569', winHex: '#bae6fd', awningHex: 0x0f766e, signLines: ['TRUE FOOD KITCHEN · BOUTIQUES'], signSide: 'E', name: 'True Food Kitchen & RIO Shops' },
-      // East Row (facing lake West)
+      // East Row (facing lake West, pulled cleanly clear of Washingtonian Blvd gx(-378))
       { x: gx(-412), z: gz(2290), w: 14, h: 10.5, d: 20, brickHex: '#7c2d12', winHex: '#fde68a', awningHex: 0x1e293b, signLines: ['GUAPO\'S CANTINA · PATIO'], signSide: 'W', name: 'Guapo\'s Cantina RIO' },
-      { x: gx(-404), z: gz(2320), w: 14, h: 10.0, d: 20, brickHex: '#334155', winHex: '#38bdf8', awningHex: 0xb91c1c, signLines: ['SILVER DINER · LAKEFRONT'], signSide: 'W', name: 'Silver Diner RIO Lakefront' },
+      { x: gx(-408), z: gz(2320), w: 14, h: 10.0, d: 20, brickHex: '#334155', winHex: '#38bdf8', awningHex: 0xb91c1c, signLines: ['SILVER DINER · LAKEFRONT'], signSide: 'W', name: 'Silver Diner RIO Lakefront' },
       // South Row (facing lake North)
       { x: gx(-486), z: gz(2344), w: 20, h: 9.8, d: 11, brickHex: '#8b3a2b', winHex: '#fef3c7', awningHex: 0x7c2d12, signLines: ['CHARLEY PRIME FOODS'], signSide: 'N', name: 'Charley Prime Foods RIO' },
       { x: gx(-458), z: gz(2344), w: 20, h: 9.8, d: 11, brickHex: '#57534e', winHex: '#bae6fd', awningHex: 0x1e293b, signLines: ['YARD HOUSE · LAKEFRONT PATIO'], signSide: 'N', name: 'Yard House RIO' },
@@ -1319,17 +1870,132 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
       });
     }
 
-    const crownBrickMat = makeBrickFacadeMat('#57534e', '#e2e8f0', '#fde047', 7, 3, false);
-    const crownBlock = new THREE.Mesh(new THREE.BoxGeometry(64, 16, 36), boxWithRoofMat(crownBrickMat, flatRoofMat));
-    crownBlock.position.set(gx(-302), 8.25, gz(2318));
-    sceneryGroup.add(crownBlock);
-    const crownPent = new THREE.Mesh(new THREE.BoxGeometry(40, 4.5, 22), boxWithRoofMat(makeBrickFacadeMat('#7c2d12', '#f8fafc', '#fde68a', 5, 1, false), flatRoofMat));
-    crownPent.position.set(gx(-302), 18.5, gz(2318));
-    sceneryGroup.add(crownPent);
-    const crownCanopy = new THREE.Mesh(new THREE.BoxGeometry(62, 0.7, 4.2), campusDarkMat);
-    crownCanopy.position.set(gx(-302), 4.6, gz(2298.5));
-    sceneryGroup.add(crownCanopy);
-    cityBuildings.push({ minX: gx(-335), maxX: gx(-269), minZ: gz(2299), maxZ: gz(2337), height: 21, name: 'Downtown Crown Urban Village' });
+    // DOWNTOWN CROWN URBAN VILLAGE (Multi-Building Brick Piazza + Courtyard Fountain + Neon Bowling Lanes)
+    const crownPiazza = new THREE.Mesh(new THREE.PlaneGeometry(84, 92), makeCityMat({ color: 0x475569, roughness: 0.78 }));
+    crownPiazza.rotation.x = -Math.PI / 2;
+    crownPiazza.position.set(gx(-324), 0.242, gz(2294));
+    crownPiazza.receiveShadow = isUltra;
+    sceneryGroup.add(crownPiazza);
+
+    // Central Crown Plaza Fountain
+    const crownBasin = new THREE.Mesh(new THREE.CylinderGeometry(4.4, 4.8, 0.75, 18), limestoneMat);
+    crownBasin.position.set(gx(-324), 0.62, gz(2294));
+    sceneryGroup.add(crownBasin);
+    const crownJet = new THREE.Mesh(new THREE.ConeGeometry(1.1, 3.8, 10), fountainGlowMat);
+    crownJet.position.set(gx(-324), 2.7, gz(2294));
+    sceneryGroup.add(crownJet);
+
+    // Downtown Crown Neon Bowling Lanes Pavilion at MD_LANDMARKS.rioBowlingArcade (gx(-348), gz(2268))
+    {
+      const bx = gx(-344);
+      const bz = gz(2264);
+      const bowlWallMat = makeBrickFacadeMat('#312e81', '#cbd5e1', '#e879f9', 6, 2, true);
+      const bowlMesh = new THREE.Mesh(new THREE.BoxGeometry(24, 11.5, 22), boxWithRoofMat(bowlWallMat, flatRoofMat));
+      bowlMesh.position.set(bx, 6.0, bz);
+      bowlMesh.castShadow = isUltra;
+      sceneryGroup.add(bowlMesh);
+      const bowlSign = new THREE.Mesh(
+        new THREE.BoxGeometry(0.4, 2.8, 18),
+        makeTextSignMat(['CROWN NEON BOWLING', 'PRESS [B] · 5-FRAME ARCADE'], '#4c1d95', '#f0abfc', '#22d3ee')
+      );
+      bowlSign.position.set(bx - 12.2, 8.2, bz);
+      sceneryGroup.add(bowlSign);
+      // Giant Rooftop Bowling Pin Sculpture
+      const pin = new THREE.Mesh(new THREE.CylinderGeometry(0.65, 1.15, 5.2, 12), whitePergolaMat);
+      pin.position.set(bx, 14.3, bz);
+      sceneryGroup.add(pin);
+      const pinStripe = new THREE.Mesh(new THREE.CylinderGeometry(0.75, 0.75, 0.65, 12), makeCityMat({ color: 0xef4444, roughness: 0.35 }));
+      pinStripe.position.set(bx, 15.2, bz);
+      sceneryGroup.add(pinStripe);
+      const bowlRingMat = new THREE.MeshBasicMaterial({ color: 0xa855f7, side: THREE.DoubleSide, transparent: true, opacity: 0.8 });
+      disposables.push(bowlRingMat);
+      const bowlRing = new THREE.Mesh(new THREE.RingGeometry(3.8, 4.8, 24), bowlRingMat);
+      bowlRing.rotation.x = -Math.PI / 2;
+      bowlRing.position.set(gx(-348), 0.28, gz(2268));
+      sceneryGroup.add(bowlRing);
+      cityBuildings.push({ minX: bx - 12.5, maxX: bx + 12.5, minZ: bz - 11.5, maxZ: bz + 11.5, height: 18, name: 'Downtown Crown Neon Bowling Lanes' });
+    }
+
+    // Surrounding Mixed-Use Downtown Crown Buildings (Retail + Penthouse Lofts)
+    for (const [cx, cz, cw, ch, cd, brick, win, signL, label] of [
+      [gx(-342), gz(2324), 24, 15, 26, '#7c2d12', '#fef08a', ['FOUNDING FARMERS', 'DOWNTOWN CROWN'], 'Founding Farmers & Crown Bistro'],
+      [gx(-300), gz(2264), 26, 18, 24, '#475569', '#bae6fd', ['LA FITNESS · LOFTS', 'CROWN URBAN VILLAGE'], 'Crown Residences North'],
+      [gx(-300), gz(2324), 26, 16.5, 26, '#57534e', '#fde047', ['HARRIS TEETER · RUTH\'S CHRIS', 'DOWNTOWN CROWN'], 'Downtown Crown Urban Village'],
+    ] as [number, number, number, number, number, string, string, string[], string][]) {
+      const mat = makeBrickFacadeMat(brick, '#e2e8f0', win, 6, 3, true);
+      const blk = new THREE.Mesh(new THREE.BoxGeometry(cw, ch, cd), boxWithRoofMat(mat, flatRoofMat));
+      blk.position.set(cx, ch * 0.5 + 0.25, cz);
+      blk.castShadow = isUltra;
+      sceneryGroup.add(blk);
+      const trim = new THREE.Mesh(new THREE.BoxGeometry(cw + 1, 0.9, cd + 1), campusTrimMat);
+      trim.position.set(cx, ch + 0.7, cz);
+      sceneryGroup.add(trim);
+      const sg = new THREE.Mesh(new THREE.BoxGeometry(cw - 4, 2.2, 0.35), makeTextSignMat(signL, '#0f172a', '#fde047', '#f59e0b'));
+      sg.position.set(cx, 5.4, cz - cd * 0.5 - 0.28);
+      sceneryGroup.add(sg);
+      cityBuildings.push({ minX: cx - cw * 0.5 - 0.6, maxX: cx + cw * 0.5 + 0.6, minZ: cz - cd * 0.5 - 0.6, maxZ: cz + cd * 0.5 + 0.6, height: ch + 1.5, name: label });
+    }
+
+    // INTERACTIVE WOODFIELD SHELL PIT STOP, WASHINGTONIAN EV BAY, CAR MEET PLAZA & GAITHERSBURG SPEED TRAPS
+    for (const [sx, sz, col, label] of [
+      [gx(448), gz(1760), 0xfacc15, 'SHELL V-POWER · NITRO & REPAIR'],
+      [gx(-378), gz(2232), 0x06b6d4, 'RIO SUPERCHARGE · WASH & NITRO'],
+    ] as [number, number, number, string][]) {
+      const canopyMat = makeCityMat({ color: col, roughness: 0.35, metalness: 0.3 });
+      const canopyRoof = new THREE.Mesh(new THREE.BoxGeometry(11, 0.7, 7.5), canopyMat);
+      canopyRoof.position.set(sx + 6.5, 4.6, sz);
+      sceneryGroup.add(canopyRoof);
+      for (const pz of [-2.4, 2.4]) {
+        const colMesh = new THREE.Mesh(new THREE.BoxGeometry(0.55, 4.4, 0.55), limestoneMat);
+        colMesh.position.set(sx + 9.2, 2.45, sz + pz);
+        sceneryGroup.add(colMesh);
+      }
+      const baySign = new THREE.Mesh(new THREE.BoxGeometry(9.6, 1.1, 0.28), makeTextSignMat([label, 'PRESS [E] TO REFUEL & REPAIR'], '#0f172a', '#38bdf8', '#22c55e'));
+      baySign.rotation.y = -Math.PI / 2;
+      baySign.position.set(sx + 0.9, 4.6, sz);
+      sceneryGroup.add(baySign);
+      const bayRing = new THREE.Mesh(
+        new THREE.RingGeometry(3.2, 4.2, 24),
+        new THREE.MeshBasicMaterial({ color: 0x22d3ee, side: THREE.DoubleSide, transparent: true, opacity: 0.72 })
+      );
+      bayRing.rotation.x = -Math.PI / 2;
+      bayRing.position.set(sx, 0.29, sz);
+      sceneryGroup.add(bayRing);
+    }
+
+    // Car Meet Showcase Pad at Washingtonian Blvd Promenade
+    const meetRing = new THREE.Mesh(
+      new THREE.RingGeometry(4.4, 5.6, 28),
+      new THREE.MeshBasicMaterial({ color: 0xf59e0b, side: THREE.DoubleSide, transparent: true, opacity: 0.78 })
+    );
+    meetRing.rotation.x = -Math.PI / 2;
+    meetRing.position.set(gx(-378), 0.29, gz(2285));
+    sceneryGroup.add(meetRing);
+
+    // Highway Speed Trap Camera Arches in Gaithersburg
+    for (const [cx, cz, rotY] of [
+      [gx(-365), gz(1890), 0.26],
+      [gx(356), gz(1845), -0.34],
+    ] as [number, number, number][]) {
+      const arch = new THREE.Group();
+      arch.position.set(cx, 0.25, cz);
+      arch.rotation.y = rotY;
+      for (const side of [-16, 16]) {
+        const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.34, 7.6, 8), ironRailMat);
+        leg.position.set(side, 3.8, 0);
+        arch.add(leg);
+      }
+      const truss = new THREE.Mesh(new THREE.BoxGeometry(33, 0.65, 0.65), ironRailMat);
+      truss.position.set(0, 7.6, 0);
+      arch.add(truss);
+      const camBox = new THREE.Mesh(
+        new THREE.BoxGeometry(5.5, 1.0, 0.45),
+        makeTextSignMat(['SPEED TRAP RADAR', 'EXCEED TARGET FOR BONUS $'], '#0f172a', '#ef4444', '#facc15')
+      );
+      camBox.position.set(0, 7.6, 0.45);
+      arch.add(camBox);
+      sceneryGroup.add(arch);
+    }
 
     drawGaithParkingLot(gx(-630), gz(2095), 72, 54, 0);
     const kmPlaza = new THREE.Mesh(new THREE.BoxGeometry(66, 12, 28), boxWithRoofMat(makeBrickFacadeMat('#9a3412', '#fef3c7', '#38bdf8', 7, 2, false), flatRoofMat));
@@ -1430,12 +2096,15 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
         }
       }
       if (
-        (tx >= gx(245) && tx <= gx(805) && tz >= gz(1045) && tz <= gz(1925)) ||
+        (tx >= gx(100) && tx <= gx(805) && tz >= gz(1045) && tz <= gz(1925)) ||
         (tx >= gx(-205) && tx <= gx(-35) && tz >= gz(1530) && tz <= gz(1600)) ||
         (tx >= gx(235) && tx <= gx(410) && tz >= gz(2240) && tz <= gz(2315)) ||
+        (tx >= gx(445) && tx <= gx(585) && tz >= gz(2232) && tz <= gz(2318)) ||
+        (tx >= gx(-10) && tx <= gx(74) && tz >= gz(2054) && tz <= gz(2178)) ||
+        (tx >= gx(-74) && tx <= gx(-10) && tz >= gz(2220) && tz <= gz(2266)) ||
         (tx >= gx(95) && tx <= gx(255) && tz >= gz(1940) && tz <= gz(2105)) ||
         (tx >= gx(-365) && tx <= gx(-265) && tz >= gz(1655) && tz <= gz(1735)) ||
-        (tx >= gx(-535) && tx <= gx(-365) && tz >= gz(2225) && tz <= gz(2360)) ||
+        (tx >= gx(-535) && tx <= gx(-268) && tz >= gz(2225) && tz <= gz(2360)) ||
         (tx >= gx(-665) && tx <= gx(-555) && tz >= gz(2245) && tz <= gz(2335)) ||
         (tx >= gx(-205) && tx <= gx(-95) && tz >= gz(1825) && tz <= gz(1920))
       ) {
@@ -1450,6 +2119,34 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
       return false;
     };
 
+    const isSafeSuburbanTreeSpot = (tx: number, tz: number): boolean => {
+      if (isOnGaithersburgPavedSurface(tx, tz)) return false;
+      for (const r of ALL_MARYLAND_ROADS) {
+        const minClr = r.width * 0.5 + 4.8;
+        const clrSq = minClr * minClr;
+        for (let k = 0; k < r.points.length - 1; k++) {
+          if (distSqPointToSeg(tx, tz, r.points[k].x, r.points[k].z, r.points[k + 1].x, r.points[k + 1].z) < clrSq) {
+            return false;
+          }
+        }
+        if (r.culDeSacEndRadius && r.points.length > 0) {
+          const ep = r.points[r.points.length - 1];
+          if (Math.hypot(tx - ep.x, tz - ep.z) < r.culDeSacEndRadius + 4.5) return false;
+        }
+      }
+      for (let b = 0; b < cityBuildings.length; b++) {
+        const box = cityBuildings[b];
+        if (tx >= box.minX - 6.8 && tx <= box.maxX + 6.8 && tz >= box.minZ - 6.8 && tz <= box.maxZ + 6.8) {
+          return false;
+        }
+      }
+      for (let s = 0; s < suburbanHouses.length; s++) {
+        const d = suburbanHouses[s].drivewayTarget;
+        if ((tx - d.x) * (tx - d.x) + (tz - d.z) * (tz - d.z) < 6.5 * 6.5) return false;
+      }
+      return true;
+    };
+
     for (let i = 0; i < 380; i++) {
       const tx = gx(-690 + ((i * 97) % 1380));
       const tz = gz(1500 + ((i * 73) % 940));
@@ -1459,6 +2156,21 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
         z: tz,
         s: 0.85 + (i % 4) * 0.2,
         species: i % 4 === 0 ? 'pine' : 'oak',
+      });
+    }
+
+    // Lush suburban backyard & side-yard oak/pine trees in spacious Hadley Farms & Edinburgh Village greenbelts
+    for (let i = 0; i < 280; i++) {
+      const rx = 118 + ((i * 89 + 17) % 665);
+      const rz = 1058 + ((i * 67 + 23) % 765);
+      const tx = gx(rx);
+      const tz = gz(rz);
+      if (!isSafeSuburbanTreeSpot(tx, tz)) continue;
+      treePlacements.push({
+        x: tx,
+        z: tz,
+        s: 0.72 + (i % 4) * 0.14,
+        species: i % 5 === 0 ? 'pine' : 'oak',
       });
     }
     populateInstancedWoodlandTrees(sceneryGroup, treePlacements, { isUltra, isRetroPixel }, disposables);

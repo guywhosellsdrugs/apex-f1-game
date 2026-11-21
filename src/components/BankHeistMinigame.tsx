@@ -10,6 +10,7 @@ export interface BankMinigameTargetInfo {
   hidePayoutUntilStolen?: boolean;
   policeBreach?: boolean;
   breachReason?: string;
+  breachDelaySec?: number;
 }
 
 interface BankHeistMinigameProps {
@@ -239,6 +240,11 @@ function getBotSpawnsForTarget(payoutCash: number): Array<{ x: number; y: number
   return pool.slice(0, count);
 }
 
+function getHouseAlarmDelaySec(botCount: number): number {
+  const clamped = Math.min(8, Math.max(2, botCount));
+  return Math.round(20 - ((clamped - 2) / 6) * 10);
+}
+
 export const BankHeistMinigame: React.FC<BankHeistMinigameProps> = ({
   target,
   onSuccess,
@@ -251,6 +257,8 @@ export const BankHeistMinigame: React.FC<BankHeistMinigameProps> = ({
 
   const initialSpawns = getBotSpawnsForTarget(target.payoutCash);
   const initialBotCount = initialSpawns.length;
+  const initialBreachDelaySec =
+    target.breachDelaySec ?? (target.category === 'HOUSE' ? getHouseAlarmDelaySec(initialBotCount) : 2.2);
 
   const [hudState, setHudState] = useState<{
     hp: number;
@@ -262,6 +270,7 @@ export const BankHeistMinigame: React.FC<BankHeistMinigameProps> = ({
     bannerText: string;
     regenActive: boolean;
     policeBreachActive: boolean;
+    breachSecondsLeft: number | null;
   }>({
     hp: 100,
     maxHp: 100,
@@ -270,10 +279,11 @@ export const BankHeistMinigame: React.FC<BankHeistMinigameProps> = ({
     vaultUnlocked: false,
     phase: 'playing',
     bannerText: target.policeBreach
-      ? `🚨 ${target.breachReason || 'POLICE APPROACHING DOOR — PREPARE FOR BREACH!'}`
+      ? `🚨 ${target.breachReason || `ALARM TRIPPED — POLICE BREACH IN ${Math.ceil(initialBreachDelaySec)}S!`}`
       : `DESTROY ALL ${initialBotCount} SECURITY BOTS TO UNLOCK THE VAULT`,
     regenActive: false,
     policeBreachActive: Boolean(target.policeBreach),
+    breachSecondsLeft: target.policeBreach ? Math.ceil(initialBreachDelaySec) : null,
   });
 
   useEffect(() => {
@@ -342,6 +352,8 @@ export const BankHeistMinigame: React.FC<BankHeistMinigameProps> = ({
 
     // Animated Police Door Breach state (ONLY escalates hostile force when police break in!)
     const breachArmed = Boolean(target.policeBreach);
+    const breachDelaySec =
+      target.breachDelaySec ?? (target.category === 'HOUSE' ? getHouseAlarmDelaySec(botSpawns.length) : 2.2);
     let breachTriggered = false;
     let breachDoorOpen = 0;
     let breachOfficersSpawned = 0;
@@ -427,7 +439,10 @@ export const BankHeistMinigame: React.FC<BankHeistMinigameProps> = ({
 
     const pushHud = (bannerOverride?: string) => {
       const aliveCount = bots.filter((b) => b.alive).length;
-      const pendingPolice = breachArmed ? Math.max(0, totalBreachOfficers - breachOfficersSpawned) : 0;
+      const pendingPolice =
+        breachArmed && breachTriggered ? Math.max(0, totalBreachOfficers - breachOfficersSpawned) : 0;
+      const secsLeft =
+        breachArmed && !breachTriggered ? Math.max(0, Math.ceil(breachDelaySec - animTime)) : null;
       const defaultBanner =
         phase === 'knockout'
           ? '💫 KNOCKED OUT! SEEING STARS...'
@@ -435,12 +450,14 @@ export const BankHeistMinigame: React.FC<BankHeistMinigameProps> = ({
           ? '👮 ARRESTED / CAPTURED — RESTITUTION & CUSTODY INCOMING!'
           : phase === 'won'
           ? `💰 VAULT LOOT STOLEN (+$${target.payoutCash.toLocaleString()})! GET TO YOUR CAR!`
-          : breachTriggered && pendingPolice === 0 && aliveCount > 0 && animTime < 6.5
+          : breachTriggered && pendingPolice === 0 && aliveCount > 0 && animTime < breachDelaySec + 4.5
           ? `🚨 ${totalBreachOfficers} POLICE SWAT OFFICERS BURST THROUGH THE DOOR! CLEAR ALL HOSTILES!`
+          : vaultUnlocked && breachArmed && !breachTriggered
+          ? `🔓 VAULT UNLOCKED! STEAL LOOT BEFORE POLICE BREACH IN ${secsLeft}S!`
           : vaultUnlocked
           ? '🔓 ALL HOSTILES CLEARED — ENTER THE TOP VAULT TO STEAL THE LOOT!'
           : breachArmed && !breachTriggered
-          ? `🚨 ${target.breachReason || 'SIRENS OUTSIDE! HEAVY SWAT BREACH IMMINENT!'}`
+          ? `🚨 SECURITY ALARM ACTIVE — POLICE BREAK-IN IN ${secsLeft}S! HURRY & CLEAR BOTS!`
           : `🤖 ELIMINATE ALL ${aliveCount} SECURITY BOTS TO UNLOCK THE VAULT`;
       const regenActive = phase === 'playing' && player.timeSinceHit >= 2.2 && player.hp < player.maxHp;
       setHudState({
@@ -453,6 +470,7 @@ export const BankHeistMinigame: React.FC<BankHeistMinigameProps> = ({
         bannerText: bannerOverride || defaultBanner,
         regenActive,
         policeBreachActive: breachArmed,
+        breachSecondsLeft: secsLeft,
       });
     };
 
@@ -675,9 +693,9 @@ export const BankHeistMinigame: React.FC<BankHeistMinigameProps> = ({
 
       if (breachAlertFlash > 0) breachAlertFlash = Math.max(0, breachAlertFlash - dt);
 
-      // Police Door Breach Sequence (door kicks open & escalated SWAT force charges inside!)
+      // Police Door Breach Sequence (door kicks open after countdown & escalated SWAT force charges inside!)
       if (phase === 'playing' && breachArmed) {
-        if (!breachTriggered && animTime >= 1.75) {
+        if (!breachTriggered && animTime >= breachDelaySec) {
           breachTriggered = true;
           breachAlertFlash = 2.0;
           screenShake = Math.max(screenShake, 16);
@@ -691,7 +709,7 @@ export const BankHeistMinigame: React.FC<BankHeistMinigameProps> = ({
         if (breachTriggered) {
           breachDoorOpen = Math.min(1, breachDoorOpen + dt * 5.0);
           // Spawn escalated 14-officer SWAT squad charging through the breached doorway in waves
-          const desiredSpawned = Math.min(totalBreachOfficers, 2 + Math.floor((animTime - 1.75) / 0.22));
+          const desiredSpawned = Math.min(totalBreachOfficers, 2 + Math.floor((animTime - breachDelaySec) / 0.22));
           while (breachOfficersSpawned < desiredSpawned) {
             const k = breachOfficersSpawned;
             const lane = (k % 5) - 2;
@@ -871,14 +889,20 @@ export const BankHeistMinigame: React.FC<BankHeistMinigameProps> = ({
           }
         }
 
-        // Check Vault Unlock condition: ALL bots AND any breached Police Officers must be neutralized!
-        const allBreachCleared = !breachArmed || (breachTriggered && breachOfficersSpawned >= totalBreachOfficers);
+        // Check Vault Unlock condition: unlock immediately if all security bots are cleared BEFORE police breach,
+        // OR after police breach once all spawned Police SWAT Officers are also neutralized!
+        const allBreachCleared =
+          !breachArmed || !breachTriggered || breachOfficersSpawned >= totalBreachOfficers;
         if (!vaultUnlocked && aliveCount === 0 && allBreachCleared) {
           vaultUnlocked = true;
           playRetroTone(440, 880, 0.25, 'triangle', 0.1);
           setTimeout(() => playRetroTone(660, 1320, 0.3, 'triangle', 0.1), 130);
           spawnSparks(400, 102, '#10b981', 26, 200);
-          pushHud('🔓 ALL HOSTILES NEUTRALIZED — VAULT UNLOCKED! STEAL THE LOOT!');
+          pushHud(
+            breachArmed && !breachTriggered
+              ? '🔓 SECURITY CLEARED BEFORE BREACH — VAULT UNLOCKED! GRAB THE LOOT FAST!'
+              : '🔓 ALL HOSTILES NEUTRALIZED — VAULT UNLOCKED! STEAL THE LOOT!'
+          );
         }
 
         // Update Bolts
@@ -1212,11 +1236,12 @@ export const BankHeistMinigame: React.FC<BankHeistMinigameProps> = ({
       ctx.restore();
 
       if (breachArmed) {
+        const secsLeftDoor = Math.max(0, Math.ceil(breachDelaySec - animTime));
         ctx.fillStyle = breachTriggered ? '#fca5a5' : '#fde047';
         ctx.font = 'bold 10px monospace';
         ctx.textAlign = 'center';
         ctx.fillText(
-          breachTriggered ? '🚨 POLICE BREACHED DOOR!' : '🚨 POLICE OUTSIDE DOOR!',
+          breachTriggered ? '🚨 POLICE BREACHED DOOR!' : `🚨 POLICE BREACHING IN ${secsLeftDoor}S!`,
           400,
           ENTRY_DOOR_RECT.y - 6
         );
@@ -1347,7 +1372,7 @@ export const BankHeistMinigame: React.FC<BankHeistMinigameProps> = ({
       window.removeEventListener('mouseup', onMouseUp);
       window.removeEventListener('blur', onWindowBlur);
     };
-  }, [target.id, target.payoutCash, target.category]);
+  }, [target.id, target.payoutCash, target.category, target.policeBreach, target.breachDelaySec]);
 
   const categoryLabel =
     target.category === 'HOUSE'
@@ -1359,8 +1384,8 @@ export const BankHeistMinigame: React.FC<BankHeistMinigameProps> = ({
       : 'RETRO BANK HEIST';
 
   return (
-    <div className="fixed inset-0 z-[90] bg-black/88 backdrop-blur-md flex items-center justify-center p-3 font-mono select-none">
-      <div className="w-full max-w-[860px] bg-zinc-950 border-2 border-amber-400/80 rounded-2xl shadow-[0_0_50px_rgba(250,204,21,0.35)] overflow-hidden flex flex-col">
+    <div className="fixed inset-0 z-[90] w-screen h-screen bg-zinc-950 flex flex-col font-mono select-none overflow-hidden">
+      <div className="w-full h-full bg-zinc-950 border-t-2 border-amber-400/80 flex flex-col overflow-hidden">
         {/* Top Retro Arcade Header */}
         <div className="bg-zinc-900 border-b border-white/15 px-4 py-2.5 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2.5 min-w-0">
@@ -1395,6 +1420,13 @@ export const BankHeistMinigame: React.FC<BankHeistMinigameProps> = ({
                 <span className="text-[9px] font-black text-emerald-400 animate-pulse">+REGEN</span>
               )}
             </div>
+
+            {/* Breach Timer Badge */}
+            {hudState.breachSecondsLeft !== null && hudState.breachSecondsLeft > 0 && hudState.phase === 'playing' && (
+              <div className="px-2.5 py-1 rounded-lg border border-red-400 bg-red-600/30 text-amber-200 text-[11px] font-black tabular-nums animate-pulse">
+                ⏳ BREACH {hudState.breachSecondsLeft}S
+              </div>
+            )}
 
             {/* Security Bots & Police Counter */}
             <div
@@ -1437,13 +1469,20 @@ export const BankHeistMinigame: React.FC<BankHeistMinigameProps> = ({
         </div>
 
         {/* Top-Down Retro Pixel Shooter Canvas */}
-        <div className="bg-black flex items-center justify-center p-2">
+        <div
+          style={{ containerType: 'size' }}
+          className="flex-1 min-h-0 w-full bg-black flex items-center justify-center overflow-hidden"
+        >
           <canvas
             ref={canvasRef}
             width={CANVAS_W}
             height={CANVAS_H}
-            style={{ imageRendering: 'pixelated' }}
-            className="w-full max-w-[800px] aspect-[800/520] rounded-lg border border-white/15 cursor-pointer bg-zinc-950"
+            style={{
+              imageRendering: 'pixelated',
+              width: 'min(100cqw, calc(100cqh * 800 / 520))',
+              height: 'min(100cqh, calc(100cqw * 520 / 800))',
+            }}
+            className="block cursor-pointer bg-zinc-950"
           />
         </div>
 

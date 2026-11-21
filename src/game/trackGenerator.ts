@@ -14,6 +14,7 @@ import {
   CityTrafficLightGantry,
   getIntersectionSignalState,
   BuiltSuburbanHouse,
+  registerSuburbanGpsEntries,
 } from './cityTrafficBuilder';
 import { buildGaithersburgDistrict } from './gaithersburgBuilder';
 import { buildBaltimoreDistrict } from './baltimoreBuilder';
@@ -2441,6 +2442,7 @@ function generateCityDrivingTrack(circuit: CircuitInfo, quality?: GraphicsQualit
 
   // Commit all batched suburban houses + 2048x2048 street-facing address plaque atlases
   suburbanBatch.commit(sceneryGroup, { isUltra, isRetroPixel, makeCityMat }, disposables);
+  registerSuburbanGpsEntries(suburbanHouses);
 
   // 4. Statewide Maryland Signalized Intersections (Cantilever Traffic Light Gantries)
   const trafficLightGantries: CityTrafficLightGantry[] = [];
@@ -2605,7 +2607,7 @@ function generateCityDrivingTrack(circuit: CircuitInfo, quality?: GraphicsQualit
   const baseChunkMaxDistance = isUltra
     ? 820
     : preset.id === 'high'
-    ? 740
+    ? 720
     : preset.id === 'medium'
     ? 540
     : 420;
@@ -2657,7 +2659,7 @@ function generateCityDrivingTrack(circuit: CircuitInfo, quality?: GraphicsQualit
 
   const setReflectionChunkCull = (active: boolean, playerPos?: THREE.Vector3) => {
     if (active && playerPos) {
-      chunkManager.applyReflectionRange(playerPos, 170);
+      chunkManager.applyReflectionRange(playerPos, 240);
     } else {
       chunkManager.restoreAfterReflection();
     }

@@ -366,11 +366,11 @@ export function computeGaithersburgSunVector(weather: GaithersburgWeather, outVe
 }
 
 /**
- * Sky Celestial & Dynamic 3D Cloud System for Maryland City Driving:
+ * Sky Celestial & Atmospheric Shader Cloud System for Maryland City Driving:
  * - Smooth vertical + azimuthal sunrise/sunset gradient sky dome following car (R=620 fits inside dynamic far clip >= 700)
  * - Visible Sun disc + radial corona following real Gaithersburg azimuth & elevation
  * - Visible Moon & twinkling Starfield at dusk/night
- * - Multi-puff volumetric 3D cloud clusters (1 InstancedMesh draw call)
+ * - High-altitude atmospheric cirrus clouds integrated directly into the sky dome shader
  */
 export function createSkyCelestialAndCloudsSystem(
   scene: THREE.Scene,
@@ -574,77 +574,7 @@ export function createSkyCelestialAndCloudsSystem(
   starPoints.frustumCulled = false;
   group.add(starPoints);
 
-  // 4. Procedural 3D Cumulus / Stratus Clouds (48 clusters HD, 18 clusters Retro Pixel '92 in 1 InstancedMesh)
-  const CLOUD_CLUSTERS = isRetroPixel ? 18 : 48;
-  const PUFFS_PER_CLUSTER = 5;
-  const TOTAL_PUFFS = CLOUD_CLUSTERS * PUFFS_PER_CLUSTER;
-
-  // Vertex-shaded flat-bottomed cumulus puff so cloud bases sit realistically flat while tops billow in sunlight
-  const puffGeom = new THREE.SphereGeometry(1, isRetroPixel ? 6 : 12, isRetroPixel ? 4 : 9);
-  const puffPosAttr = puffGeom.getAttribute('position') as THREE.BufferAttribute;
-  const puffVColors = new Float32Array(puffPosAttr.count * 3);
-  for (let i = 0; i < puffPosAttr.count; i++) {
-    const ny = puffPosAttr.getY(i); // -1..+1
-    if (ny < 0) {
-      puffPosAttr.setY(i, ny * 0.48); // realistic flat cumulus condensation base
-    }
-    const shade = THREE.MathUtils.clamp(0.70 + (ny + 1.0) * 0.165, 0.66, 1.0);
-    puffVColors[i * 3 + 0] = shade;
-    puffVColors[i * 3 + 1] = shade;
-    puffVColors[i * 3 + 2] = Math.min(1.0, shade * 1.03);
-  }
-  puffPosAttr.needsUpdate = true;
-  puffGeom.setAttribute('color', new THREE.BufferAttribute(puffVColors, 3));
-
-  const cloudMat = new THREE.MeshBasicMaterial({
-    color: 0xffffff,
-    vertexColors: true,
-    transparent: true,
-    opacity: 0.92,
-    depthWrite: false,
-    fog: true,
-  });
-
-  const cloudInstancedMesh = new THREE.InstancedMesh(puffGeom, cloudMat, TOTAL_PUFFS);
-  cloudInstancedMesh.frustumCulled = false;
-  cloudInstancedMesh.renderOrder = -60;
-  group.add(cloudInstancedMesh);
-
-  interface CloudClusterState {
-    rx: number; // local X relative to car
-    ry: number; // sky altitude
-    rz: number; // local Z relative to car
-    scaleMul: number;
-    puffOffsets: { ox: number; oy: number; oz: number; sx: number; sy: number; sz: number }[];
-  }
-
-  const FIELD_SPAN = 1280;
-  const HALF_SPAN = FIELD_SPAN * 0.5;
-  const cloudStates: CloudClusterState[] = [];
-
-  for (let c = 0; c < CLOUD_CLUSTERS; c++) {
-    // Stratified golden-angle grid distribution so clouds cover the sky evenly without clumps
-    const ring = (c + 0.5) / CLOUD_CLUSTERS;
-    const angle = c * 2.3999632; // golden angle
-    const radius = Math.sqrt(ring) * (HALF_SPAN * 0.94);
-    const rx = Math.cos(angle) * radius;
-    const rz = Math.sin(angle) * radius;
-    const ry = 112 + (c % 5) * 10 + Math.random() * 6;
-    const scaleMul = 0.85 + Math.random() * 0.65;
-
-    const puffOffsets = [
-      { ox: 0, oy: 2.0, oz: 0, sx: 26, sy: 10.5, sz: 20 },
-      { ox: -16, oy: -0.5, oz: 4, sx: 19, sy: 8.2, sz: 16 },
-      { ox: 17, oy: -0.2, oz: -3, sx: 20, sy: 8.5, sz: 16 },
-      { ox: -6, oy: 4.5, oz: -8, sx: 16, sy: 8.0, sz: 14 },
-      { ox: 7, oy: 3.8, oz: 9, sx: 15, sy: 7.4, sz: 14 },
-    ];
-    cloudStates.push({ rx, ry, rz, scaleMul, puffOffsets });
-  }
-
   const sunDirection = new THREE.Vector3(0.4, 0.8, 0.3).normalize();
-  const scratchDummy = new THREE.Object3D();
-  const scratchCloudColor = new THREE.Color(0xffffff);
   const scratchHiddenColor = new THREE.Color(0xffffff);
   const scratchDayTop = new THREE.Color(0x1b4e8f);
   const scratchDayMid = new THREE.Color(0x4e91d4);
@@ -655,22 +585,8 @@ export function createSkyCelestialAndCloudsSystem(
   const scratchNightTop = new THREE.Color(0x020617);
   const scratchNightMid = new THREE.Color(0x080f21);
   const scratchNightHor = new THREE.Color(0x131d33);
-  const lastColorHex = { value: -1 };
-  let prevCarX = 0;
-  let prevCarZ = 0;
-  let initializedCarOrigin = false;
 
   const update = (carPos: THREE.Vector3, weather: GaithersburgWeather, dt: number) => {
-    if (!initializedCarOrigin) {
-      prevCarX = carPos.x;
-      prevCarZ = carPos.z;
-      initializedCarOrigin = true;
-    }
-
-    const dCarX = carPos.x - prevCarX;
-    const dCarZ = carPos.z - prevCarZ;
-    prevCarX = carPos.x;
-    prevCarZ = carPos.z;
 
     // Anchor sky dome & starfield around player car (horizon stays seamlessly at Y=0)
     skyDomeMesh.position.set(carPos.x, 0, carPos.z);
@@ -689,7 +605,6 @@ export function createSkyCelestialAndCloudsSystem(
     );
 
     const elevDeg = weather.sunElevationDeg ?? (Math.asin(THREE.MathUtils.clamp(weather.sunAltitude, -1, 1)) * 180) / Math.PI;
-    const sunAlt = weather.sunAltitude;
     const cloudFrac = THREE.MathUtils.clamp(weather.cloudCover / 100, 0, 1);
     const stormVeil =
       weather.isRaining || weather.isSnowing
@@ -800,107 +715,17 @@ export function createSkyCelestialAndCloudsSystem(
     if (weather.isSnowing || weather.isRaining || weather.isFoggy) {
       skyUniforms.uCirrusAmount.value = 0.0;
     } else {
+      const skyCloudDensity =
+        weather.condition === 'overcast' || weather.cloudCover >= 75
+          ? 0.42
+          : weather.condition === 'partly_cloudy' || weather.cloudCover >= 30
+          ? 0.34
+          : weather.cloudCover >= 8
+          ? 0.22
+          : 0.1;
       skyUniforms.uCirrusAmount.value = isRetroPixel
         ? 0.0
-        : (weather.condition === 'partly_cloudy' ? 0.28 : 0.2) * (0.35 + 0.65 * dayWeight + twilightPeak * 0.25);
-    }
-
-    // 3. Update Procedural 3D Clouds (count, height, spread, opacity, color, & wind drift)
-    let targetActiveClouds = Math.round(cloudFrac * CLOUD_CLUSTERS);
-    if (weather.condition === 'clear' && weather.cloudCover < 22) {
-      targetActiveClouds = weather.cloudCover >= 8 ? 5 : 0;
-    } else if (weather.condition === 'partly_cloudy') {
-      targetActiveClouds = Math.max(20, Math.min(34, targetActiveClouds));
-    } else if (weather.condition === 'overcast' || weather.isRaining || weather.isSnowing) {
-      targetActiveClouds = CLOUD_CLUSTERS;
-    }
-
-    cloudInstancedMesh.visible = targetActiveClouds > 0;
-    if (!cloudInstancedMesh.visible) return;
-
-    const isOvercastLike = weather.condition === 'overcast' || weather.cloudCover >= 75 || weather.isRaining || weather.isSnowing;
-    const widenFactor = isOvercastLike ? 1.48 : 1.0;
-    const flattenYFactor = isOvercastLike ? 0.78 : 1.0;
-    const altitudeShift = weather.isRaining ? -18 : weather.isSnowing ? -14 : isOvercastLike ? -10 : 0;
-
-    let cloudHex = 0xf8fafc;
-    if (sunAlt < -0.06) {
-      cloudHex = weather.isRaining ? 0x1e293b : 0x334155;
-    } else if (sunAlt <= 0.08) {
-      cloudHex = weather.isRaining ? 0x475569 : 0xfdba74;
-    } else if (weather.isRaining) {
-      cloudHex = weather.condition === 'thunderstorm' || weather.condition === 'heavy_rain' ? 0x475569 : 0x64748b;
-    } else if (weather.isSnowing) {
-      cloudHex = 0xdbe4ee;
-    } else if (weather.isFoggy) {
-      cloudHex = 0xcbd5e1;
-    } else if (isOvercastLike) {
-      cloudHex = 0x9aa8b8;
-    } else {
-      cloudHex = 0xf8fafc;
-    }
-
-    cloudMat.opacity = isOvercastLike ? 0.94 : weather.condition === 'partly_cloudy' ? 0.88 : 0.76;
-
-    const needsColorUpdate = lastColorHex.value !== cloudHex;
-    if (needsColorUpdate) {
-      lastColorHex.value = cloudHex;
-      scratchCloudColor.setHex(cloudHex);
-    }
-
-    // Wind drift velocity in world meters/sec (gentle visible sky motion matching windSpeedKmh)
-    const windMps = Math.max(4.5, weather.windSpeedKmh * 0.42);
-    const windStepX = windMps * dt * 0.88;
-    const windStepZ = windMps * dt * 0.46;
-
-    let instIdx = 0;
-    for (let c = 0; c < CLOUD_CLUSTERS; c++) {
-      const cs = cloudStates[c];
-      // Keep relative positions anchored smoothly when car drives fast across Maryland
-      cs.rx -= dCarX * 0.75; // parallax slower than foreground road so clouds sit majestically high
-      cs.rz -= dCarZ * 0.75;
-      cs.rx += windStepX;
-      cs.rz += windStepZ;
-
-      if (cs.rx > HALF_SPAN) cs.rx -= FIELD_SPAN;
-      else if (cs.rx < -HALF_SPAN) cs.rx += FIELD_SPAN;
-      if (cs.rz > HALF_SPAN) cs.rz -= FIELD_SPAN;
-      else if (cs.rz < -HALF_SPAN) cs.rz += FIELD_SPAN;
-
-      const isActive = c < targetActiveClouds;
-      const baseX = carPos.x + cs.rx;
-      const baseY = cs.ry + altitudeShift;
-      const baseZ = carPos.z + cs.rz;
-
-      for (let p = 0; p < PUFFS_PER_CLUSTER; p++) {
-        if (!isActive) {
-          scratchDummy.position.set(0, -500, 0);
-          scratchDummy.scale.set(0.001, 0.001, 0.001);
-        } else {
-          const po = cs.puffOffsets[p];
-          scratchDummy.position.set(
-            baseX + po.ox * cs.scaleMul * widenFactor,
-            baseY + po.oy * cs.scaleMul * flattenYFactor,
-            baseZ + po.oz * cs.scaleMul * widenFactor
-          );
-          scratchDummy.scale.set(
-            po.sx * cs.scaleMul * widenFactor,
-            po.sy * cs.scaleMul * flattenYFactor,
-            po.sz * cs.scaleMul * widenFactor
-          );
-        }
-        scratchDummy.updateMatrix();
-        cloudInstancedMesh.setMatrixAt(instIdx, scratchDummy.matrix);
-        if (needsColorUpdate) {
-          cloudInstancedMesh.setColorAt(instIdx, scratchCloudColor);
-        }
-        instIdx++;
-      }
-    }
-
-    cloudInstancedMesh.instanceMatrix.needsUpdate = true;
-    if (needsColorUpdate && cloudInstancedMesh.instanceColor) {
-      cloudInstancedMesh.instanceColor.needsUpdate = true;
+        : skyCloudDensity * (0.35 + 0.65 * dayWeight + twilightPeak * 0.25);
     }
   };
 
@@ -916,8 +741,6 @@ export function createSkyCelestialAndCloudsSystem(
     moonHaloMat.dispose();
     starGeom.dispose();
     starMat.dispose();
-    puffGeom.dispose();
-    cloudMat.dispose();
     scene.remove(group);
   };
 
@@ -951,61 +774,61 @@ export function updateSceneDiurnalLighting(
   const dayWeight = THREE.MathUtils.smoothstep(elevDeg, -2.0, 14.0);
   const twilightPeak = Math.exp(-Math.pow((elevDeg - 1.2) / 6.8, 2.0));
 
-  // Target daytime weather palette calibrated for ACESFilmic + PMREM IBL shadow contrast
-  let dayFogHex = 0xbfd9f2;
-  let dayFogDensity = 0.00062;
-  let daySunHex = 0xfff5e0;
-  let daySunInt = isUltra ? 2.75 : 2.35;
+  // Target daytime weather palette calibrated for AgX HDR + natural PMREM IBL contrast
+  let dayFogHex = 0xc5ddf5;
+  let dayFogDensity = 0.00056;
+  let daySunHex = 0xfff7e6;
+  let daySunInt = isUltra ? 2.15 : 2.05;
   let dayAmbHex = 0xdbeafe;
-  let dayAmbInt = isUltra ? 0.22 : 0.34;
-  let dayHemiSky = 0x90c6fa;
-  let dayHemiGnd = 0x2d382c;
+  let dayAmbInt = isUltra ? 0.34 : 0.38;
+  let dayHemiSky = 0x8cc3fa;
+  let dayHemiGnd = 0x364234;
 
   if (isSnow) {
     dayFogHex = 0xcfd8dc;
     dayFogDensity = 0.0036;
     daySunHex = 0xffffff;
-    daySunInt = isUltra ? 1.55 : 1.45;
+    daySunInt = isUltra ? 1.45 : 1.4;
     dayAmbHex = 0xd8e2ec;
-    dayAmbInt = isUltra ? 0.44 : 0.56;
+    dayAmbInt = isUltra ? 0.50 : 0.56;
     dayHemiSky = 0xe2e8f0;
     dayHemiGnd = 0x7c8b9b;
   } else if (isRain) {
     dayFogHex = 0x475569;
     dayFogDensity = 0.0044;
     daySunHex = 0x94a3b8;
-    daySunInt = isUltra ? 1.05 : 1.1;
+    daySunInt = isUltra ? 1.0 : 1.05;
     dayAmbHex = 0x64748b;
-    dayAmbInt = isUltra ? 0.30 : 0.42;
+    dayAmbInt = isUltra ? 0.38 : 0.44;
     dayHemiSky = 0x64748b;
     dayHemiGnd = 0x1e293b;
   } else if (isFog) {
     dayFogHex = 0xa8b5c4;
     dayFogDensity = 0.0064;
     daySunHex = 0xfef08a;
-    daySunInt = isUltra ? 1.25 : 1.3;
+    daySunInt = isUltra ? 1.15 : 1.25;
     dayAmbHex = 0x9ca3af;
-    dayAmbInt = isUltra ? 0.38 : 0.5;
+    dayAmbInt = isUltra ? 0.44 : 0.50;
     dayHemiSky = 0x94a3b8;
     dayHemiGnd = 0x334155;
   } else if (isOvercast) {
     dayFogHex = 0x9fb0c2;
     dayFogDensity = 0.0016;
     daySunHex = 0xe2e8f0;
-    daySunInt = isUltra ? 1.35 : 1.38;
+    daySunInt = isUltra ? 1.25 : 1.32;
     dayAmbHex = 0xcbd5e1;
-    dayAmbInt = isUltra ? 0.38 : 0.48;
+    dayAmbInt = isUltra ? 0.44 : 0.50;
     dayHemiSky = 0xcbd5e1;
     dayHemiGnd = 0x334155;
   } else if (isPartlyCloudy) {
-    dayFogHex = 0xc2d8ee;
-    dayFogDensity = 0.00085;
-    daySunHex = 0xfff6e4;
-    daySunInt = isUltra ? 2.4 : 2.1;
+    dayFogHex = 0xc6dcf2;
+    dayFogDensity = 0.00078;
+    daySunHex = 0xfff8ea;
+    daySunInt = isUltra ? 1.98 : 1.92;
     dayAmbHex = 0xe2e8f0;
-    dayAmbInt = isUltra ? 0.26 : 0.36;
+    dayAmbInt = isUltra ? 0.36 : 0.40;
     dayHemiSky = 0x9eccfa;
-    dayHemiGnd = 0x2b362b;
+    dayHemiGnd = 0x323d30;
   }
 
   // Twilight & Night targets (smoothly blended by true solar elevation)
@@ -1016,9 +839,9 @@ export function updateSceneDiurnalLighting(
 
   const nightFogHex = 0x070c18;
   const nightSunHex = 0x60a5fa;
-  const nightSunInt = isUltra ? 0.32 : 0.40;
+  const nightSunInt = isUltra ? 0.34 : 0.40;
   const nightAmbHex = 0x162238;
-  const nightAmbInt = isUltra ? 0.09 : 0.16;
+  const nightAmbInt = isUltra ? 0.14 : 0.18;
 
   _diurnalTmpA.setHex(nightFogHex).lerp(_diurnalTmpB.setHex(dayFogHex), dayWeight);
   _diurnalTmpA.lerp(_diurnalTmpC.setHex(twiFogHex), twilightPeak * (isStormOrOvercast ? 0.45 : 0.86));
@@ -1038,7 +861,7 @@ export function updateSceneDiurnalLighting(
   sunLight.color.copy(_diurnalTmpA);
   sunLight.intensity =
     THREE.MathUtils.lerp(nightSunInt, daySunInt, dayWeight) +
-    twilightPeak * (isStormOrOvercast ? 0.14 : 0.55);
+    twilightPeak * (isStormOrOvercast ? 0.14 : 0.48);
 
   _diurnalTmpA.setHex(nightAmbHex).lerp(_diurnalTmpB.setHex(dayAmbHex), dayWeight);
   _diurnalTmpA.lerp(_diurnalTmpC.setHex(twiAmbHex), twilightPeak * 0.65);
@@ -1047,5 +870,5 @@ export function updateSceneDiurnalLighting(
 
   hemiLight.color.setHex(0x16223a).lerp(_diurnalTmpB.setHex(dayHemiSky), dayWeight);
   hemiLight.groundColor.setHex(0x060910).lerp(_diurnalTmpB.setHex(dayHemiGnd), dayWeight);
-  hemiLight.intensity = THREE.MathUtils.lerp(isUltra ? 0.22 : 0.28, isUltra ? 0.54 : 0.62, dayWeight);
+  hemiLight.intensity = THREE.MathUtils.lerp(isUltra ? 0.26 : 0.30, isUltra ? 0.66 : 0.64, dayWeight);
 }

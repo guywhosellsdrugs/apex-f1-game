@@ -4,6 +4,7 @@ export interface UnifiedInput {
   throttle: number; // 0 to 1
   brake: number; // 0 to 1
   steer: number; // -1 (left) to +1 (right)
+  handbrake: boolean; // Space: E-brake / drift lock
   boost: boolean; // ERS / overtake mode
   switchCamera: boolean;
   reset: boolean;
@@ -23,6 +24,7 @@ export interface CustomControlBindings {
   brake: string[];
   steerLeft: string[];
   steerRight: string[];
+  handbrake: string[];
   boost: string[];
   drs: string[];
   switchCamera: string[];
@@ -70,9 +72,10 @@ export interface CustomGamepadBindings {
 
 export const DEFAULT_KEY_BINDINGS: CustomControlBindings = {
   throttle: ['KeyW', 'ArrowUp'],
-  brake: ['KeyS', 'ArrowDown', 'Space'],
+  brake: ['KeyS', 'ArrowDown'],
   steerLeft: ['KeyA', 'ArrowLeft'],
   steerRight: ['KeyD', 'ArrowRight'],
+  handbrake: ['Space'],
   boost: ['ShiftLeft', 'ShiftRight'],
   drs: ['KeyZ'],
   switchCamera: ['KeyC'],
@@ -169,6 +172,11 @@ class InputManager {
           merged.shiftDown = [...DEFAULT_KEY_BINDINGS.shiftDown];
           merged.switchCamera = (merged.switchCamera || []).filter((k) => k !== 'KeyV' && k !== 'V' && k !== 'v');
           if (merged.switchCamera.length === 0) merged.switchCamera = ['KeyC'];
+        }
+        if (!parsed.handbrake) {
+          merged.handbrake = [...DEFAULT_KEY_BINDINGS.handbrake];
+          merged.brake = (merged.brake || []).filter((k) => k !== 'Space' && k !== ' ');
+          if (merged.brake.length === 0) merged.brake = ['KeyS', 'ArrowDown'];
         }
         this.keyBindings = merged;
       }
@@ -354,6 +362,7 @@ class InputManager {
     let throttle = 0;
     let brake = 0;
     let steer = 0;
+    let handbrake = false;
     let boost = false;
     let switchCamera = false;
     let reset = false;
@@ -374,6 +383,10 @@ class InputManager {
 
     if (this.isActionPressed('steerLeft')) steer -= 1;
     if (this.isActionPressed('steerRight')) steer += 1;
+
+    if (this.isActionPressed('handbrake')) {
+      handbrake = true;
+    }
 
     if (this.isActionPressed('boost') || this.isActionPressed('drs')) {
       boost = true;
@@ -586,6 +599,7 @@ class InputManager {
       throttle: Math.min(1, Math.max(0, throttle)),
       brake: Math.min(1, Math.max(0, brake)),
       steer: Math.min(1, Math.max(-1, steer)),
+      handbrake,
       boost,
       switchCamera,
       reset,

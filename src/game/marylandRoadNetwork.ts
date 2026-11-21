@@ -97,8 +97,268 @@ export const MD_LANDMARKS = {
   redeemerCampus: REDEEMER_CAMPUS_ORIGIN,
   kgaiAirpark: { x: gx(385), z: gz(1995) },
   rioLakefront: { x: gx(-425), z: gz(2205) },
-  hadleyFarms: { x: gx(548), z: gz(1476) },
+  hadleyFarms: { x: gx(605), z: gz(1540) },
+  icmBasketballCourt: { x: -108.6, z: 637.7 },
+  gaithersburgGolfField: { x: gx(468), z: gz(2275) },
+  bohrerBaseballField: { x: gx(32), z: gz(2096) },
+  bohrerSoccerField: { x: gx(32), z: gz(2152) },
+  bohrerFootballField: { x: gx(-42), z: gz(2242) },
+  rioBowlingArcade: { x: gx(-348), z: gz(2268) },
+  rioFishingPier: { x: gx(-464), z: gz(2274) },
+  annapolisFishingDock: { x: 1455, z: 730 },
 };
+
+export type CitySportType = 'basketball' | 'golf' | 'baseball' | 'football' | 'soccer' | 'bowling' | 'fishing';
+
+export interface CitySportVenueSpec {
+  id: string;
+  sport: CitySportType;
+  name: string;
+  shortLabel: string;
+  icon: string;
+  x: number;
+  z: number;
+  radius: number;
+  streetLocation: string;
+  badgeColor: string;
+  rewardDesc: string;
+}
+
+export const CITY_SPORTS_CATALOG: CitySportVenueSpec[] = [
+  {
+    id: 'icm_basketball',
+    sport: 'basketball',
+    name: 'ICM Outdoor Basketball Court',
+    shortLabel: 'ICM Hoops',
+    icon: '🏀',
+    x: MD_LANDMARKS.icmBasketballCourt.x,
+    z: MD_LANDMARKS.icmBasketballCourt.z,
+    radius: 44,
+    streetLocation: '19411 Woodfield Rd · ICM Campus',
+    badgeColor: '#f97316',
+    rewardDesc: '1v1–5v5 Half/Full & Hard 5v5 Tournament · Up to $8,500',
+  },
+  {
+    id: 'gaithersburg_golf',
+    sport: 'golf',
+    name: 'Gaithersburg Country Club Golf Field',
+    shortLabel: 'Gaithersburg Golf',
+    icon: '⛳',
+    x: MD_LANDMARKS.gaithersburgGolfField.x,
+    z: MD_LANDMARKS.gaithersburgGolfField.z,
+    radius: 38,
+    streetLocation: 'Redland Rd & Norbeck Links, Gaithersburg',
+    badgeColor: '#22c55e',
+    rewardDesc: '3-Hole 3D Ballistic Links w/ Wind & Break · Up to $5,800',
+  },
+  {
+    id: 'bohrer_baseball',
+    sport: 'baseball',
+    name: 'Bohrer Park Baseball Diamond',
+    shortLabel: 'Bohrer Baseball',
+    icon: '⚾',
+    x: MD_LANDMARKS.bohrerBaseballField.x,
+    z: MD_LANDMARKS.bohrerBaseballField.z,
+    radius: 36,
+    streetLocation: '506 S Frederick Ave · Bohrer Park, Gaithersburg',
+    badgeColor: '#eab308',
+    rewardDesc: '3-Inning Retro Duel · Aimable Zone & Power Swings',
+  },
+  {
+    id: 'camden_yards_baseball',
+    sport: 'baseball',
+    name: 'Oriole Park at Camden Yards',
+    shortLabel: 'Camden Yards',
+    icon: '⚾',
+    x: MD_LANDMARKS.baltimoreCamdenYards.x,
+    z: MD_LANDMARKS.baltimoreCamdenYards.z,
+    radius: 38,
+    streetLocation: '333 W Camden St, Baltimore',
+    badgeColor: '#f59e0b',
+    rewardDesc: 'Camden Yards 3-Inning Showdown · Up to $5,200 Win',
+  },
+  {
+    id: 'bohrer_football',
+    sport: 'football',
+    name: 'Bohrer Park Gridiron Football Stadium',
+    shortLabel: 'Bohrer Football',
+    icon: '🏈',
+    x: MD_LANDMARKS.bohrerFootballField.x,
+    z: MD_LANDMARKS.bohrerFootballField.z,
+    radius: 36,
+    streetLocation: '512 S Frederick Ave · Bohrer Gridiron, Gaithersburg',
+    badgeColor: '#dc2626',
+    rewardDesc: 'Tecmo-Style Retro Gridiron Drive · Pass/Run/Juke TDs',
+  },
+  {
+    id: 'ravens_football',
+    sport: 'football',
+    name: 'M&T Bank Ravens Football Stadium',
+    shortLabel: 'Ravens Stadium',
+    icon: '🏈',
+    x: 1132,
+    z: -6,
+    radius: 44,
+    streetLocation: '1101 Russell St, Downtown Baltimore',
+    badgeColor: '#7c3aed',
+    rewardDesc: 'Baltimore Pro Bowl Retro Drive · $1,200/TD + $2,500 Win',
+  },
+  {
+    id: 'bohrer_soccer',
+    sport: 'soccer',
+    name: 'Bohrer Park Turf Soccer Pitch',
+    shortLabel: 'Bohrer Soccer',
+    icon: '⚽',
+    x: MD_LANDMARKS.bohrerSoccerField.x,
+    z: MD_LANDMARKS.bohrerSoccerField.z,
+    radius: 34,
+    streetLocation: '506 S Frederick Ave · South Turf Field, Gaithersburg',
+    badgeColor: '#10b981',
+    rewardDesc: '3v3 Retro Arcade Pitch Match · $650/Goal + $2,400 Trophy',
+  },
+  {
+    id: 'rio_bowling',
+    sport: 'bowling',
+    name: 'Downtown Crown Neon Bowling Lanes',
+    shortLabel: 'Crown Bowling',
+    icon: '🎳',
+    x: MD_LANDMARKS.rioBowlingArcade.x,
+    z: MD_LANDMARKS.rioBowlingArcade.z,
+    radius: 28,
+    streetLocation: 'Crown Park Ave & Washingtonian Blvd, Gaithersburg',
+    badgeColor: '#a855f7',
+    rewardDesc: '5-Frame Retro Bowling · $250/Strike + $1,600 High-Game Bonus',
+  },
+  {
+    id: 'rio_fishing',
+    sport: 'fishing',
+    name: 'RIO Lakefront Boardwalk Fishing Pier',
+    shortLabel: 'RIO Fishing Pier',
+    icon: '🎣',
+    x: MD_LANDMARKS.rioFishingPier.x,
+    z: MD_LANDMARKS.rioFishingPier.z,
+    radius: 30,
+    streetLocation: '9841 Washingtonian Blvd · RIO Boardwalk',
+    badgeColor: '#06b6d4',
+    rewardDesc: 'Catch Largemouth Bass & Blue Crabs · Up to $2,400/Catch',
+  },
+  {
+    id: 'annapolis_fishing',
+    sport: 'fishing',
+    name: 'Annapolis City Dock Crab & Bass Pier',
+    shortLabel: 'Annapolis Dock',
+    icon: '🦀',
+    x: MD_LANDMARKS.annapolisFishingDock.x,
+    z: MD_LANDMARKS.annapolisFishingDock.z,
+    radius: 32,
+    streetLocation: '1 Dock St · Ego Alley, Annapolis',
+    badgeColor: '#0ea5e9',
+    rewardDesc: 'Chesapeake Bay Rockfish & Jumbo Crabs · Up to $3,200/Catch',
+  },
+];
+
+export interface CityServiceStationSpec {
+  id: string;
+  name: string;
+  brand: string;
+  x: number;
+  z: number;
+  radius: number;
+  serviceCost: number;
+  streetLocation: string;
+}
+
+export const CITY_SERVICE_STATIONS: CityServiceStationSpec[] = [
+  {
+    id: 'svc_woodfield_shell',
+    name: 'Woodfield Shell & Nitro Pit',
+    brand: 'SHELL V-POWER',
+    x: gx(448),
+    z: gz(1760),
+    radius: 22,
+    serviceCost: 150,
+    streetLocation: '19300 Woodfield Rd, Gaithersburg',
+  },
+  {
+    id: 'svc_rio_supercharge',
+    name: 'Washingtonian EV & Tuning Bay',
+    brand: 'RIO GARAGE',
+    x: gx(-378),
+    z: gz(2232),
+    radius: 22,
+    serviceCost: 150,
+    streetLocation: 'Washingtonian Blvd & Crown Park, Gaithersburg',
+  },
+  {
+    id: 'svc_rockville_exxon',
+    name: 'Rockville Pike Pit Stop',
+    brand: 'EXXON MOBIL',
+    x: -565,
+    z: 1410,
+    radius: 24,
+    serviceCost: 150,
+    streetLocation: '410 Hungerford Dr (MD-355), Rockville',
+  },
+  {
+    id: 'svc_baltimore_harbor',
+    name: 'Inner Harbor Sunoco Express',
+    brand: 'SUNOCO RACE FUEL',
+    x: 1170,
+    z: -180,
+    radius: 24,
+    serviceCost: 150,
+    streetLocation: '400 W Pratt St, Baltimore',
+  },
+];
+
+export interface SpeedCameraSpec {
+  id: string;
+  name: string;
+  x: number;
+  z: number;
+  triggerRadius: number;
+  targetSpeedKmh: number;
+  bonusCash: number;
+}
+
+export const MARYLAND_SPEED_CAMERAS: SpeedCameraSpec[] = [
+  { id: 'cam_i270_gaith', name: 'I-270 Express Radar Gantry', x: gx(-365), z: gz(1890), triggerRadius: 24, targetSpeedKmh: 165, bonusCash: 650 },
+  { id: 'cam_woodfield', name: 'Woodfield Rd Speed Check', x: gx(356), z: gz(1845), triggerRadius: 22, targetSpeedKmh: 120, bonusCash: 450 },
+  { id: 'cam_i95_columbia', name: 'I-95 Laurel High-Speed Trap', x: 500, z: 680, triggerRadius: 26, targetSpeedKmh: 190, bonusCash: 900 },
+  { id: 'cam_bay_bridge', name: 'Chesapeake Bay Bridge Radar', x: 1790, z: 720, triggerRadius: 28, targetSpeedKmh: 205, bonusCash: 1200 },
+  { id: 'cam_i495_bethesda', name: 'I-495 Beltway Flyby Trap', x: -520, z: 1660, triggerRadius: 25, targetSpeedKmh: 175, bonusCash: 800 },
+];
+
+export interface CityCarMeetSpec {
+  id: string;
+  name: string;
+  x: number;
+  z: number;
+  radius: number;
+  rewardCash: number;
+  streetLocation: string;
+}
+
+export const CITY_CAR_MEET_ZONES: CityCarMeetSpec[] = [
+  {
+    id: 'meet_rio_crown',
+    name: 'RIO Lakefront & Crown Friday Car Meet',
+    x: gx(-378),
+    z: gz(2285),
+    radius: 22,
+    rewardCash: 2500,
+    streetLocation: 'Washingtonian Blvd Promenade, Gaithersburg',
+  },
+  {
+    id: 'meet_harbor_east',
+    name: 'Inner Harbor Pier 3 Exotic Showcase',
+    x: 1335,
+    z: -160,
+    radius: 22,
+    rewardCash: 3000,
+    streetLocation: 'E Pratt St & Pier 3, Baltimore',
+  },
+];
 
 // =================================================================================================
 // 1. REAL GAITHERSBURG ARTERY ROADS & NEIGHBORHOODS (Shifted cleanly into Central/North Montgomery)
@@ -269,6 +529,7 @@ export const GAITHERSBURG_ARTERY_ROADS: MarylandRoadSpec[] = [
     points: [
       { x: gx(-565), z: gz(2210) },
       { x: gx(-425), z: gz(2205) },
+      { x: gx(-378), z: gz(2205) },
       { x: gx(-285), z: gz(2165) },
       { x: gx(-115), z: gz(2175) },
       { x: gx(90), z: gz(2210) },
@@ -296,6 +557,7 @@ export const GAITHERSBURG_ARTERY_ROADS: MarylandRoadSpec[] = [
     region: 'gaithersburg',
     points: [
       { x: gx(-520), z: gz(2390) },
+      { x: gx(-378), z: gz(2360) },
       { x: gx(-350), z: gz(2360) },
       { x: gx(-225), z: gz(2380) },
       { x: gx(-135), z: gz(2360) },
@@ -305,13 +567,14 @@ export const GAITHERSBURG_ARTERY_ROADS: MarylandRoadSpec[] = [
   },
   {
     id: 'rio_crown_link',
-    name: 'WASHINGTONIAN BLVD / CROWN PARK',
+    name: 'WASHINGTONIAN BLVD / CROWN PARK AVE',
     width: 18,
     speedLimitMph: 25,
     region: 'gaithersburg',
     points: [
-      { x: gx(-425), z: gz(2205) },
-      { x: gx(-350), z: gz(2360) },
+      { x: gx(-378), z: gz(2205) },
+      { x: gx(-378), z: gz(2285) },
+      { x: gx(-378), z: gz(2360) },
     ],
   },
 ];
@@ -323,7 +586,6 @@ export const GAITHERSBURG_NEIGHBORHOOD_ROADS: MarylandRoadSpec[] = [
     width: 12.0,
     speedLimitMph: 25,
     isResidential: true,
-    culDeSacEndRadius: 8.5,
     region: 'gaithersburg',
     points: [
       { x: gx(356), z: gz(1845) },
@@ -334,13 +596,13 @@ export const GAITHERSBURG_NEIGHBORHOOD_ROADS: MarylandRoadSpec[] = [
   {
     id: 'emory_grove_north',
     name: 'EMORY GROVE RD (EMORY GROVE)',
-    width: 10.5,
+    width: 11.0,
     speedLimitMph: 25,
     isResidential: true,
     region: 'gaithersburg',
     points: [
-      { x: gx(215), z: gz(1816) },
-      { x: gx(310), z: gz(1816) },
+      { x: gx(177), z: gz(1816) },
+      { x: gx(366), z: gz(1816) },
     ],
   },
   {
@@ -351,24 +613,25 @@ export const GAITHERSBURG_NEIGHBORHOOD_ROADS: MarylandRoadSpec[] = [
     isResidential: true,
     region: 'gaithersburg',
     points: [
-      { x: gx(-190), z: gz(1560) },
-      { x: gx(-48), z: gz(1560) },
+      { x: gx(-223), z: gz(1560) },
+      { x: gx(-11), z: gz(1560) },
     ],
   },
   {
     id: 'flower_hill_way',
     name: 'FLOWER HILL WAY (GAITHERSBURG)',
-    width: 11.0,
+    width: 11.5,
     speedLimitMph: 25,
     isResidential: true,
     region: 'gaithersburg',
     points: [
-      { x: gx(245), z: gz(2275) },
-      { x: gx(395), z: gz(2275) },
+      { x: gx(200), z: gz(2275) },
+      { x: gx(440), z: gz(2275) },
+      { x: gx(440), z: gz(2170) },
     ],
   },
 
-  // --- EDINBURGH VILLAGE (Authentic Multi-Street 100-Home Community: Real Streets Only) ---
+  // --- EDINBURGH VILLAGE (Spacious Real-Street Community: Kildonan Dr, Brenish Dr, Tarfside Ln, Kilcreggan Way/Ter) ---
   {
     id: 'kildonan_dr',
     name: 'KILDONAN DR (EDINBURGH VILLAGE)',
@@ -377,14 +640,12 @@ export const GAITHERSBURG_NEIGHBORHOOD_ROADS: MarylandRoadSpec[] = [
     isResidential: true,
     region: 'gaithersburg',
     points: [
-      { x: gx(468), z: gz(1652) },
-      { x: gx(468), z: gz(1602) },
-      { x: gx(580), z: gz(1602) },
-      { x: gx(740), z: gz(1602) },
-      { x: gx(740), z: gz(1652) },
-      { x: gx(740), z: gz(1702) },
-      { x: gx(740), z: gz(1748) },
-      { x: gx(740), z: gz(1795) },
+      { x: gx(475), z: gz(1692) },
+      { x: gx(475), z: gz(1614) },
+      { x: gx(620), z: gz(1614) },
+      { x: gx(775), z: gz(1614) },
+      { x: gx(775), z: gz(1692) },
+      { x: gx(775), z: gz(1768) },
     ],
   },
   {
@@ -396,9 +657,10 @@ export const GAITHERSBURG_NEIGHBORHOOD_ROADS: MarylandRoadSpec[] = [
     region: 'gaithersburg',
     points: [
       { x: gx(416), z: gz(1665) },
-      { x: gx(468), z: gz(1652) },
-      { x: gx(580), z: gz(1652) },
-      { x: gx(740), z: gz(1652) },
+      { x: gx(475), z: gz(1692) },
+      { x: gx(574), z: gz(1692) },
+      { x: gx(620), z: gz(1692) },
+      { x: gx(775), z: gz(1692) },
     ],
   },
   {
@@ -407,11 +669,11 @@ export const GAITHERSBURG_NEIGHBORHOOD_ROADS: MarylandRoadSpec[] = [
     width: 10.5,
     speedLimitMph: 25,
     isResidential: true,
-    culDeSacEndRadius: 8.5,
+    culDeSacEndRadius: 11.0,
     region: 'gaithersburg',
     points: [
-      { x: gx(512), z: gz(1652) },
-      { x: gx(512), z: gz(1688) },
+      { x: gx(574), z: gz(1692) },
+      { x: gx(574), z: gz(1736) },
     ],
   },
   {
@@ -422,23 +684,22 @@ export const GAITHERSBURG_NEIGHBORHOOD_ROADS: MarylandRoadSpec[] = [
     isResidential: true,
     region: 'gaithersburg',
     points: [
-      { x: gx(580), z: gz(1602) },
-      { x: gx(580), z: gz(1652) },
-      { x: gx(580), z: gz(1702) },
-      { x: gx(580), z: gz(1748) },
-      { x: gx(580), z: gz(1795) },
+      { x: gx(620), z: gz(1614) },
+      { x: gx(620), z: gz(1692) },
+      { x: gx(620), z: gz(1768) },
     ],
   },
   {
     id: 'kilcreggan_way_loop',
     name: 'KILCREGGAN WAY (EDINBURGH VILLAGE)',
-    width: 10.5,
+    width: 11.0,
     speedLimitMph: 25,
     isResidential: true,
     region: 'gaithersburg',
     points: [
-      { x: gx(580), z: gz(1702) },
-      { x: gx(740), z: gz(1702) },
+      { x: gx(620), z: gz(1768) },
+      { x: gx(706), z: gz(1768) },
+      { x: gx(775), z: gz(1768) },
     ],
   },
   {
@@ -447,232 +708,302 @@ export const GAITHERSBURG_NEIGHBORHOOD_ROADS: MarylandRoadSpec[] = [
     width: 10.5,
     speedLimitMph: 25,
     isResidential: true,
+    culDeSacEndRadius: 11.0,
     region: 'gaithersburg',
     points: [
-      { x: gx(580), z: gz(1748) },
-      { x: gx(740), z: gz(1748) },
-    ],
-  },
-  {
-    id: 'kilcreggan_ter_south',
-    name: 'KILCREGGAN TER (EDINBURGH VILLAGE)',
-    width: 10.5,
-    speedLimitMph: 25,
-    isResidential: true,
-    region: 'gaithersburg',
-    points: [
-      { x: gx(580), z: gz(1795) },
-      { x: gx(740), z: gz(1795) },
+      { x: gx(706), z: gz(1768) },
+      { x: gx(706), z: gz(1808) },
     ],
   },
 
-  // --- HADLEY FARMS (Massive 300-Home Master Community: Real Streets Only) ---
+  // --- HADLEY FARMS (Spacious Master-Planned Community East & West of Woodfield Rd + Mayhill Ct Cul-de-Sac) ---
   {
     id: 'hadley_farms_dr',
     name: 'HADLEY FARMS DR',
-    width: 12.5,
+    width: 13.0,
     speedLimitMph: 25,
     isResidential: true,
     region: 'gaithersburg',
     points: [
       { x: gx(446), z: gz(1580) },
-      { x: gx(492), z: gz(1524) },
-      { x: gx(600), z: gz(1524) },
-      { x: gx(702), z: gz(1524) },
+      { x: gx(496), z: gz(1540) },
+      { x: gx(605), z: gz(1540) },
+      { x: gx(702), z: gz(1540) },
     ],
   },
   {
     id: 'hadley_east_m_coll',
     name: 'TYGART CT (HADLEY FARMS)',
-    width: 11.0,
+    width: 11.5,
     speedLimitMph: 25,
     isResidential: true,
     region: 'gaithersburg',
     points: [
-      { x: gx(600), z: gz(1066) },
-      { x: gx(600), z: gz(1250) },
-      { x: gx(600), z: gz(1524) },
+      { x: gx(600), z: gz(1084) },
+      { x: gx(600), z: gz(1236) },
+      { x: gx(600), z: gz(1388) },
+      { x: gx(600), z: gz(1464) },
+      { x: gx(605), z: gz(1540) },
     ],
   },
   {
     id: 'hadley_east_e_coll',
     name: 'HADLEY FARMS CT (HADLEY FARMS)',
-    width: 11.0,
+    width: 11.5,
     speedLimitMph: 25,
     isResidential: true,
     region: 'gaithersburg',
     points: [
-      { x: gx(702), z: gz(1066) },
-      { x: gx(702), z: gz(1250) },
-      { x: gx(702), z: gz(1524) },
+      { x: gx(702), z: gz(1084) },
+      { x: gx(702), z: gz(1160) },
+      { x: gx(702), z: gz(1236) },
+      { x: gx(702), z: gz(1312) },
     ],
   },
   {
     id: 'hadley_east_far_coll',
     name: 'FILBERT TER (HADLEY FARMS)',
-    width: 10.5,
+    width: 11.0,
     speedLimitMph: 25,
     isResidential: true,
     region: 'gaithersburg',
     points: [
-      { x: gx(792), z: gz(1066) },
-      { x: gx(792), z: gz(1250) },
+      { x: gx(792), z: gz(1084) },
+      { x: gx(792), z: gz(1236) },
     ],
   },
-  // 10 Parallel E-W Streets of Hadley Farms East (46m exact spacing)
   {
-    id: 'hadley_e_1066',
+    id: 'hadley_e_cliff_pine',
     name: 'CLIFF PINE DR (HADLEY FARMS)',
-    width: 10.5,
+    width: 11.0,
     speedLimitMph: 25,
     isResidential: true,
     region: 'gaithersburg',
-    points: [{ x: gx(492), z: gz(1066) }, { x: gx(600), z: gz(1066) }, { x: gx(702), z: gz(1066) }, { x: gx(792), z: gz(1066) }],
+    points: [
+      { x: gx(492), z: gz(1084) },
+      { x: gx(600), z: gz(1084) },
+      { x: gx(702), z: gz(1084) },
+      { x: gx(792), z: gz(1084) },
+    ],
   },
   {
-    id: 'hadley_e_1112',
+    id: 'hadley_e_barcellona',
     name: 'BARCELLONA DR (HADLEY FARMS)',
-    width: 10.5,
+    width: 11.0,
     speedLimitMph: 25,
     isResidential: true,
     region: 'gaithersburg',
-    points: [{ x: gx(492), z: gz(1112) }, { x: gx(600), z: gz(1112) }, { x: gx(702), z: gz(1112) }, { x: gx(792), z: gz(1112) }],
+    points: [
+      { x: gx(492), z: gz(1160) },
+      { x: gx(600), z: gz(1160) },
+      { x: gx(702), z: gz(1160) },
+      { x: gx(792), z: gz(1160) },
+    ],
   },
   {
-    id: 'hadley_e_1158',
+    id: 'hadley_e_torran_rocks',
     name: 'TORRAN ROCKS WAY (HADLEY FARMS)',
-    width: 10.5,
+    width: 11.0,
     speedLimitMph: 25,
     isResidential: true,
     region: 'gaithersburg',
-    points: [{ x: gx(492), z: gz(1158) }, { x: gx(600), z: gz(1158) }, { x: gx(702), z: gz(1158) }, { x: gx(792), z: gz(1158) }],
+    points: [
+      { x: gx(492), z: gz(1236) },
+      { x: gx(600), z: gz(1236) },
+      { x: gx(702), z: gz(1236) },
+      { x: gx(792), z: gz(1236) },
+    ],
   },
   {
-    id: 'hadley_e_1204',
+    id: 'hadley_e_cinnabar_ter',
     name: 'CINNABAR TER (HADLEY FARMS)',
-    width: 10.5,
+    width: 11.0,
     speedLimitMph: 25,
     isResidential: true,
     region: 'gaithersburg',
-    points: [{ x: gx(492), z: gz(1204) }, { x: gx(600), z: gz(1204) }, { x: gx(702), z: gz(1204) }, { x: gx(792), z: gz(1204) }],
+    points: [
+      { x: gx(492), z: gz(1312) },
+      { x: gx(600), z: gz(1312) },
+      { x: gx(702), z: gz(1312) },
+    ],
   },
   {
-    id: 'hadley_e_1250',
+    id: 'hadley_e_elioak_ter',
     name: 'ELIOAK TER (HADLEY FARMS)',
     width: 10.5,
     speedLimitMph: 25,
     isResidential: true,
     region: 'gaithersburg',
-    points: [{ x: gx(492), z: gz(1250) }, { x: gx(600), z: gz(1250) }, { x: gx(702), z: gz(1250) }, { x: gx(792), z: gz(1250) }],
+    points: [
+      { x: gx(492), z: gz(1388) },
+      { x: gx(600), z: gz(1388) },
+    ],
   },
   {
-    id: 'hadley_e_1296',
-    name: 'FILBERT TER (HADLEY FARMS)',
-    width: 10.5,
-    speedLimitMph: 25,
-    isResidential: true,
-    region: 'gaithersburg',
-    points: [{ x: gx(492), z: gz(1296) }, { x: gx(600), z: gz(1296) }, { x: gx(702), z: gz(1296) }],
-  },
-  {
-    id: 'hadley_e_1342',
+    id: 'hadley_e_electra_ct',
     name: 'ELECTRA CT (HADLEY FARMS)',
     width: 10.5,
     speedLimitMph: 25,
     isResidential: true,
+    culDeSacEndRadius: 11.5,
     region: 'gaithersburg',
-    points: [{ x: gx(492), z: gz(1342) }, { x: gx(600), z: gz(1342) }, { x: gx(702), z: gz(1342) }],
+    points: [
+      { x: gx(600), z: gz(1388) },
+      { x: gx(676), z: gz(1388) },
+    ],
   },
   {
-    id: 'hadley_e_1388',
+    id: 'hadley_e_harkness_ct',
     name: 'HARKNESS CT (HADLEY FARMS)',
     width: 10.5,
     speedLimitMph: 25,
     isResidential: true,
+    culDeSacEndRadius: 11.5,
     region: 'gaithersburg',
-    points: [{ x: gx(492), z: gz(1388) }, { x: gx(600), z: gz(1388) }, { x: gx(702), z: gz(1388) }],
+    points: [
+      { x: gx(482), z: gz(1464) },
+      { x: gx(562), z: gz(1464) },
+    ],
   },
   {
-    id: 'hadley_e_1434',
+    id: 'mayhill_ct',
     name: 'MAYHILL CT (HADLEY FARMS)',
     width: 10.5,
     speedLimitMph: 25,
     isResidential: true,
+    culDeSacEndRadius: 12.5,
     region: 'gaithersburg',
-    points: [{ x: gx(486), z: gz(1434) }, { x: gx(600), z: gz(1434) }, { x: gx(702), z: gz(1434) }],
+    points: [
+      { x: gx(600), z: gz(1464) },
+      { x: gx(676), z: gz(1464) },
+    ],
   },
+  // Hadley Farms West (Spacious 76m Blocks West of Woodfield Rd: 130..492)
   {
-    id: 'hadley_e_1480',
-    name: 'CINNABAR DR (HADLEY FARMS)',
-    width: 10.5,
-    speedLimitMph: 25,
-    isResidential: true,
-    region: 'gaithersburg',
-    points: [{ x: gx(480), z: gz(1480) }, { x: gx(600), z: gz(1480) }, { x: gx(702), z: gz(1480) }],
-  },
-  // Hadley Farms West Streets (266..480)
-  {
-    id: 'hadley_west_w_coll',
+    id: 'hadley_west_electra_dr',
     name: 'ELECTRA DR (HADLEY FARMS WEST)',
-    width: 10.5,
+    width: 11.0,
     speedLimitMph: 25,
     isResidential: true,
     region: 'gaithersburg',
-    points: [{ x: gx(266), z: gz(1250) }, { x: gx(266), z: gz(1434) }],
+    points: [
+      { x: gx(130), z: gz(1236) },
+      { x: gx(130), z: gz(1312) },
+      { x: gx(130), z: gz(1388) },
+    ],
+  },
+  {
+    id: 'hadley_west_cinnabar_dr',
+    name: 'CINNABAR DR (HADLEY FARMS WEST)',
+    width: 11.0,
+    speedLimitMph: 25,
+    isResidential: true,
+    region: 'gaithersburg',
+    points: [
+      { x: gx(260), z: gz(1160) },
+      { x: gx(260), z: gz(1236) },
+      { x: gx(260), z: gz(1312) },
+      { x: gx(260), z: gz(1388) },
+      { x: gx(260), z: gz(1464) },
+    ],
   },
   {
     id: 'hadley_west_m_coll',
+    name: 'TYGART CT (HADLEY FARMS WEST)',
+    width: 11.0,
+    speedLimitMph: 25,
+    isResidential: true,
+    region: 'gaithersburg',
+    points: [
+      { x: gx(372), z: gz(1160) },
+      { x: gx(372), z: gz(1236) },
+      { x: gx(372), z: gz(1312) },
+      { x: gx(372), z: gz(1388) },
+      { x: gx(372), z: gz(1464) },
+    ],
+  },
+  {
+    id: 'hadley_w_filbert_dr',
+    name: 'FILBERT DR (HADLEY FARMS WEST)',
+    width: 11.0,
+    speedLimitMph: 25,
+    isResidential: true,
+    region: 'gaithersburg',
+    points: [
+      { x: gx(200), z: gz(1160) },
+      { x: gx(260), z: gz(1160) },
+      { x: gx(372), z: gz(1160) },
+      { x: gx(492), z: gz(1160) },
+    ],
+  },
+  {
+    id: 'hadley_w_boxberry_dr',
+    name: 'BOXBERRY DR (HADLEY FARMS WEST)',
+    width: 11.0,
+    speedLimitMph: 25,
+    isResidential: true,
+    region: 'gaithersburg',
+    points: [
+      { x: gx(130), z: gz(1236) },
+      { x: gx(260), z: gz(1236) },
+      { x: gx(372), z: gz(1236) },
+      { x: gx(492), z: gz(1236) },
+    ],
+  },
+  {
+    id: 'hadley_w_mayhill_ter',
+    name: 'MAYHILL TER (HADLEY FARMS WEST)',
+    width: 11.0,
+    speedLimitMph: 25,
+    isResidential: true,
+    region: 'gaithersburg',
+    points: [
+      { x: gx(130), z: gz(1312) },
+      { x: gx(260), z: gz(1312) },
+      { x: gx(372), z: gz(1312) },
+      { x: gx(492), z: gz(1312) },
+    ],
+  },
+  {
+    id: 'hadley_w_tygart_ln',
+    name: 'TYGART LN (HADLEY FARMS WEST)',
+    width: 11.0,
+    speedLimitMph: 25,
+    isResidential: true,
+    region: 'gaithersburg',
+    points: [
+      { x: gx(130), z: gz(1388) },
+      { x: gx(260), z: gz(1388) },
+      { x: gx(372), z: gz(1388) },
+      { x: gx(492), z: gz(1388) },
+    ],
+  },
+  {
+    id: 'hadley_w_mattingly_ter',
+    name: 'MATTINGLY TER (HADLEY FARMS WEST)',
+    width: 11.0,
+    speedLimitMph: 25,
+    isResidential: true,
+    region: 'gaithersburg',
+    points: [
+      { x: gx(240), z: gz(1480) },
+      { x: gx(260), z: gz(1464) },
+      { x: gx(372), z: gz(1464) },
+      { x: gx(482), z: gz(1464) },
+    ],
+  },
+  {
+    id: 'midas_ct',
     name: 'MIDAS CT (HADLEY FARMS WEST)',
     width: 10.5,
     speedLimitMph: 25,
     isResidential: true,
+    culDeSacEndRadius: 11.5,
     region: 'gaithersburg',
-    points: [{ x: gx(372), z: gz(1250) }, { x: gx(372), z: gz(1434) }],
-  },
-  {
-    id: 'hadley_w_1250',
-    name: 'FILBERT DR (HADLEY FARMS WEST)',
-    width: 10.5,
-    speedLimitMph: 25,
-    isResidential: true,
-    region: 'gaithersburg',
-    points: [{ x: gx(266), z: gz(1250) }, { x: gx(372), z: gz(1250) }, { x: gx(492), z: gz(1250) }],
-  },
-  {
-    id: 'hadley_w_1296',
-    name: 'BOXBERRY DR (HADLEY FARMS WEST)',
-    width: 10.5,
-    speedLimitMph: 25,
-    isResidential: true,
-    region: 'gaithersburg',
-    points: [{ x: gx(266), z: gz(1296) }, { x: gx(372), z: gz(1296) }, { x: gx(492), z: gz(1296) }],
-  },
-  {
-    id: 'hadley_w_1342',
-    name: 'MAYHILL TER (HADLEY FARMS WEST)',
-    width: 10.5,
-    speedLimitMph: 25,
-    isResidential: true,
-    region: 'gaithersburg',
-    points: [{ x: gx(266), z: gz(1342) }, { x: gx(372), z: gz(1342) }, { x: gx(492), z: gz(1342) }],
-  },
-  {
-    id: 'hadley_w_1388',
-    name: 'TYGART LN (HADLEY FARMS WEST)',
-    width: 10.5,
-    speedLimitMph: 25,
-    isResidential: true,
-    region: 'gaithersburg',
-    points: [{ x: gx(266), z: gz(1388) }, { x: gx(372), z: gz(1388) }, { x: gx(492), z: gz(1388) }],
-  },
-  {
-    id: 'hadley_w_1434',
-    name: 'MATTINGLY TER (HADLEY FARMS WEST)',
-    width: 10.5,
-    speedLimitMph: 25,
-    isResidential: true,
-    region: 'gaithersburg',
-    points: [{ x: gx(266), z: gz(1434) }, { x: gx(372), z: gz(1434) }, { x: gx(486), z: gz(1434) }],
+    points: [
+      { x: gx(240), z: gz(1480) },
+      { x: gx(165), z: gz(1464) },
+    ],
   },
 ];
 
@@ -808,8 +1139,8 @@ export const STATEWIDE_MARYLAND_ROADS: MarylandRoadSpec[] = [
       { x: gx(820), z: gz(1030) }, // North around Hadley Farms East
       { x: gx(820), z: gz(1240) }, // East clear of Hadley Farms & The Mall in Columbia
       { x: 280, z: 120 }, // Columbia Town Center
-      { x: 260, z: 220 }, // Clarksville
-      { x: 246, z: 598 }, // Sandy Spring / Ashton (cleanly East & South of Edinburgh Village)
+      { x: 296, z: 220 }, // Clarksville (cleanly East of Hadley Farms East)
+      { x: 296, z: 640 }, // Sandy Spring / Ashton (cleanly East & South of Edinburgh Village)
       { x: 120, z: 620 }, // Olney Town Center (MD-97 & MD-108)
     ],
   },
@@ -931,7 +1262,7 @@ export const STATEWIDE_MARYLAND_ROADS: MarylandRoadSpec[] = [
     points: [
       { x: -200, z: 1660 }, // Silver Spring
       { x: -10, z: 1180 }, // White Oak / Fairland
-      { x: 180, z: 640 }, // Burtonsville / Sandy Spring east
+      { x: 268, z: 640 }, // Burtonsville / Sandy Spring east (cleanly East of Edinburgh Village!)
       { x: 280, z: 120 }, // Columbia Town Center
       { x: 320, z: -250 }, // Ellicott City I-70
     ],
@@ -1026,6 +1357,7 @@ export const STATEWIDE_MARYLAND_ROADS: MarylandRoadSpec[] = [
       { x: 700, z: -450 },
       { x: 820, z: -445 },
       { x: 980, z: -420 },
+      { x: 1080, z: -480 },
     ],
   },
   {
@@ -1418,7 +1750,7 @@ export function isOnMarylandPavedSurface(px: number, pz: number): boolean {
 
   // Gaithersburg Retail / School / Airport Pads (shifted by GAITH_DX, GAITH_DZ)
   if (
-    (px >= gx(565) && px <= gx(592) && pz >= gz(1536) && pz <= gz(1574)) || // Resnik ES
+    (px >= gx(562) && px <= gx(592) && pz >= gz(1548) && pz <= gz(1588)) || // Resnik ES
     (px >= gx(-318) && px <= gx(-230) && pz >= gz(1525) && pz <= gz(1595)) || // Goshen Giant
     (px >= gx(106) && px <= gx(204) && pz >= gz(2145) && pz <= gz(2208)) || // Flower Hill
     (px >= gx(-316) && px <= gx(-192) && pz >= gz(1728) && pz <= gz(1782)) || // Lakeforest
@@ -1447,14 +1779,14 @@ export function getMarylandZoneAndSpeedAt(x: number, z: number): { limitMph: num
     return { limitMph: 20, zoneName: 'Islamic Society of Baltimore (6631 Johnnycake Rd)' };
   }
 
-  if (x >= gx(416) && x <= gx(764) && z >= gz(1585) && z <= gz(1820)) {
+  if (x >= gx(416) && x <= gx(798) && z >= gz(1592) && z <= gz(1830)) {
     return { limitMph: 25, zoneName: 'Edinburgh Village · Brenish Dr & Kildonan Dr (Gaithersburg)' };
   }
   if (
-    (x >= gx(245) && x <= gx(495) && z >= gz(1235) && z <= gz(1515)) ||
-    (x >= gx(480) && x <= gx(812) && z >= gz(1045) && z <= gz(1580))
+    (x >= gx(105) && x <= gx(492) && z >= gz(1135) && z <= gz(1510)) ||
+    (x >= gx(475) && x <= gx(812) && z >= gz(1055) && z <= gz(1590))
   ) {
-    return { limitMph: 25, zoneName: 'Hadley Farms · Resnik ES (Gaithersburg)' };
+    return { limitMph: 25, zoneName: 'Hadley Farms · Mayhill Ct & Resnik ES (Gaithersburg)' };
   }
   if (x >= gx(130) && x <= gx(320) && z >= gz(1845) && z <= gz(1945)) {
     return { limitMph: 25, zoneName: 'Emory Grove & Emory Woods Ct (Gaithersburg)' };
@@ -1555,6 +1887,91 @@ export function renderMarylandRoadSpecs(roads: MarylandRoadSpec[], ctx: Maryland
   const guardrailPostMat = makeCityMat({ color: 0x4b5563, roughness: 0.75 });
   const junctionPoints = new Map<string, { x: number; z: number; maxWidth: number; isBridge?: boolean }>();
 
+  // Precompute all road segments for angle-aware 2D intersection, curb, and median notching
+  interface RoadSeg2D {
+    roadId: string;
+    width: number;
+    isBridge?: boolean;
+    isResidential?: boolean;
+    ax: number;
+    az: number;
+    bx: number;
+    bz: number;
+    ux: number;
+    uz: number;
+    len: number;
+  }
+  const allSegs: RoadSeg2D[] = [];
+  for (const r of roads) {
+    for (let k = 0; k < r.points.length - 1; k++) {
+      const p0 = r.points[k];
+      const p1 = r.points[k + 1];
+      const d = Math.hypot(p1.x - p0.x, p1.z - p0.z);
+      if (d >= 0.5) {
+        allSegs.push({
+          roadId: r.id,
+          width: r.width,
+          isBridge: r.isBridge,
+          isResidential: r.isResidential,
+          ax: p0.x,
+          az: p0.z,
+          bx: p1.x,
+          bz: p1.z,
+          ux: (p1.x - p0.x) / d,
+          uz: (p1.z - p0.z) / d,
+          len: d,
+        });
+      }
+    }
+  }
+
+  const segIntersect2D = (
+    ax: number,
+    az: number,
+    bx: number,
+    bz: number,
+    cx: number,
+    cz: number,
+    dx: number,
+    dz: number
+  ): { t: number } | null => {
+    const rdx = bx - ax;
+    const rdz = bz - az;
+    const sdx = dx - cx;
+    const sdz = dz - cz;
+    const denom = rdx * sdz - rdz * sdx;
+    if (Math.abs(denom) < 1e-5) return null;
+    const t = ((cx - ax) * sdz - (cz - az) * sdx) / denom;
+    const u = ((cx - ax) * rdz - (cz - az) * rdx) / denom;
+    if (t >= -0.02 && t <= 1.02 && u >= -0.02 && u <= 1.02) {
+      return { t: Math.max(0, Math.min(1, t)) };
+    }
+    return null;
+  };
+
+  const mergeAndInvertGaps = (gaps: [number, number][]): [number, number][] => {
+    gaps.sort((u, v) => u[0] - v[0]);
+    const merged: [number, number][] = [];
+    for (const g of gaps) {
+      const lo = Math.max(0, g[0]);
+      const hi = Math.min(1, g[1]);
+      if (hi - lo <= 0.0005) continue;
+      if (merged.length === 0 || lo > merged[merged.length - 1][1]) {
+        merged.push([lo, hi]);
+      } else {
+        merged[merged.length - 1][1] = Math.max(merged[merged.length - 1][1], hi);
+      }
+    }
+    const open: [number, number][] = [];
+    let cursor = 0;
+    for (const [gs, ge] of merged) {
+      if (gs - cursor > 0.001) open.push([cursor, gs]);
+      cursor = Math.max(cursor, ge);
+    }
+    if (1 - cursor > 0.001) open.push([cursor, 1]);
+    return open;
+  };
+
   for (const road of roads) {
     for (let i = 0; i < road.points.length; i++) {
       const pt = road.points[i];
@@ -1572,11 +1989,13 @@ export function renderMarylandRoadSpecs(roads: MarylandRoadSpec[], ctx: Maryland
       const dz = b.z - a.z;
       const len = Math.hypot(dx, dz);
       if (len < 0.5) continue;
+      const ux = dx / len;
+      const uz = dz / len;
       const angle = Math.atan2(dx, dz);
       const mx = (a.x + b.x) * 0.5;
       const mz = (a.z + b.z) * 0.5;
       const roadY = road.isBridge ? 0.36 : 0.246;
-      const stripeY = road.isBridge ? 0.376 : 0.265;
+      const stripeY = road.isBridge ? 0.376 : 0.264;
 
       const roadMesh = new THREE.Mesh(new THREE.PlaneGeometry(road.width, len + 1.5), streetAsphaltMat);
       roadMesh.rotation.order = 'YXZ';
@@ -1587,77 +2006,246 @@ export function renderMarylandRoadSpecs(roads: MarylandRoadSpec[], ctx: Maryland
       group.add(roadMesh);
       cityStreetRoadMeshes.push(roadMesh);
 
-      const trimLen = Math.max(4, len - road.width * 0.65);
+      // Compute angle-aware intersection gaps so medians, curbs, and yellow lines NEVER poke into cross streets
+      const cutGaps: [number, number][] = [];
+      const curbGaps: [number, number][] = [];
 
-      if (road.dividedMedianWidth && road.dividedMedianWidth > 0) {
-        const medLen = Math.max(4, len - road.width * 1.05);
-        if (medLen > 10) {
-          const medCurb = new THREE.Mesh(
-            new THREE.BoxGeometry(road.dividedMedianWidth, 0.28, medLen),
-            road.isHighway ? medianCurbMat : medianGrassMat
-          );
-          medCurb.rotation.y = angle;
-          medCurb.position.set(mx, roadY + 0.1, mz);
-          sceneryGroup.add(medCurb);
-
-          for (const side of [-1, 1]) {
-            const nx = (dz / len) * (road.dividedMedianWidth * 0.5 + 0.45) * side;
-            const nz = (-dx / len) * (road.dividedMedianWidth * 0.5 + 0.45) * side;
-            const yStripe = new THREE.Mesh(new THREE.PlaneGeometry(0.22, medLen), yellowLineMat);
-            yStripe.rotation.order = 'YXZ';
-            yStripe.rotation.y = angle;
-            yStripe.rotation.x = -Math.PI / 2;
-            yStripe.position.set(mx + nx, stripeY, mz + nz);
-            group.add(yStripe);
-          }
+      // Check bend with previous / next segment of the same road
+      if (i > 0) {
+        const prev = road.points[i - 1];
+        const pLen = Math.hypot(a.x - prev.x, a.z - prev.z) || 1;
+        const dotPrev = ((a.x - prev.x) / pLen) * ux + ((a.z - prev.z) / pLen) * uz;
+        if (dotPrev < 0.94) {
+          const bendCut = Math.min(0.28, (road.width * 0.36) / len);
+          cutGaps.push([0, bendCut]);
+          curbGaps.push([0, bendCut * 1.05]);
         }
-        if (!isRetroPixel) {
-          const laneCenterOff = road.dividedMedianWidth * 0.5 + (road.width - road.dividedMedianWidth) * 0.25;
-          const stepStride = len > 250 ? 22 : 16;
-          for (const side of [-1, 1]) {
-            const nx = (dz / len) * laneCenterOff * side;
-            const nz = (-dx / len) * laneCenterOff * side;
-            const steps = Math.floor(trimLen / stepStride);
-            for (let s = 1; s < steps; s++) {
-              const t = -0.45 + (s / steps) * 0.9;
-              const px = mx + (dx / len) * trimLen * t + nx;
-              const pz = mz + (dz / len) * trimLen * t + nz;
-              const dash = new THREE.Mesh(new THREE.PlaneGeometry(0.2, 5.2), whiteLineMat);
-              dash.rotation.order = 'YXZ';
-              dash.rotation.y = angle;
-              dash.rotation.x = -Math.PI / 2;
-              dash.position.set(px, stripeY, pz);
-              group.add(dash);
+      }
+      if (i < road.points.length - 2) {
+        const next = road.points[i + 2];
+        const nLen = Math.hypot(next.x - b.x, next.z - b.z) || 1;
+        const dotNext = ux * ((next.x - b.x) / nLen) + uz * ((next.z - b.z) / nLen);
+        if (dotNext < 0.94) {
+          const bendCut = Math.min(0.28, (road.width * 0.36) / len);
+          cutGaps.push([1 - bendCut, 1]);
+          curbGaps.push([1 - bendCut * 1.05, 1]);
+        }
+      }
+
+      for (const other of allSegs) {
+        if (other.roadId === road.id) continue;
+        if (Boolean(other.isBridge) !== Boolean(road.isBridge)) continue;
+
+        const dot = Math.max(-1, Math.min(1, ux * other.ux + uz * other.uz));
+        const sinTheta = Math.sqrt(Math.max(0, 1 - dot * dot));
+        const effSin = Math.max(0.32, sinTheta);
+
+        // 1. Mid-segment intersections (crossings & shallow overlaps)
+        const hit = segIntersect2D(a.x, a.z, b.x, b.z, other.ax, other.az, other.bx, other.bz);
+        if (hit) {
+          const worldHalf = (other.width * 0.56 + road.width * 0.24 + 4.8) / effSin;
+          const halfGap = Math.min(0.45, worldHalf / len);
+          cutGaps.push([hit.t - halfGap, hit.t + halfGap]);
+          const curbHalf = Math.min(0.47, (other.width * 0.58 + road.width * 0.32 + 3.2) / effSin / len);
+          curbGaps.push([hit.t - curbHalf, hit.t + curbHalf]);
+        }
+
+        // 2. Endpoints of `other` hitting `[a, b]` anywhere along its span OR right at vertex `a` / `b` (T-junctions)
+        for (const [vx, vz] of [
+          [other.ax, other.az],
+          [other.bx, other.bz],
+        ] as [number, number][]) {
+          const projT = ((vx - a.x) * dx + (vz - a.z) * dz) / (len * len);
+          if (projT >= -0.05 && projT <= 1.05) {
+            const clampedT = Math.max(0, Math.min(1, projT));
+            const px = a.x + dx * clampedT;
+            const pz = a.z + dz * clampedT;
+            const perpDist = Math.hypot(vx - px, vz - pz);
+            if (perpDist <= road.width * 0.55 + other.width * 0.35 + 4.5) {
+              const worldHalf = (Math.max(other.width, 11) * 0.58 + road.width * 0.25 + 4.8) / effSin;
+              const halfGap = Math.min(0.45, worldHalf / len);
+              cutGaps.push([clampedT - halfGap, clampedT + halfGap]);
+              const curbHalf = Math.min(0.48, (Math.max(other.width, 11) * 0.6 + road.width * 0.36 + 3.0) / effSin / len);
+              curbGaps.push([clampedT - curbHalf, clampedT + curbHalf]);
             }
           }
         }
-      } else if (!road.isResidential) {
-        for (const side of [-0.26, 0.26]) {
-          const nx = (dz / len) * side;
-          const nz = (-dx / len) * side;
-          const yStripe = new THREE.Mesh(new THREE.PlaneGeometry(0.2, trimLen), yellowLineMat);
-          yStripe.rotation.order = 'YXZ';
-          yStripe.rotation.y = angle;
-          yStripe.rotation.x = -Math.PI / 2;
-          yStripe.position.set(mx + nx, stripeY, mz + nz);
-          group.add(yStripe);
+
+        // 3. Vertices `a` or `b` landing mid-span on `other` (e.g. side road meeting wider divided highway)
+        for (const [pt, baseT] of [
+          [a, 0],
+          [b, 1],
+        ] as [{ x: number; z: number }, number][]) {
+          const oProj = ((pt.x - other.ax) * other.ux + (pt.z - other.az) * other.uz) / other.len;
+          if (oProj >= -0.06 && oProj <= 1.06) {
+            const oClamped = Math.max(0, Math.min(1, oProj));
+            const ox = other.ax + other.ux * other.len * oClamped;
+            const oz = other.az + other.uz * other.len * oClamped;
+            const perp = Math.hypot(pt.x - ox, pt.z - oz);
+            if (perp <= other.width * 0.58 + road.width * 0.35 + 4.0) {
+              const worldHalf = (other.width * 0.58 + road.width * 0.26 + 4.8) / effSin;
+              const gapT = Math.min(0.46, worldHalf / len);
+              if (baseT === 0) {
+                cutGaps.push([0, gapT]);
+                curbGaps.push([0, gapT]);
+              } else {
+                cutGaps.push([1 - gapT, 1]);
+                curbGaps.push([1 - gapT, 1]);
+              }
+            }
+          }
+        }
+      }
+
+      const openSpans = mergeAndInvertGaps(cutGaps);
+      const curbOpenSpans = mergeAndInvertGaps(curbGaps);
+
+      if (road.dividedMedianWidth && road.dividedMedianWidth > 0) {
+        const medW = road.dividedMedianWidth;
+        for (const [ts, te] of openSpans) {
+          const spanLen = (te - ts) * len;
+          if (spanLen < 10.5) continue;
+          const tMid = (ts + te) * 0.5;
+          const sx = a.x + dx * tMid;
+          const sz = a.z + dz * tMid;
+          const bodyLen = Math.max(2, spanLen - medW);
+          const medMat = road.isHighway ? medianCurbMat : medianGrassMat;
+
+          const medCurb = new THREE.Mesh(
+            new THREE.BoxGeometry(medW, 0.24, bodyLen),
+            medMat
+          );
+          medCurb.rotation.y = angle;
+          medCurb.position.set(sx, roadY + 0.08, sz);
+          sceneryGroup.add(medCurb);
+
+          // Rounded bullnose endcaps so divided medians never have sharp blocky stubs
+          for (const capEnd of [-1, 1]) {
+            const cap = new THREE.Mesh(
+              new THREE.CylinderGeometry(medW * 0.5, medW * 0.5, 0.24, isRetroPixel ? 8 : 12),
+              medMat
+            );
+            cap.position.set(
+              sx + ux * (bodyLen * 0.5) * capEnd,
+              roadY + 0.08,
+              sz + uz * (bodyLen * 0.5) * capEnd
+            );
+            sceneryGroup.add(cap);
+          }
+
+          // Subtle crisp yellow edge lines hugging the median curb
+          const stripeLen = Math.max(2, spanLen - 1.5);
+          for (const side of [-1, 1]) {
+            const nx = (dz / len) * (medW * 0.5 + 0.36) * side;
+            const nz = (-dx / len) * (medW * 0.5 + 0.36) * side;
+            const yStripe = new THREE.Mesh(new THREE.PlaneGeometry(0.14, stripeLen), yellowLineMat);
+            yStripe.rotation.order = 'YXZ';
+            yStripe.rotation.y = angle;
+            yStripe.rotation.x = -Math.PI / 2;
+            yStripe.position.set(sx + nx, stripeY, sz + nz);
+            group.add(yStripe);
+          }
+
+          if (!isRetroPixel) {
+            const laneCenterOff = medW * 0.5 + (road.width - medW) * 0.25;
+            const stepStride = spanLen > 220 ? 24 : 18;
+            for (const side of [-1, 1]) {
+              const nx = (dz / len) * laneCenterOff * side;
+              const nz = (-dx / len) * laneCenterOff * side;
+              const steps = Math.floor(spanLen / stepStride);
+              for (let s = 1; s < steps; s++) {
+                const frac = -0.46 + (s / steps) * 0.92;
+                const px = sx + ux * spanLen * frac + nx;
+                const pz = sz + uz * spanLen * frac + nz;
+                const dash = new THREE.Mesh(new THREE.PlaneGeometry(0.16, 4.6), whiteLineMat);
+                dash.rotation.order = 'YXZ';
+                dash.rotation.y = angle;
+                dash.rotation.x = -Math.PI / 2;
+                dash.position.set(px, stripeY, pz);
+                group.add(dash);
+              }
+            }
+            // Crisp white highway shoulder lines
+            if (road.isHighway) {
+              const edgeOff = road.width * 0.5 - 0.65;
+              for (const side of [-1, 1]) {
+                const nx = (dz / len) * edgeOff * side;
+                const nz = (-dx / len) * edgeOff * side;
+                const wEdge = new THREE.Mesh(new THREE.PlaneGeometry(0.15, stripeLen), whiteLineMat);
+                wEdge.rotation.order = 'YXZ';
+                wEdge.rotation.y = angle;
+                wEdge.rotation.x = -Math.PI / 2;
+                wEdge.position.set(sx + nx, stripeY, sz + nz);
+                group.add(wEdge);
+              }
+            }
+          }
+        }
+      } else if (!road.isResidential && road.width >= 22) {
+        // Major multi-lane undivided arterials: clean double yellow strictly between intersections
+        for (const [ts, te] of openSpans) {
+          const spanLen = (te - ts) * len;
+          if (spanLen < 8.0) continue;
+          const tMid = (ts + te) * 0.5;
+          const sx = a.x + dx * tMid;
+          const sz = a.z + dz * tMid;
+          const stripeLen = Math.max(2, spanLen - 2.2);
+          for (const side of [-0.19, 0.19]) {
+            const nx = (dz / len) * side;
+            const nz = (-dx / len) * side;
+            const yStripe = new THREE.Mesh(new THREE.PlaneGeometry(0.12, stripeLen), yellowLineMat);
+            yStripe.rotation.order = 'YXZ';
+            yStripe.rotation.y = angle;
+            yStripe.rotation.x = -Math.PI / 2;
+            yStripe.position.set(sx + nx, stripeY, sz + nz);
+            group.add(yStripe);
+          }
+        }
+      } else if (!road.isResidential && road.width >= 19.5 && !isRetroPixel) {
+        // Medium collector streets: clean dashed single yellow line (never double-yellow spam)
+        for (const [ts, te] of openSpans) {
+          const spanLen = (te - ts) * len;
+          if (spanLen < 12.0) continue;
+          const tMid = (ts + te) * 0.5;
+          const sx = a.x + dx * tMid;
+          const sz = a.z + dz * tMid;
+          const steps = Math.floor(spanLen / 14);
+          for (let s = 1; s < steps; s++) {
+            const frac = -0.46 + (s / steps) * 0.92;
+            const px = sx + ux * spanLen * frac;
+            const pz = sz + uz * spanLen * frac;
+            const yDash = new THREE.Mesh(new THREE.PlaneGeometry(0.13, 3.8), yellowLineMat);
+            yDash.rotation.order = 'YXZ';
+            yDash.rotation.y = angle;
+            yDash.rotation.x = -Math.PI / 2;
+            yDash.position.set(px, stripeY, pz);
+            group.add(yDash);
+          }
         }
       }
 
       if (road.isResidential) {
-        for (const side of [-1, 1]) {
-          const nx = (dz / len) * (road.width * 0.5 + 1.1) * side;
-          const nz = (-dx / len) * (road.width * 0.5 + 1.1) * side;
-          const walk = new THREE.Mesh(new THREE.PlaneGeometry(1.9, Math.max(2, len - 4)), sidewalkMat);
-          walk.rotation.order = 'YXZ';
-          walk.rotation.y = angle;
-          walk.rotation.x = -Math.PI / 2;
-          walk.position.set(mx + nx, 0.253, mz + nz);
-          sceneryGroup.add(walk);
+        // Split sidewalks/curbs cleanly along `curbOpenSpans` so concrete NEVER cuts across intersections!
+        for (const [ts, te] of curbOpenSpans) {
+          const spanLen = (te - ts) * len;
+          if (spanLen < 4.5) continue;
+          const tMid = (ts + te) * 0.5;
+          const sx = a.x + dx * tMid;
+          const sz = a.z + dz * tMid;
+          for (const side of [-1, 1]) {
+            const nx = (dz / len) * (road.width * 0.5 + 1.05) * side;
+            const nz = (-dx / len) * (road.width * 0.5 + 1.05) * side;
+            const walk = new THREE.Mesh(new THREE.PlaneGeometry(1.75, Math.max(1.5, spanLen - 1.2)), sidewalkMat);
+            walk.rotation.order = 'YXZ';
+            walk.rotation.y = angle;
+            walk.rotation.x = -Math.PI / 2;
+            walk.position.set(sx + nx, 0.252, sz + nz);
+            sceneryGroup.add(walk);
+          }
         }
       }
 
-      // Bridge parapet rails ONLY on elevated water-crossing spans (never block Woodfield Rd, driveways, or highway ramps!)
+      // Bridge parapet rails ONLY on elevated water-crossing spans
       if (road.isBridge && len > 80 && !isRetroPixel) {
         const railLen = len - 56;
         if (railLen > 30) {
@@ -1673,8 +2261,8 @@ export function renderMarylandRoadSpecs(roads: MarylandRoadSpec[], ctx: Maryland
             const postCount = Math.floor(railLen / postStep);
             for (let p = 0; p <= postCount; p++) {
               const frac = -0.5 + p / Math.max(1, postCount);
-              const px = mx + nx + (dx / len) * railLen * frac;
-              const pz = mz + nz + (dz / len) * railLen * frac;
+              const px = mx + nx + ux * railLen * frac;
+              const pz = mz + nz + uz * railLen * frac;
               const post = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.9, 0.24), guardrailPostMat);
               post.position.set(px, roadY + 0.45, pz);
               sceneryGroup.add(post);

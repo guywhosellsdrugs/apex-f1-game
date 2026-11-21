@@ -934,7 +934,7 @@ export function buildMarylandStateDistrict(ctx: MarylandStateBuilderContext): vo
       name: 'U.S. Naval Academy (Bancroft Hall & Chapel)',
     });
 
-    // Annapolis City Dock / Ego Alley & Sailboat Marina (1492, 748)
+    // Annapolis City Dock / Ego Alley & Sailboat Marina (1492, 748) + Interactive Crab & Bass Dock (1455, 730)
     const dockWater = new THREE.Mesh(new THREE.PlaneGeometry(40, 18), bayWaterMat);
     dockWater.rotation.x = -Math.PI / 2;
     dockWater.position.set(1492, 0.238, 748);
@@ -946,6 +946,53 @@ export function buildMarylandStateDistrict(ctx: MarylandStateBuilderContext): vo
       const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.14, 9.5, 6), whiteTrimMat);
       mast.position.set(bx, 5.8, 748);
       sceneryGroup.add(mast);
+    }
+    {
+      const dockSign = new THREE.Mesh(
+        new THREE.BoxGeometry(9.5, 1.6, 0.32),
+        makeTextSignMat(['ANNAPOLIS CRAB & FISHING DOCK', 'PRESS [B] · CHESAPEAKE CATCH'], '#0c4a6e', '#fde047', '#38bdf8')
+      );
+      dockSign.position.set(1455, 3.6, 736);
+      sceneryGroup.add(dockSign);
+      const dockRing = new THREE.Mesh(
+        new THREE.RingGeometry(3.8, 4.8, 24),
+        new THREE.MeshBasicMaterial({ color: 0x0ea5e9, side: THREE.DoubleSide, transparent: true, opacity: 0.78 })
+      );
+      dockRing.rotation.x = -Math.PI / 2;
+      dockRing.position.set(1455, 0.29, 730);
+      sceneryGroup.add(dockRing);
+    }
+    // Rockville Service Canopy & Highway Radar Gantries (I-95 Laurel, I-495 Bethesda, US-50 Bay Bridge)
+    {
+      const rSvc = new THREE.Mesh(new THREE.BoxGeometry(11, 0.7, 7.5), makeCityMat({ color: 0xef4444, roughness: 0.35 }));
+      rSvc.position.set(-558, 4.6, 1410);
+      sceneryGroup.add(rSvc);
+      const rRing = new THREE.Mesh(
+        new THREE.RingGeometry(3.2, 4.2, 24),
+        new THREE.MeshBasicMaterial({ color: 0x22d3ee, side: THREE.DoubleSide, transparent: true, opacity: 0.75 })
+      );
+      rRing.rotation.x = -Math.PI / 2;
+      rRing.position.set(-565, 0.29, 1410);
+      sceneryGroup.add(rRing);
+      const archMetal = makeCityMat({ color: 0x334155, roughness: 0.4, metalness: 0.6 });
+      for (const [gxPos, gzPos, rotY] of [
+        [500, 680, 0.12],
+        [-520, 1660, 0.0],
+        [1790, 720, 0.06],
+      ] as [number, number, number][]) {
+        const gArch = new THREE.Group();
+        gArch.position.set(gxPos, 0.25, gzPos);
+        gArch.rotation.y = rotY;
+        for (const side of [-16, 16]) {
+          const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.34, 7.6, 8), archMetal);
+          leg.position.set(side, 3.8, 0);
+          gArch.add(leg);
+        }
+        const bar = new THREE.Mesh(new THREE.BoxGeometry(33, 0.65, 0.65), archMetal);
+        bar.position.set(0, 7.6, 0);
+        gArch.add(bar);
+        sceneryGroup.add(gArch);
+      }
     }
 
     const annHome = buildSuburbanHouseMesh(1410, 745, 0, {

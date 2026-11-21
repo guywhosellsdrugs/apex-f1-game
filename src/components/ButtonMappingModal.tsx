@@ -20,6 +20,7 @@ type GamepadAction = keyof CustomGamepadBindings;
 const KEY_LABELS: Record<KeyAction, { title: string; desc: string }> = {
   throttle: { title: 'Accelerate / Throttle', desc: 'Forward drive & launch acceleration' },
   brake: { title: 'Brake / Reverse', desc: 'Braking deceleration or hold to reverse' },
+  handbrake: { title: 'Handbrake / E-Brake [Space]', desc: 'Lock rear wheels for sharp handbrake drifts & parking hold' },
   steerLeft: { title: 'Steer Left', desc: 'Turn vehicle wheels left' },
   steerRight: { title: 'Steer Right', desc: 'Turn vehicle wheels right' },
   shiftUp: { title: 'Shift Gear Up (+)', desc: 'Force shift up to next gear (1–8, default: F)' },

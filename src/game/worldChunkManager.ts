@@ -150,30 +150,31 @@ export class WorldChunkManager {
     carPos: THREE.Vector3,
     opts: WorldChunkUpdateOptions
   ): void {
-    camera.updateMatrixWorld();
-    this.projScreenMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
-    this.frustum.setFromProjectionMatrix(this.projScreenMatrix);
-
     const q = Math.max(0.05, Math.min(1.0, opts.qualityFactor));
     const loadScale = Math.max(0.2, Math.min(1.0, opts.chunkLoadScale ?? 1.0));
 
     let maxDist = opts.isDynamicMode
-      ? 230 + q * 350
-      : opts.baseMaxDistance ?? 760;
+      ? 220 + q * 420
+      : opts.baseMaxDistance ?? 820;
 
     if (loadScale < 0.98) {
       maxDist = Math.max(150, maxDist * (0.28 + 0.72 * loadScale));
     }
 
-    const baseNear = opts.isDynamicMode ? 34 : 88;
-    const nearKeepRadius = Math.max(18, baseNear * (0.4 + 0.6 * loadScale));
     const carX = carPos.x;
     const carZ = carPos.z;
+
+    camera.updateMatrixWorld();
+    this.projScreenMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    this.frustum.setFromProjectionMatrix(this.projScreenMatrix);
+
+    const baseNear = opts.isDynamicMode ? 36 : 95;
+    const nearKeepRadius = Math.max(20, baseNear * (0.4 + 0.6 * loadScale));
 
     const applyChunkBudget = loadScale < 0.94 || (opts.isDynamicMode && q < 0.75);
     const budgetFactor = opts.isDynamicMode ? Math.min(loadScale, 0.25 + q * 0.75) : loadScale;
     const maxVisibleChunks = applyChunkBudget
-      ? Math.max(8, Math.round(8 + budgetFactor * 44))
+      ? Math.max(10, Math.round(10 + budgetFactor * 46))
       : this.chunks.length;
 
     let candidateCount = 0;
@@ -248,7 +249,7 @@ export class WorldChunkManager {
     }
 
     // Keep major continuous road corridors slightly further than buildings so roads never vanish ahead
-    const wideMaxDist = Math.max(240, maxDist * 1.18 + 90);
+    const wideMaxDist = Math.max(260, maxDist * 1.28 + 110);
     for (let i = 0; i < this.wideItems.length; i++) {
       const wi = this.wideItems[i];
       const dist = Math.hypot(wi.centerX - carX, wi.centerZ - carZ) - wi.halfDiag;

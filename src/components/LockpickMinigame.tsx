@@ -133,9 +133,9 @@ export const LockpickMinigame: React.FC<LockpickMinigameProps> = ({
   const activeSpot = sweetSpotsRef.current[currentPin] ?? 50;
 
   return (
-    <div className="fixed inset-0 z-[92] bg-black/85 backdrop-blur-md flex items-center justify-center p-3 font-mono select-none">
+    <div className="fixed inset-0 z-[92] w-screen h-screen bg-zinc-950 flex items-center justify-center p-6 font-mono select-none">
       <div
-        className={`w-full max-w-lg rounded-2xl bg-zinc-950 border-2 shadow-2xl overflow-hidden ${
+        className={`w-full max-w-2xl rounded-2xl bg-zinc-900/90 border-2 shadow-2xl overflow-hidden ${
           alarmTrippedLocal
             ? 'border-red-500 shadow-[0_0_45px_rgba(239,68,68,0.55)]'
             : 'border-amber-400 shadow-[0_0_40px_rgba(250,204,21,0.35)]'

@@ -613,6 +613,7 @@ export interface TelemetryData {
   maxRpm: number;
   throttle: number; // 0 - 1
   brake: number; // 0 - 1
+  handbrakeActive?: boolean;
   steer: number; // -1 to 1
   ersBattery: number; // 0 - 100%
   drsActive: boolean;

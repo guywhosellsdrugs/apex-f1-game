@@ -38,9 +38,29 @@ import {
   MARYLAND_SIGNAL_JUNCTIONS,
   getMarylandZoneAndSpeedAt,
   buildPitchedRoofGroup,
+  CITY_SPORTS_CATALOG,
+  CITY_SERVICE_STATIONS,
+  MARYLAND_SPEED_CAMERAS,
+  CITY_CAR_MEET_ZONES,
+  isOnMarylandPavedSurface,
+} from './marylandRoadNetwork';
+import type {
+  CitySportType,
+  CitySportVenueSpec,
+  CityServiceStationSpec,
+  SpeedCameraSpec,
+  CityCarMeetSpec,
 } from './marylandRoadNetwork';
 
-export type { MarylandRoadSpec, GaithersburgRoadSpec };
+export type {
+  MarylandRoadSpec,
+  GaithersburgRoadSpec,
+  CitySportType,
+  CitySportVenueSpec,
+  CityServiceStationSpec,
+  SpeedCameraSpec,
+  CityCarMeetSpec,
+};
 export {
   GAITH_DX,
   GAITH_DZ,
@@ -62,6 +82,10 @@ export {
   MARYLAND_SIGNAL_JUNCTIONS,
   getMarylandZoneAndSpeedAt,
   buildPitchedRoofGroup,
+  CITY_SPORTS_CATALOG,
+  CITY_SERVICE_STATIONS,
+  MARYLAND_SPEED_CAMERAS,
+  CITY_CAR_MEET_ZONES,
 };
 
 export type TrafficLightColor = 'GREEN' | 'YELLOW' | 'RED';
@@ -206,6 +230,7 @@ export type StreetCarModelArchetype =
   | 'honda_civic'
   | 'toyota_camry'
   | 'chevy_camaro'
+  | 'chevy_corvette'
   | 'toyota_supra_mk5'
   | 'dodge_challenger'
   | 'dodge_charger'
@@ -701,6 +726,74 @@ export const CITY_STREET_CARS: StreetCarSpec[] = [
         brakesScore: 93,
         aeroStyle: 'widebody_gt',
         accentColorOverride: '#18181b',
+      },
+    ],
+  },
+  {
+    id: 'chevy_corvette',
+    name: 'Chevrolet Corvette C8 (Stingray / Z06)',
+    manufacturer: 'Chevrolet',
+    category: 'Mid-Engine American Supercar',
+    price: 68300,
+    horsepower: 495,
+    zeroToSixtySec: 2.9,
+    topSpeedKmh: 312,
+    drivetrain: 'RWD',
+    engineLayout: '6.2L LT2 Mid-Mounted V8',
+    enginePowerRating: 92,
+    accelerationScore: 95,
+    handlingScore: 95,
+    brakesScore: 94,
+    defaultColor: '#ef4444',
+    accentColor: '#18181b',
+    bodyStyle: 'supercar_wedge',
+    modelArchetype: 'chevy_corvette',
+    description:
+      'Cab-forward mid-engine Corvette C8 with razor-sharp pointed nose, iconic black boomerang side air intakes, clear rear V8 engine showcase hatch, and twin-L quad chevron taillights. Upgrade to the 670 HP 8,600 RPM flat-plane crank Z06 or track-dominant Z07 Carbon Aero package!',
+    trims: [
+      {
+        id: 'corvette_stingray_z51',
+        name: 'Stingray Z51 Performance',
+        upgradePrice: 0,
+        horsepower: 495,
+        zeroToSixtySec: 2.9,
+        topSpeedKmh: 312,
+        drivetrain: 'RWD',
+        engineLayout: '6.2L LT2 Cross-Plane V8 (Mid-Engine)',
+        accelerationScore: 95,
+        handlingScore: 95,
+        brakesScore: 94,
+        aeroStyle: 'sport_spoiler',
+      },
+      {
+        id: 'corvette_z06',
+        name: 'Corvette Z06 (670 HP 8,600 RPM)',
+        upgradePrice: 46000,
+        horsepower: 670,
+        zeroToSixtySec: 2.6,
+        topSpeedKmh: 328,
+        drivetrain: 'RWD',
+        engineLayout: '5.5L LT6 Flat-Plane Crank DOHC V8 + Center Quad Exhaust',
+        accelerationScore: 100,
+        handlingScore: 98,
+        brakesScore: 98,
+        aeroStyle: 'gt_wing',
+        accentColorOverride: '#090d16',
+      },
+      {
+        id: 'corvette_z06_z07',
+        name: 'Z06 Z07 Carbon Aero & Ceramic',
+        upgradePrice: 72000,
+        horsepower: 670,
+        zeroToSixtySec: 2.5,
+        topSpeedKmh: 322,
+        drivetrain: 'RWD',
+        engineLayout: '5.5L LT6 8,600 RPM V8 + Carbon Wheels & High-Downforce Wing',
+        accelerationScore: 101,
+        handlingScore: 102,
+        brakesScore: 101,
+        aeroStyle: 'widebody_gt',
+        accentColorOverride: '#facc15',
       },
     ],
   },
@@ -3108,17 +3201,25 @@ function getMarylandRoadGraph() {
   if (cachedMarylandRoadGraph) return cachedMarylandRoadGraph;
 
   const nodes: GpsRoadNode[] = [];
-  const nodeMap = new Map<string, number>();
   const edges: GpsRoadEdge[] = [];
   const edgeSet = new Set<string>();
 
-  const getOrAddNode = (x: number, z: number): number => {
-    const key = `${Math.round(x)},${Math.round(z)}`;
-    const existing = nodeMap.get(key);
-    if (existing !== undefined) return existing;
+  // Snap nodes within 3.5m into shared graph junctions so minor rounding differences never disconnect roads
+  const getOrAddNode = (x: number, z: number, snapDist = 3.5): number => {
+    let bestId = -1;
+    let bestD2 = snapDist * snapDist;
+    for (let i = 0; i < nodes.length; i++) {
+      const dx = nodes[i].x - x;
+      const dz = nodes[i].z - z;
+      const d2 = dx * dx + dz * dz;
+      if (d2 < bestD2) {
+        bestD2 = d2;
+        bestId = i;
+      }
+    }
+    if (bestId !== -1) return bestId;
     const id = nodes.length;
     nodes.push({ id, x, z });
-    nodeMap.set(key, id);
     return id;
   };
 
@@ -3132,35 +3233,174 @@ function getMarylandRoadGraph() {
     const na = nodes[idA];
     const nb = nodes[idB];
     const len = Math.hypot(nb.x - na.x, nb.z - na.z);
-    if (len < 0.5) return;
+    if (len < 0.4) return;
     edges.push({ a: idA, b: idB, len, roadName, isHighway });
   };
 
-  const connectSortedChain = (ids: number[], roadName: string, isHighway: boolean) => {
-    for (let i = 0; i < ids.length - 1; i++) {
-      addEdge(ids[i], ids[i + 1], roadName, isHighway);
+  // Pre-collect all base road segments and junction vertices
+  interface RawSeg {
+    roadName: string;
+    isHighway: boolean;
+    isBridge: boolean;
+    roadWidth: number;
+    idA: number;
+    idB: number;
+    ax: number;
+    az: number;
+    bx: number;
+    bz: number;
+  }
+  const rawSegs: RawSeg[] = [];
+  const allVertexIds: number[] = [];
+  const seenVert = new Set<number>();
+
+  for (const road of ALL_MARYLAND_ROADS) {
+    const chainIds = road.points.map((pt) => {
+      const nid = getOrAddNode(pt.x, pt.z, 3.5);
+      if (!seenVert.has(nid)) {
+        seenVert.add(nid);
+        allVertexIds.push(nid);
+      }
+      return nid;
+    });
+    for (let i = 0; i < chainIds.length - 1; i++) {
+      const idA = chainIds[i];
+      const idB = chainIds[i + 1];
+      if (idA === idB) continue;
+      rawSegs.push({
+        roadName: road.name,
+        isHighway: Boolean(road.isHighway),
+        isBridge: Boolean(road.isBridge),
+        roadWidth: road.width,
+        idA,
+        idB,
+        ax: nodes[idA].x,
+        az: nodes[idA].z,
+        bx: nodes[idB].x,
+        bz: nodes[idB].z,
+      });
+    }
+  }
+
+  // Split every road segment at ALL 2D crossings AND all mid-segment T-junction vertices
+  for (let i = 0; i < rawSegs.length; i++) {
+    const seg = rawSegs[i];
+    const dx = seg.bx - seg.ax;
+    const dz = seg.bz - seg.az;
+    const lenSq = dx * dx + dz * dz;
+    const len = Math.sqrt(lenSq);
+    if (len < 0.5) continue;
+
+    const splits: { t: number; nodeId: number }[] = [
+      { t: 0, nodeId: seg.idA },
+      { t: 1, nodeId: seg.idB },
+    ];
+
+    // 1. Mid-segment T-junction vertices from all other roads within perpendicular tolerance
+    const tTol = Math.max(9.0, seg.roadWidth * 0.45);
+    for (let v = 0; v < allVertexIds.length; v++) {
+      const vid = allVertexIds[v];
+      if (vid === seg.idA || vid === seg.idB) continue;
+      const vn = nodes[vid];
+      const t = ((vn.x - seg.ax) * dx + (vn.z - seg.az) * dz) / lenSq;
+      if (t <= 0.005 || t >= 0.995) continue;
+      const px = seg.ax + dx * t;
+      const pz = seg.az + dz * t;
+      const perpDist = Math.hypot(vn.x - px, vn.z - pz);
+      if (perpDist <= 5.0) {
+        splits.push({ t, nodeId: vid });
+      } else if (perpDist <= tTol) {
+        const splitNode = getOrAddNode(px, pz, 2.0);
+        splits.push({ t, nodeId: splitNode });
+        addEdge(splitNode, vid, seg.roadName, seg.isHighway);
+      }
+    }
+
+    // 2. Real 2D intersections with crossing ground/bridge segments
+    for (let j = 0; j < rawSegs.length; j++) {
+      if (i === j) continue;
+      const oth = rawSegs[j];
+      if (seg.isBridge !== oth.isBridge) continue;
+      if (seg.idA === oth.idA || seg.idA === oth.idB || seg.idB === oth.idA || seg.idB === oth.idB) continue;
+      const rdx = dx;
+      const rdz = dz;
+      const sdx = oth.bx - oth.ax;
+      const sdz = oth.bz - oth.az;
+      const denom = rdx * sdz - rdz * sdx;
+      if (Math.abs(denom) < 1e-4) continue;
+      const t = ((oth.ax - seg.ax) * sdz - (oth.az - seg.az) * sdx) / denom;
+      const u = ((oth.ax - seg.ax) * rdz - (oth.az - seg.az) * rdx) / denom;
+      if (t > 0.005 && t < 0.995 && u > 0.005 && u < 0.995) {
+        const ix = seg.ax + rdx * t;
+        const iz = seg.az + rdz * t;
+        const xNode = getOrAddNode(ix, iz, 3.0);
+        splits.push({ t, nodeId: xNode });
+      }
+    }
+
+    splits.sort((a, b) => a.t - b.t);
+    for (let k = 0; k < splits.length - 1; k++) {
+      addEdge(splits[k].nodeId, splits[k + 1].nodeId, seg.roadName, seg.isHighway);
+    }
+  }
+
+  // ICM (19411 Woodfield Rd), Church of the Redeemer, ISB & 19624 Kildonan Dr corner driveway spurs
+  const connectPoiSpur = (x: number, z: number, label: string) => {
+    const poiNode = getOrAddNode(x, z, 2.0);
+    let bestIdx = 0;
+    let bestD2 = Infinity;
+    let bestX = x;
+    let bestZ = z;
+    for (let i = 0; i < edges.length; i++) {
+      const e = edges[i];
+      const na = nodes[e.a];
+      const nb = nodes[e.b];
+      const dx = nb.x - na.x;
+      const dz = nb.z - na.z;
+      const l2 = dx * dx + dz * dz;
+      if (l2 < 0.1) continue;
+      const t = Math.max(0, Math.min(1, ((x - na.x) * dx + (z - na.z) * dz) / l2));
+      const cx = na.x + dx * t;
+      const cz = na.z + dz * t;
+      const d2 = (x - cx) * (x - cx) + (z - cz) * (z - cz);
+      if (d2 < bestD2) {
+        bestD2 = d2;
+        bestIdx = i;
+        bestX = cx;
+        bestZ = cz;
+      }
+    }
+    if (bestD2 < 140 * 140 && bestD2 > 4.0) {
+      const e = edges[bestIdx];
+      const snapNode = getOrAddNode(bestX, bestZ, 2.5);
+      if (snapNode !== e.a && snapNode !== e.b) {
+        addEdge(e.a, snapNode, e.roadName, e.isHighway);
+        addEdge(snapNode, e.b, e.roadName, e.isHighway);
+      }
+      addEdge(snapNode, poiNode, label, false);
     }
   };
 
-  // Build unified statewide Dijkstra road graph directly from Google Maps polylines
-  for (const road of ALL_MARYLAND_ROADS) {
-    const chain = road.points.map((pt) => getOrAddNode(pt.x, pt.z));
-    connectSortedChain(chain, road.name, Boolean(road.isHighway));
+  connectPoiSpur(gx(392), gz(1848), 'ICM Campus Driveway');
+  connectPoiSpur(gx(428), gz(1762), 'Church of the Redeemer Driveway');
+  connectPoiSpur(778, -328, 'ISB Campus Entrance');
+  connectPoiSpur(gx(556), gz(1594.5), '19624 Kildonan Dr Driveway');
+  connectPoiSpur(gx(622), gz(1446.5), '2 Mayhill Ct Driveway');
+  connectPoiSpur(MD_LANDMARKS.hadleyFarms.x, MD_LANDMARKS.hadleyFarms.z, 'Hadley Farms · Resnik ES');
+  connectPoiSpur(MD_LANDMARKS.bwiAirport.x, MD_LANDMARKS.bwiAirport.z, 'BWI Airport');
+  connectPoiSpur(MD_LANDMARKS.kgaiAirpark.x, MD_LANDMARKS.kgaiAirpark.z, 'KGAI Airpark');
+  for (const h of CITY_HEIST_TARGETS_CATALOG) {
+    connectPoiSpur(h.x, h.z, h.name);
   }
-
-  // ICM (19411 Woodfield Rd) & Church of the Redeemer (19425 Woodfield Rd) driveway spurs
-  const wfIcmJct = getOrAddNode(gx(356), gz(1845));
-  const icmLotNode = getOrAddNode(gx(392), gz(1848));
-  addEdge(wfIcmJct, icmLotNode, 'ICM Driveway', false);
-
-  const wfRedJct = getOrAddNode(gx(386), gz(1755));
-  const redLotNode = getOrAddNode(gx(428), gz(1762));
-  addEdge(wfRedJct, redLotNode, 'Church Driveway', false);
-
-  // ISB (6631 Johnnycake Rd) driveway spur
-  const isbJct = getOrAddNode(ISB_CAMPUS_ORIGIN.x, ISB_CAMPUS_ORIGIN.z);
-  const isbLotNode = getOrAddNode(778, -328);
-  addEdge(isbJct, isbLotNode, 'ISB Campus Entrance', false);
+  for (const house of CITY_HOUSES_CATALOG) {
+    connectPoiSpur(house.x, house.z, house.name);
+  }
+  for (const sp of CITY_SPORTS_CATALOG) {
+    connectPoiSpur(sp.x, sp.z, sp.shortLabel);
+  }
+  for (const svc of CITY_SERVICE_STATIONS) {
+    connectPoiSpur(svc.x, svc.z, svc.name);
+  }
 
   const adj: { to: number; dist: number; roadName: string; isHighway: boolean }[][] = nodes.map(() => []);
   for (const e of edges) {
@@ -3383,31 +3623,42 @@ export function computeCityGpsRouteDetailed(
   let thenInstruction = '';
 
   if (simplified.length >= 2 && maneuver !== 'arrive') {
-    const firstDx = simplified[1].x - simplified[0].x;
-    const firstDz = simplified[1].z - simplified[0].z;
-    const firstLen = Math.max(0.001, Math.hypot(firstDx, firstDz));
-    const inUx = firstDx / firstLen;
-    const inUz = firstDz / firstLen;
+    // Skip any off-road perpendicular curb/driveway snap segment (start -> sProj) when inspecting road travel heading
+    const idxRoadStart =
+      simplified.length >= 3 &&
+      Math.hypot(simplified[0].x - startX, simplified[0].z - startZ) < 1.0 &&
+      Math.hypot(simplified[1].x - sProj.x, simplified[1].z - sProj.z) < 3.0
+        ? 1
+        : 0;
+    const segOrigin = simplified[idxRoadStart];
+    const segNext = simplified[Math.min(simplified.length - 1, idxRoadStart + 1)];
+    const roadDx = segNext.x - segOrigin.x;
+    const roadDz = segNext.z - segOrigin.z;
+    const roadSegLen = Math.max(0.001, Math.hypot(roadDx, roadDz));
+    const inUx = roadDx / roadSegLen;
+    const inUz = roadDz / roadSegLen;
 
+    // Only advise U-turn when already near road centerline on a street/highway and sharply facing opposite travel direction (>130 deg)
     let headingIsReversed = false;
-    if (playerHeading !== undefined && firstLen > 12) {
+    const isShortSpur = currentRoadName.includes('Driveway') || currentRoadName.includes('Entrance');
+    if (playerHeading !== undefined && !isShortSpur && sProj.dist < 14 && roadSegLen > 14) {
       const fwdX = -Math.sin(playerHeading);
       const fwdZ = -Math.cos(playerHeading);
-      if (fwdX * inUx + fwdZ * inUz < -0.35) {
+      if (fwdX * inUx + fwdZ * inUz < -0.65) {
         headingIsReversed = true;
       }
     }
 
     if (headingIsReversed) {
       maneuver = 'uturn';
-      distToTurnMeters = Math.round(firstLen);
+      distToTurnMeters = Math.round(roadSegLen);
       nextRoadName = currentRoadName;
       thenInstruction = `Head toward ${currentRoadName}`;
-    } else if (simplified.length >= 3) {
-      // Find the first genuine turn (dot < 0.88) along simplified route so minor bends don't hide the real turn
-      let accumDist = firstLen;
+    } else if (simplified.length >= idxRoadStart + 3) {
+      // Find first genuine intersection turn (ignoring curve bends along the exact same road unless sharp hairpin)
+      let accumDist = Math.hypot(segNext.x - simplified[0].x, segNext.z - simplified[0].z);
       let foundTurnIdx = -1;
-      for (let i = 1; i < simplified.length - 1; i++) {
+      for (let i = idxRoadStart + 1; i < simplified.length - 1; i++) {
         const ax = simplified[i].x - simplified[i - 1].x;
         const az = simplified[i].z - simplified[i - 1].z;
         const bx = simplified[i + 1].x - simplified[i].x;
@@ -3415,9 +3666,19 @@ export function computeCityGpsRouteDetailed(
         const la = Math.max(0.001, Math.hypot(ax, az));
         const lb = Math.max(0.001, Math.hypot(bx, bz));
         const dot = (ax * bx + az * bz) / (la * lb);
-        if (dot < 0.88) {
-          foundTurnIdx = i;
-          break;
+        if (dot < 0.86) {
+          const prevRoad = getEdgeRoadNameAt(
+            (simplified[i - 1].x + simplified[i].x) * 0.5,
+            (simplified[i - 1].z + simplified[i].z) * 0.5
+          );
+          const candRoad = getEdgeRoadNameAt(
+            (simplified[i].x + simplified[i + 1].x) * 0.5,
+            (simplified[i].z + simplified[i + 1].z) * 0.5
+          );
+          if (candRoad !== prevRoad || dot < 0.35) {
+            foundTurnIdx = i;
+            break;
+          }
         }
         accumDist += lb;
       }
@@ -3462,14 +3723,14 @@ export function computeCityGpsRouteDetailed(
         maneuver = 'straight';
         distToTurnMeters = totalRouteMeters;
         nextRoadName = getEdgeRoadNameAt(
-          (simplified[0].x + simplified[1].x) * 0.5,
-          (simplified[0].z + simplified[1].z) * 0.5
+          (segOrigin.x + segNext.x) * 0.5,
+          (segOrigin.z + segNext.z) * 0.5
         );
       }
     } else {
       nextRoadName = getEdgeRoadNameAt(
-        (simplified[0].x + simplified[1].x) * 0.5,
-        (simplified[0].z + simplified[1].z) * 0.5
+        (segOrigin.x + segNext.x) * 0.5,
+        (segOrigin.z + segNext.z) * 0.5
       );
     }
   }
@@ -3480,7 +3741,7 @@ export function computeCityGpsRouteDetailed(
   } else if (maneuver === 'uturn') {
     turnInstruction = `Make U-turn · ${nextRoadName}`;
   } else if (maneuver === 'left') {
-    turnInstruction = distToTurnMeters < 15 ? `Turn left onto ${nextRoadName}` : `Turn left onto ${nextRoadName}`;
+    turnInstruction = `Turn left onto ${nextRoadName}`;
   } else if (maneuver === 'slight_left') {
     turnInstruction = `Keep left onto ${nextRoadName}`;
   } else if (maneuver === 'right') {
@@ -3570,6 +3831,36 @@ const STATIC_MARYLAND_GPS_ENTRIES: MarylandGpsEntry[] = (() => {
       x: MD_LANDMARKS.icmCampus.x,
       z: MD_LANDMARKS.icmCampus.z,
       color: '#10b981',
+    },
+    {
+      id: 'gps_icm_basketball',
+      label: 'ICM Outdoor Basketball Court',
+      address: '19411 Woodfield Rd · ICM Campus, Gaithersburg, MD',
+      category: 'STADIUM',
+      icon: '🏀',
+      x: MD_LANDMARKS.icmBasketballCourt.x,
+      z: MD_LANDMARKS.icmBasketballCourt.z,
+      color: '#f97316',
+    },
+    {
+      id: 'gps_gaithersburg_golf',
+      label: 'Gaithersburg Country Club Golf Field',
+      address: 'Redland Rd & Norbeck Links, Gaithersburg, MD',
+      category: 'STADIUM',
+      icon: '⛳',
+      x: MD_LANDMARKS.gaithersburgGolfField.x,
+      z: MD_LANDMARKS.gaithersburgGolfField.z,
+      color: '#22c55e',
+    },
+    {
+      id: 'gps_bohrer_baseball',
+      label: 'Bohrer Park Baseball Diamond',
+      address: '506 S Frederick Ave · Bohrer Park, Gaithersburg, MD',
+      category: 'STADIUM',
+      icon: '⚾',
+      x: MD_LANDMARKS.bohrerBaseballField.x,
+      z: MD_LANDMARKS.bohrerBaseballField.z,
+      color: '#eab308',
     },
     {
       id: 'gps_redeemer',
@@ -3852,14 +4143,134 @@ const STATIC_MARYLAND_GPS_ENTRIES: MarylandGpsEntry[] = (() => {
       color: '#34d399',
     },
     {
+      id: 'gps_bohrer_football',
+      label: 'Bohrer Park Gridiron Football Stadium',
+      address: '512 S Frederick Ave · Gridiron Stadium, Gaithersburg, MD',
+      category: 'STADIUM',
+      icon: '🏈',
+      x: MD_LANDMARKS.bohrerFootballField.x,
+      z: MD_LANDMARKS.bohrerFootballField.z,
+      color: '#dc2626',
+    },
+    {
+      id: 'gps_ravens_stadium',
+      label: 'M&T Bank Ravens Football Stadium (Baltimore)',
+      address: '1101 Russell St, Baltimore, MD',
+      category: 'STADIUM',
+      icon: '🏈',
+      x: 1132,
+      z: -6,
+      color: '#7c3aed',
+    },
+    {
+      id: 'gps_bohrer_soccer',
+      label: 'Bohrer Park Turf Soccer Pitch',
+      address: '506 S Frederick Ave · South Turf Field, Gaithersburg, MD',
+      category: 'STADIUM',
+      icon: '⚽',
+      x: MD_LANDMARKS.bohrerSoccerField.x,
+      z: MD_LANDMARKS.bohrerSoccerField.z,
+      color: '#10b981',
+    },
+    {
+      id: 'gps_rio_bowling',
+      label: 'Downtown Crown Neon Bowling Lanes',
+      address: 'Crown Park Ave & Washingtonian Blvd, Gaithersburg, MD',
+      category: 'ARCADE',
+      icon: '🎳',
+      x: MD_LANDMARKS.rioBowlingArcade.x,
+      z: MD_LANDMARKS.rioBowlingArcade.z,
+      color: '#a855f7',
+    },
+    {
+      id: 'gps_rio_fishing',
+      label: 'RIO Lakefront Boardwalk Fishing Pier',
+      address: '9841 Washingtonian Blvd · RIO Pier, Gaithersburg, MD',
+      category: 'WATERFRONT',
+      icon: '🎣',
+      x: MD_LANDMARKS.rioFishingPier.x,
+      z: MD_LANDMARKS.rioFishingPier.z,
+      color: '#06b6d4',
+    },
+    {
+      id: 'gps_annapolis_fishing',
+      label: 'Annapolis City Dock Crab & Bass Pier',
+      address: '1 Dock St · Ego Alley, Annapolis, MD',
+      category: 'WATERFRONT',
+      icon: '🦀',
+      x: MD_LANDMARKS.annapolisFishingDock.x,
+      z: MD_LANDMARKS.annapolisFishingDock.z,
+      color: '#0ea5e9',
+    },
+    {
+      id: 'gps_woodfield_shell',
+      label: 'Woodfield Shell & Nitro Pit Stop',
+      address: '19300 Woodfield Rd, Gaithersburg, MD',
+      category: 'SERVICE',
+      icon: '⛽',
+      x: gx(448),
+      z: gz(1760),
+      color: '#22d3ee',
+    },
+    {
+      id: 'gps_rio_car_meet',
+      label: 'RIO & Crown Lakefront Car Meet',
+      address: 'Washingtonian Blvd Promenade, Gaithersburg, MD',
+      category: 'EVENT',
+      icon: '🏁',
+      x: gx(-378),
+      z: gz(2285),
+      color: '#f59e0b',
+    },
+    {
       id: 'gps_19624_kildonan',
-      label: '19624 Kildonan Dr (Edinburgh Village Corner)',
+      label: '19624 Kildonan Dr (Edinburgh Village Corner Estate)',
       address: '19624 Kildonan Dr, Gaithersburg, MD',
-      category: 'STREET',
+      category: 'RESIDENCE',
       icon: '🏡',
-      x: gx(484),
-      z: gz(1636),
+      x: gx(562),
+      z: gz(1605),
       color: '#4ade80',
+    },
+    {
+      id: 'gps_19625_kildonan',
+      label: '19625 Kildonan Dr (Edinburgh Village)',
+      address: '19625 Kildonan Dr, Gaithersburg, MD',
+      category: 'RESIDENCE',
+      icon: '🏡',
+      x: gx(553),
+      z: gz(1624),
+      color: '#4ade80',
+    },
+    {
+      id: 'gps_19626_kildonan',
+      label: '19626 Kildonan Dr (Edinburgh Village)',
+      address: '19626 Kildonan Dr, Gaithersburg, MD',
+      category: 'RESIDENCE',
+      icon: '🏡',
+      x: gx(591),
+      z: gz(1604),
+      color: '#4ade80',
+    },
+    {
+      id: 'gps_19627_kildonan',
+      label: '19627 Kildonan Dr (Edinburgh Village)',
+      address: '19627 Kildonan Dr, Gaithersburg, MD',
+      category: 'RESIDENCE',
+      icon: '🏡',
+      x: gx(585),
+      z: gz(1624),
+      color: '#4ade80',
+    },
+    {
+      id: 'gps_2_mayhill_ct',
+      label: '2 Mayhill Ct (Hadley Farms)',
+      address: '2 Mayhill Ct, Hadley Farms, Gaithersburg, MD',
+      category: 'RESIDENCE',
+      icon: '🏡',
+      x: gx(625),
+      z: gz(1454),
+      color: '#22c55e',
     },
     {
       id: 'gps_brenish_dr',
@@ -3867,8 +4278,8 @@ const STATIC_MARYLAND_GPS_ENTRIES: MarylandGpsEntry[] = (() => {
       address: '7418 Brenish Dr, Gaithersburg, MD',
       category: 'STREET',
       icon: '🏡',
-      x: gx(540),
-      z: gz(1652),
+      x: gx(556),
+      z: gz(1692),
       color: '#4ade80',
     },
     {
@@ -3877,8 +4288,8 @@ const STATIC_MARYLAND_GPS_ENTRIES: MarylandGpsEntry[] = (() => {
       address: '7408 Tarfside Ln, Gaithersburg, MD',
       category: 'STREET',
       icon: '🏡',
-      x: gx(512),
-      z: gz(1688),
+      x: gx(574),
+      z: gz(1736),
       color: '#4ade80',
     },
     {
@@ -3887,18 +4298,18 @@ const STATIC_MARYLAND_GPS_ENTRIES: MarylandGpsEntry[] = (() => {
       address: '19540 Kilcreggan Way, Gaithersburg, MD',
       category: 'STREET',
       icon: '🏡',
-      x: gx(640),
-      z: gz(1702),
+      x: gx(620),
+      z: gz(1692),
       color: '#4ade80',
     },
     {
       id: 'gps_kilcreggan_ter',
       label: 'Kilcreggan Ter (Edinburgh Village)',
-      address: '7416 Kilcreggan Ter, Gaithersburg, MD',
+      address: '7408 Kilcreggan Ter, Gaithersburg, MD',
       category: 'STREET',
       icon: '🏡',
-      x: gx(640),
-      z: gz(1748),
+      x: gx(706),
+      z: gz(1800),
       color: '#4ade80',
     },
     {
@@ -3908,7 +4319,7 @@ const STATIC_MARYLAND_GPS_ENTRIES: MarylandGpsEntry[] = (() => {
       category: 'STREET',
       icon: '🏡',
       x: gx(640),
-      z: gz(1066),
+      z: gz(1084),
       color: '#22c55e',
     },
     {
@@ -3918,7 +4329,7 @@ const STATIC_MARYLAND_GPS_ENTRIES: MarylandGpsEntry[] = (() => {
       category: 'STREET',
       icon: '🏡',
       x: gx(640),
-      z: gz(1204),
+      z: gz(1312),
       color: '#22c55e',
     },
     {
@@ -3927,8 +4338,8 @@ const STATIC_MARYLAND_GPS_ENTRIES: MarylandGpsEntry[] = (() => {
       address: '19724 Mayhill Ter, Gaithersburg, MD',
       category: 'STREET',
       icon: '🏡',
-      x: gx(372),
-      z: gz(1342),
+      x: gx(300),
+      z: gz(1312),
       color: '#22c55e',
     },
     {
@@ -3963,6 +4374,59 @@ const STATIC_MARYLAND_GPS_ENTRIES: MarylandGpsEntry[] = (() => {
   return entries;
 })();
 
+let registeredSuburbanGpsEntries: MarylandGpsEntry[] = [];
+
+function inferNeighborhoodKeywords(streetOrAddress: string): string {
+  const s = streetOrAddress.toLowerCase();
+  if (
+    /mayhill|cliff pine|barcellona|torran rocks|cinnabar|elioak|electra|harkness|filbert|boxberry|tygart|mattingly|midas|hadley farms/.test(
+      s
+    )
+  ) {
+    return 'hadley farms gaithersburg md';
+  }
+  if (/kildonan|brenish|tarfside|kilcreggan/.test(s)) {
+    return 'edinburgh village montgomery village gaithersburg md';
+  }
+  if (/whetstone|goshen|emory|flower hill|snouffer|redland|airpark/.test(s)) {
+    return 'gaithersburg md';
+  }
+  return 'maryland md';
+}
+
+export function clearSuburbanGpsEntries() {
+  registeredSuburbanGpsEntries = [];
+}
+
+export function registerSuburbanGpsEntries(houses: BuiltSuburbanHouse[]) {
+  const mapped: MarylandGpsEntry[] = [];
+  const seen = new Set<string>();
+  for (let i = 0; i < houses.length; i++) {
+    const h = houses[i];
+    if (!h.address) continue;
+    const rawAddr = h.address.trim();
+    const parenMatch = rawAddr.match(/^(.+?)\s*\(([^)]+)\)\s*$/);
+    const streetPart = parenMatch ? parenMatch[1].trim() : rawAddr;
+    const cityPart = parenMatch ? `${parenMatch[2].trim()}, MD` : 'Gaithersburg, MD';
+    const key = streetPart.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const extraKw = inferNeighborhoodKeywords(rawAddr);
+    mapped.push({
+      id: `gps_sub_${i}_${key.replace(/[^a-z0-9]+/g, '_')}`,
+      label: streetPart,
+      address: `${streetPart}, ${cityPart}`,
+      category: 'RESIDENCE',
+      icon: '🏡',
+      x: Math.round(h.drivewayTarget.x),
+      z: Math.round(h.drivewayTarget.z),
+      color: /mayhill|hadley/i.test(rawAddr) ? '#22c55e' : '#4ade80',
+      keywords: `${streetPart} ${cityPart} ${extraKw} residence house home`.toLowerCase(),
+    });
+  }
+  registeredSuburbanGpsEntries = mapped;
+}
+
 function interpolateRoadPolylinePoint(
   points: { x: number; z: number }[],
   fraction: number
@@ -3983,8 +4447,102 @@ function interpolateRoadPolylinePoint(
 }
 
 /**
+ * Snaps any world point (e.g. minimap drop-pin or Google Maps projection) to the nearest
+ * drivable Maryland road centerline if it sits far off-road in unmapped terrain or water.
+ */
+export function snapWorldPointToNearestRoad(
+  px: number,
+  pz: number,
+  maxOffRoadDist = 42
+): { x: number; z: number; snapped: boolean; roadName: string; dist: number } {
+  let bestDistSq = Infinity;
+  let bestX = px;
+  let bestZ = pz;
+  let bestRoadName = 'Maryland Road';
+
+  for (let rIdx = 0; rIdx < ALL_MARYLAND_ROADS.length; rIdx++) {
+    const road = ALL_MARYLAND_ROADS[rIdx];
+    for (let i = 0; i < road.points.length - 1; i++) {
+      const a = road.points[i];
+      const b = road.points[i + 1];
+      const dx = b.x - a.x;
+      const dz = b.z - a.z;
+      const l2 = dx * dx + dz * dz;
+      if (l2 < 0.001) continue;
+      const t = Math.max(0, Math.min(1, ((px - a.x) * dx + (pz - a.z) * dz) / l2));
+      const cx = a.x + dx * t;
+      const cz = a.z + dz * t;
+      const dSq = (px - cx) * (px - cx) + (pz - cz) * (pz - cz);
+      if (dSq < bestDistSq) {
+        bestDistSq = dSq;
+        bestX = cx;
+        bestZ = cz;
+        bestRoadName = road.name;
+      }
+    }
+    if (road.culDeSacEndRadius && road.points.length > 0) {
+      const endPt = road.points[road.points.length - 1];
+      const dSq = (px - endPt.x) * (px - endPt.x) + (pz - endPt.z) * (pz - endPt.z);
+      if (dSq < bestDistSq) {
+        bestDistSq = dSq;
+        bestX = endPt.x;
+        bestZ = endPt.z;
+        bestRoadName = road.name;
+      }
+    }
+  }
+
+  const dist = Math.sqrt(bestDistSq);
+  if (isOnMarylandPavedSurface(px, pz) || dist <= maxOffRoadDist) {
+    return {
+      x: Math.round(px),
+      z: Math.round(pz),
+      snapped: false,
+      roadName: bestRoadName,
+      dist,
+    };
+  }
+
+  return {
+    x: Math.round(bestX),
+    z: Math.round(bestZ),
+    snapped: true,
+    roadName: bestRoadName,
+    dist,
+  };
+}
+
+function getCombinedGpsDirectory(): MarylandGpsEntry[] {
+  if (registeredSuburbanGpsEntries.length === 0) {
+    return STATIC_MARYLAND_GPS_ENTRIES;
+  }
+  const combined: MarylandGpsEntry[] = [];
+  const seenKeys = new Set<string>();
+  const normKey = (e: MarylandGpsEntry) =>
+    `${e.label.toLowerCase().replace(/\s+/g, ' ').trim()}|${e.address.split(',')[0].toLowerCase().replace(/\s+/g, ' ').trim()}`;
+
+  // Prioritize dynamically registered built suburban houses for exact driveway targeting
+  for (const e of registeredSuburbanGpsEntries) {
+    const k = e.label.toLowerCase().replace(/\s+/g, ' ').trim();
+    if (!seenKeys.has(k)) {
+      seenKeys.add(k);
+      combined.push(e);
+    }
+  }
+  for (const e of STATIC_MARYLAND_GPS_ENTRIES) {
+    const addrHead = e.address.split(',')[0].toLowerCase().replace(/\s+/g, ' ').trim();
+    const k = normKey(e);
+    if (!seenKeys.has(addrHead) && !seenKeys.has(k)) {
+      seenKeys.add(k);
+      combined.push(e);
+    }
+  }
+  return combined;
+}
+
+/**
  * Searches all Maryland landmarks, heist targets, houses, neighborhoods, and road polylines
- * (including typed street-number + road queries like "19624 Kildonan Dr" or "400 Pratt St").
+ * (including typed street-number + road queries like "19624 Kildonan Dr" or "2 Mayhill Ct").
  */
 export function searchMarylandGpsDirectory(rawQuery: string): MarylandGpsEntry[] {
   const trimmed = rawQuery.trim();
@@ -3998,26 +4556,45 @@ export function searchMarylandGpsDirectory(rawQuery: string): MarylandGpsEntry[]
   const streetPart = streetNumMatch ? streetNumMatch[2].trim() : lower;
   const tokens = streetPart.split(/[\s,.-]+/).filter(Boolean);
 
+  const directory = getCombinedGpsDirectory();
   const results: { score: number; entry: MarylandGpsEntry }[] = [];
+  const matchedExactStreetAndNum = new Set<string>();
 
-  // 1. Score exact & partial matches in curated directory (targets, houses, landmarks, addresses)
-  for (const entry of STATIC_MARYLAND_GPS_ENTRIES) {
+  // 1. Score exact & partial matches across all built suburban homes + static curated POIs
+  for (const entry of directory) {
     const addrLower = entry.address.toLowerCase();
     const labelLower = entry.label.toLowerCase();
+    const entryNumMatch =
+      labelLower.match(/^\s*(\d{1,6})\b/) || addrLower.match(/^\s*(\d{1,6})\b/);
+    const entryHouseNum = entryNumMatch ? Number(entryNumMatch[1]) : null;
+    const allStreetTokensMatch =
+      tokens.length > 0 && tokens.every((tok) => entry.keywords.includes(tok));
     let score = 0;
 
     if (addrLower.startsWith(lower) || labelLower.startsWith(lower)) {
       score += 120;
     } else if (addrLower.includes(lower) || labelLower.includes(lower)) {
       score += 80;
-    } else if (tokens.length > 0 && tokens.every((tok) => entry.keywords.includes(tok))) {
+    } else if (allStreetTokensMatch) {
       score += 55;
-    } else if (houseNumber !== null && tokens.length > 0 && tokens.every((tok) => entry.keywords.includes(tok))) {
-      score += 45;
     }
 
-    if (houseNumber !== null && addrLower.includes(String(houseNumber))) {
-      score += 65;
+    if (
+      houseNumber === null &&
+      score > 0 &&
+      entry.category !== 'RESIDENCE' &&
+      entry.category !== 'STREET'
+    ) {
+      score += 25;
+    }
+
+    if (houseNumber !== null && entryHouseNum !== null && allStreetTokensMatch) {
+      if (entryHouseNum === houseNumber) {
+        score += 140;
+        matchedExactStreetAndNum.add(`${houseNumber}:${streetPart}`);
+      } else {
+        score += Math.max(0, 24 - Math.min(24, Math.abs(entryHouseNum - houseNumber)));
+      }
     }
 
     if (score > 0) {
@@ -4025,7 +4602,7 @@ export function searchMarylandGpsDirectory(rawQuery: string): MarylandGpsEntry[]
     }
   }
 
-  // 2. Match ANY road in ALL_MARYLAND_ROADS (synthesizing exact address coordinates if house # typed!)
+  // 2. Match ANY road in ALL_MARYLAND_ROADS (synthesizing coordinates if house # not explicitly built)
   for (const road of ALL_MARYLAND_ROADS) {
     const rName = road.name.toLowerCase();
     const roadMatches =
@@ -4033,13 +4610,62 @@ export function searchMarylandGpsDirectory(rawQuery: string): MarylandGpsEntry[]
       (tokens.length > 0 && tokens.every((tok) => rName.includes(tok)));
     if (!roadMatches) continue;
 
-    const frac = houseNumber !== null ? ((houseNumber % 900) / 900) * 0.8 + 0.1 : 0.5;
-    const pt = interpolateRoadPolylinePoint(road.points, frac);
+    if (houseNumber !== null && matchedExactStreetAndNum.has(`${houseNumber}:${streetPart}`)) {
+      continue;
+    }
+
+    let pt: { x: number; z: number } | null = null;
+    if (houseNumber !== null && registeredSuburbanGpsEntries.length > 0) {
+      const sameStreetNums: { num: number; x: number; z: number }[] = [];
+      for (const e of registeredSuburbanGpsEntries) {
+        const m = e.label.toLowerCase().match(/^\s*(\d{1,6})\s+(.+)$/);
+        if (!m) continue;
+        const eStreet = m[2].trim();
+        if (tokens.every((tok) => eStreet.includes(tok))) {
+          sameStreetNums.push({ num: Number(m[1]), x: e.x, z: e.z });
+        }
+      }
+      if (sameStreetNums.length >= 2) {
+        sameStreetNums.sort((a, b) => a.num - b.num);
+        const clampedFirst = sameStreetNums[0];
+        const clampedLast = sameStreetNums[sameStreetNums.length - 1];
+        if (houseNumber <= clampedFirst.num) {
+          pt = { x: clampedFirst.x, z: clampedFirst.z };
+        } else if (houseNumber >= clampedLast.num) {
+          pt = { x: clampedLast.x, z: clampedLast.z };
+        } else {
+          for (let i = 0; i < sameStreetNums.length - 1; i++) {
+            const a = sameStreetNums[i];
+            const b = sameStreetNums[i + 1];
+            if (houseNumber >= a.num && houseNumber <= b.num) {
+              const span = Math.max(1, b.num - a.num);
+              const t = (houseNumber - a.num) / span;
+              pt = {
+                x: Math.round(a.x + (b.x - a.x) * t),
+                z: Math.round(a.z + (b.z - a.z) * t),
+              };
+              break;
+            }
+          }
+        }
+      } else if (sameStreetNums.length === 1) {
+        pt = { x: sameStreetNums[0].x, z: sameStreetNums[0].z };
+      }
+    }
+
+    if (!pt) {
+      const blockFrac =
+        houseNumber !== null
+          ? Math.max(0.08, Math.min(0.92, ((houseNumber % 100) / 100) * 0.8 + 0.1))
+          : 0.5;
+      pt = interpolateRoadPolylinePoint(road.points, blockFrac);
+    }
+
     const displayAddr =
       houseNumber !== null ? `${houseNumber} ${road.name}` : road.name;
 
     results.push({
-      score: houseNumber !== null ? 72 : 42,
+      score: houseNumber !== null ? 92 : 42,
       entry: {
         id: `gps_road_${road.id}_${houseNumber ?? 'mid'}`,
         label: displayAddr,
@@ -4067,7 +4693,7 @@ export function buildCityGpsRouteLine(): {
   updateRoute: (points: { x: number; z: number }[], colorHex: string, visible: boolean) => void;
 } {
   const group = new THREE.Group();
-  const maxSegments = 36;
+  const maxSegments = 180;
   const segMeshes: THREE.Mesh[] = [];
   const segMat = new THREE.MeshBasicMaterial({
     color: 0x38bdf8,

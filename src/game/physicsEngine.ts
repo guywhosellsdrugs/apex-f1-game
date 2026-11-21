@@ -53,6 +53,12 @@ import {
   updateVehicleLighting,
   updatePlayerHeadlightRig,
   updateNpcHeadlightsVisibility,
+  CITY_SPORTS_CATALOG,
+  CitySportVenueSpec,
+  CitySportType,
+  CITY_SERVICE_STATIONS,
+  MARYLAND_SPEED_CAMERAS,
+  CITY_CAR_MEET_ZONES,
 } from './cityTrafficBuilder';
 import type { LockpickTargetInfo } from '../components/LockpickMinigame';
 import {
@@ -419,6 +425,9 @@ export class PhysicsEngine {
   private civHornCooldowns: Map<string, number> = new Map();
   public isMinigamePaused: boolean = false;
   private bankMinigameGraceTimer: number = 0;
+  private sportsMinigameGraceTimer: number = 0;
+  private handbrakeSlideAngle: number = 0;
+  public handbrakeActive: boolean = false;
   private pickedHouseIds: Set<string> = new Set();
   private houseAlarmTriggeredIds: Set<string> = new Set();
   private recentRobberyHeatTimer: number = 0;
@@ -642,8 +651,44 @@ export class PhysicsEngine {
       hidePayoutUntilStolen?: boolean;
       policeBreach?: boolean;
       breachReason?: string;
+      breachDelaySec?: number;
     } | null;
     activeLockpickTarget: LockpickTargetInfo | null;
+    nearbySportsPrompt: {
+      venueId: string;
+      sport: CitySportType;
+      name: string;
+      shortLabel: string;
+      icon: string;
+      distMeters: number;
+      rewardDesc: string;
+      streetLocation: string;
+      badgeColor: string;
+    } | null;
+    activeSportsMinigame: {
+      venueId: string;
+      sport: CitySportType;
+      name: string;
+      icon: string;
+      streetLocation: string;
+    } | null;
+    nearbyServicePrompt: {
+      id: string;
+      name: string;
+      icon: string;
+      brandColor: string;
+      distMeters: number;
+      cost: number;
+    } | null;
+    nearbyCarMeetPrompt: {
+      id: string;
+      name: string;
+      icon: string;
+      distMeters: number;
+      cooldownLeftSec: number;
+      payoutCash: number;
+    } | null;
+    handbrakeActive: boolean;
     headlightMode: 'auto' | 'low' | 'high' | 'off';
     effectiveHeadlightState: 'off' | 'low' | 'high';
     timeOfDayPreset: TimeOfDayPreset;
@@ -730,6 +775,11 @@ export class PhysicsEngine {
     completedMissionIds: [],
     activeBankMinigameTarget: null,
     activeLockpickTarget: null,
+    nearbySportsPrompt: null,
+    activeSportsMinigame: null,
+    nearbyServicePrompt: null,
+    nearbyCarMeetPrompt: null,
+    handbrakeActive: false,
     headlightMode: 'auto',
     effectiveHeadlightState: 'off',
     timeOfDayPreset: getTimeOfDayPreset(),
@@ -756,6 +806,8 @@ export class PhysicsEngine {
   private weatherRefreshTimer: number = 0;
   private policeDriveThroughCooldown: number = 0;
   private radarWarningBeepTimer: number = 0;
+  private speedCameraCooldowns: Record<string, number> = {};
+  private carMeetCooldowns: Record<string, number> = {};
 
   public async refreshLiveWeather(): Promise<void> {
     if (this.weatherMode !== 'live_gaithersburg') return;
@@ -918,6 +970,7 @@ export class PhysicsEngine {
       maxRpm: 15000,
       throttle: 0,
       brake: 0,
+      handbrakeActive: false,
       steer: 0,
       ersBattery: 100,
       drsActive: false,
@@ -1610,6 +1663,8 @@ export class PhysicsEngine {
       return;
     }
     const dt = Math.min(delta, 0.035);
+    this.handbrakeActive = Boolean(input.handbrake);
+    this.cityPursuitStats.handbrakeActive = this.handbrakeActive;
 
     if (this.collisionTrauma > 0) {
       this.collisionTrauma = Math.max(0, this.collisionTrauma - dt * 3.0);
@@ -2074,16 +2129,16 @@ export class PhysicsEngine {
       }
     }
 
-    // Holding Brake/Reverse (S / Down) when stopped or nearly stopped shifts smoothly into Reverse (-1)
+    // Holding Brake/Reverse (S / Down) when stopped or nearly stopped shifts smoothly into Reverse (-1) (never while Handbrake is held)
     const reverseEngageDelay = this.isCityMode || this.isOpenFieldMode ? 0.12 : 0.22;
-    if (this.playerSpeedKmh <= 2.5 && input.brake > 0.35 && input.throttle < 0.05) {
+    if (!input.handbrake && this.playerSpeedKmh <= 2.5 && input.brake > 0.35 && input.throttle < 0.05) {
       this.reverseHoldTimer += dt;
       if (this.reverseHoldTimer >= reverseEngageDelay && this.playerGear !== -1) {
         this.playerGear = -1;
         this.playerSpeedKmh = 0;
         soundEngine.playGearShift(true);
       }
-    } else if (input.brake < 0.15) {
+    } else if (input.brake < 0.15 || input.handbrake) {
       this.reverseHoldTimer = 0;
     }
 
@@ -2131,10 +2186,13 @@ export class PhysicsEngine {
 
       if (this.isCityMode && this.cityPursuitStats.currentStreetCar) {
         const carId = this.cityPursuitStats.currentStreetCar.id;
+        const activeTrimId = this.cityPursuitStats.activeTrimByCar[carId];
         const streetIdle = 800;
         const streetRedline =
           carId === 'porsche_911'
             ? 9000
+            : carId === 'chevy_corvette'
+            ? (activeTrimId?.includes('z06') ? 8600 : 6600)
             : carId === 'lamborghini_huracan' || carId === 'koenigsegg_jesko'
             ? 8500
             : carId.includes('challenger') || carId.includes('charger') || carId.includes('camaro') || carId.includes('escalade')
@@ -2251,38 +2309,42 @@ export class PhysicsEngine {
         this.playerSpeedKmh = Math.max(0, this.playerSpeedKmh - (coastDrag + overspeedDrag) * dt * 3.6);
       }
 
-      if (effectiveBrake > 0) {
-        // Calibrated realistic progressive braking deceleration:
-        // Baseline street cars (brakes 70): ~9.5 m/s² (~1.0G, 60-0 mph in ~130 ft)
-        // Sports/Muscle (brakes 80-88): ~11.5 - 13.0 m/s² (~1.2G - 1.3G, 60-0 mph in ~105-115 ft)
-        // Supercars/Hypercars with carbon-ceramics (brakes 95-100): ~14.0 - 16.5 m/s² (~1.5G - 1.7G, 60-0 mph in ~85-95 ft)
+      if (effectiveBrake > 0 || input.handbrake) {
+        // Calibrated realistic progressive braking deceleration + dedicated E-brake rear lockup:
         const brakesScoreClamped = Math.max(60, Math.min(105, this.brakesScore));
         const brakePower = (7.5 + ((brakesScoreClamped - 60) / 45) * 8.5) * gripMultiplier;
-        this.playerSpeedKmh = Math.max(0, this.playerSpeedKmh - brakePower * effectiveBrake * dt * 3.6);
+        const handbrakeDecel = input.handbrake ? (effectiveThrottle > 0.1 ? 5.6 : 11.4) : 0;
+        const totalDecel = brakePower * effectiveBrake + handbrakeDecel;
+        this.playerSpeedKmh = Math.max(0, this.playerSpeedKmh - totalDecel * dt * 3.6);
+        // Parking hold when nearly stopped with handbrake engaged
+        if (input.handbrake && this.playerSpeedKmh < 1.2 && effectiveThrottle < 0.1) {
+          this.playerSpeedKmh = 0;
+        }
         // Realistic suspension pitch nose-dive proportional to deceleration
-        this.playerCar.root.rotation.x = -Math.min(0.045, (brakePower * effectiveBrake) * 0.0025);
+        this.playerCar.root.rotation.x = -Math.min(0.045, totalDecel * 0.0022);
       } else {
         this.playerCar.root.rotation.x = 0;
       }
-      this.playerCar.setBraking(input.brake > 0.05);
+      this.playerCar.setBraking(input.brake > 0.05 || input.handbrake);
 
       this.playerSpeedKmh = Math.max(0, this.playerSpeedKmh);
     } else {
       // REVERSE GEAR (-1): Smooth, responsive backing up with zero lockups
       this.playerRpm = 4600 + Math.min(5000, Math.abs(this.playerSpeedKmh) * 90);
-      if (!isCrashingWait && !isFalseStartStalled && input.brake > 0.05 && input.throttle < 0.1) {
+      if (!isCrashingWait && !isFalseStartStalled && !input.handbrake && input.brake > 0.05 && input.throttle < 0.1) {
         const maxReverseKmh = this.isCityMode ? -48 : -55;
         if (this.playerSpeedKmh > maxReverseKmh) {
           this.playerSpeedKmh = Math.max(maxReverseKmh, this.playerSpeedKmh - 22 * input.brake * dt * 3.6);
         }
       } else {
-        // Natural rolling stop when releasing reverse pedal
-        this.playerSpeedKmh = Math.min(0, this.playerSpeedKmh + 26 * dt * 3.6);
-        if (Math.abs(this.playerSpeedKmh) < 0.4 && input.brake < 0.05) {
+        // Natural rolling stop (or instant E-brake halt) when releasing reverse pedal
+        const revStopRate = input.handbrake ? 46 : 26;
+        this.playerSpeedKmh = Math.min(0, this.playerSpeedKmh + revStopRate * dt * 3.6);
+        if (Math.abs(this.playerSpeedKmh) < (input.handbrake ? 1.5 : 0.4) && input.brake < 0.05) {
           this.playerSpeedKmh = 0;
         }
       }
-      this.playerCar.setBraking(input.brake > 0.05);
+      this.playerCar.setBraking(input.brake > 0.05 || input.handbrake);
     }
 
     // DISTINCT HANDLING & CORNERING / WEAVING DYNAMICS (Uncapped ratings):
@@ -2325,7 +2387,8 @@ export class PhysicsEngine {
     const steerAbs = Math.abs(steerInput);
     const fluidSteer = Math.sign(steerInput) * (steerAbs * 0.82 + Math.pow(steerAbs, 1.25) * 0.18);
 
-    const turnRate = fluidSteer * naturalSensitivity * throttleUndersteer * corneringAgility * gripHold * gripMultiplier * dt;
+    const handbrakeTurnBoost = input.handbrake && speed > 14 ? 1.52 : 1.0;
+    const turnRate = fluidSteer * naturalSensitivity * throttleUndersteer * corneringAgility * gripHold * gripMultiplier * handbrakeTurnBoost * dt;
 
     // Asymmetric tire wear pull when tires are critically worn (< 18% health)
     const asymmetricTirePull =
@@ -2338,16 +2401,25 @@ export class PhysicsEngine {
       this.playerHeading -= (turnRate + asymmetricTirePull) * dirSign;
     }
 
+    // Handbrake rear-end drift slip angle (car pivots inward while velocity carries tangentially)
+    const targetSlideAngle =
+      input.handbrake && speed > 16 && Math.abs(steerInput) > 0.08
+        ? -steerInput * Math.min(0.42, 0.22 + (speed / 160) * 0.20)
+        : 0;
+    const slideLerpRate = input.handbrake ? 5.5 : 4.2;
+    this.handbrakeSlideAngle += (targetSlideAngle - this.handbrakeSlideAngle) * Math.min(1, dt * slideLerpRate);
+
     if (this.tireLife <= 8 && Math.abs(this.playerSpeedKmh) > 85) {
       this.playerCar.updateSparks(this.playerSpeedKmh, true, dt);
     }
 
     this.playerCar.setSteerAngle(-steerInput * 0.38);
-    this.playerCar.setWheelSpin(this.playerSpeedKmh, dt);
+    this.playerCar.setWheelSpin(input.handbrake && speed > 10 ? this.playerSpeedKmh * 0.35 : this.playerSpeedKmh, dt);
 
-    // Compute Forward Vector from car heading (zero allocation)
-    const forwardX = -Math.sin(this.playerHeading);
-    const forwardZ = -Math.cos(this.playerHeading);
+    // Compute Forward Vector from car heading + handbrake drift slip vector (zero allocation)
+    const moveHeading = this.playerHeading - this.handbrakeSlideAngle * 0.52;
+    const forwardX = -Math.sin(moveHeading);
+    const forwardZ = -Math.cos(moveHeading);
     const forwardVec = this._scratchForwardVec.set(forwardX, 0, forwardZ);
 
     // Continuous Sub-Stepping Movement & Solid Barrier Check (Guaranteed 100% Noclip Prevention):
@@ -2613,24 +2685,32 @@ export class PhysicsEngine {
       }
     }
 
-    // Sync 3D Mesh
+    // Sync 3D Mesh (with crisp handbrake oversteer yaw kick)
     this.playerCar.root.position.copy(this.playerPos);
-    this.playerCar.root.rotation.y = this.playerHeading;
+    this.playerCar.root.rotation.y = this.playerHeading + this.handbrakeSlideAngle * 0.45;
 
     const slope = surface.tangent.y;
     this.playerCar.root.rotation.x = -Math.asin(Math.max(-0.4, Math.min(0.4, slope)));
-    this.playerCar.root.rotation.z = -input.steer * Math.min(0.08, (Math.abs(this.playerSpeedKmh) / 300) * 0.08);
+    this.playerCar.root.rotation.z =
+      -input.steer * Math.min(0.08, (Math.abs(this.playerSpeedKmh) / 300) * 0.08) +
+      this.handbrakeSlideAngle * 0.14;
 
     // Titanium Sparks (always pass non-negative speed)
-    this.playerCar.updateSparks(Math.abs(this.playerSpeedKmh), surface.onCurb, dt);
+    const isHandbrakeSliding =
+      (input.handbrake && Math.abs(this.playerSpeedKmh) > 22) ||
+      Math.abs(this.handbrakeSlideAngle) > 0.14;
+    this.playerCar.updateSparks(Math.abs(this.playerSpeedKmh), surface.onCurb || isHandbrakeSliding, dt);
 
     if (surface.onCurb && Math.abs(this.playerSpeedKmh) > 35) {
       inputManager.rumble(0.4, 0.7, 50);
+    } else if (isHandbrakeSliding) {
+      inputManager.rumble(0.25, 0.55, 40);
     }
 
     // Audio
     const lateralG = Math.abs(input.steer) * (Math.abs(this.playerSpeedKmh) / 140);
-    const tireSlip = Math.min(1, lateralG * 0.5 + (surface.onCurb ? 0.3 : 0));
+    const handbrakeSlipAudio = isHandbrakeSliding ? 0.85 : 0;
+    const tireSlip = Math.min(1, lateralG * 0.5 + (surface.onCurb ? 0.3 : 0) + handbrakeSlipAudio);
     const isStalledNow = this.falseStartPenaltyTimer > 0;
     const safeRpm = isStalledNow ? 0 : Number.isFinite(this.playerRpm) ? this.playerRpm : 5000;
     const safeSpeed = isStalledNow ? 0 : Number.isFinite(this.playerSpeedKmh) ? Math.abs(this.playerSpeedKmh) : 0;
@@ -2641,7 +2721,7 @@ export class PhysicsEngine {
       safeSpeed,
       isStalledNow ? false : isBoosting,
       isStalledNow ? 0 : tireSlip,
-      surface.onCurb
+      surface.onCurb || isHandbrakeSliding
     );
 
     // 6. Compute Real-time Leaderboard
@@ -2814,6 +2894,7 @@ export class PhysicsEngine {
       maxRpm: 15000,
       throttle: input.throttle,
       brake: input.brake,
+      handbrakeActive: this.handbrakeActive,
       steer: input.steer,
       ersBattery: Math.round(this.ersBattery),
       drsActive: this.drsActive,
@@ -5133,6 +5214,55 @@ export class PhysicsEngine {
     this.playerSpeedKmh = 0;
     this.cityPursuitStats.turnSignal = 'hazards';
 
+    // If the player has stolen heist cash in their trunk, pulling over during a pursuit counts as a full Heist Bust!
+    const confiscatedLoot = this.pendingHeistLoot ? this.pendingHeistLoot.amount : 0;
+    if (confiscatedLoot > 0) {
+      this.pendingHeistLoot = null;
+      this.cityPursuitStats.pendingHeistLoot = null;
+      this.recentRobberyHeatTimer = 0;
+
+      this.citySave.bankRobberyBustCount = (this.citySave.bankRobberyBustCount || 0) + 1;
+      const fineTaken = confiscatedLoot * 2;
+      this.citySave.streetCash -= fineTaken;
+      saveMetroCitySave(this.citySave);
+
+      this.cityPursuitStats.streetCash = this.citySave.streetCash;
+      this.cityPursuitStats.bankRobberyBustCount = this.citySave.bankRobberyBustCount || 0;
+      this.cityPursuitStats.inDebt = this.citySave.streetCash < 0;
+      this.cityPursuitStats.heistDebtAmount = Math.max(0, -this.citySave.streetCash);
+
+      this.cityPursuitStats.pursuitState = 'BUSTED';
+      this.cityPursuitStats.wantedStars = 0;
+      this.cityPursuitStats.hasActiveWarrant = false;
+      this.cityPursuitStats.unpaidRedLightTickets = 0;
+      this.cityPursuitStats.playerBeingPulledOver = null;
+      this.cityPursuitStats.activePoliceUnitsCount = 0;
+      this.cityPursuitStats.bustProgress = 0;
+      this.cityPursuitStats.escapeProgress = 0;
+
+      for (const cop of this.cityPoliceCars) {
+        cop.hitCooldown = 40.0;
+        cop.isChasing = false;
+        cop.built.setSirenActive(false, 0);
+      }
+
+      this.playerPos.set(ICM_PLAYER_SPAWN.x, ICM_PLAYER_SPAWN.y, ICM_PLAYER_SPAWN.z);
+      this.playerHeading = ICM_PLAYER_SPAWN.heading;
+      soundEngine.playCrash(0.5);
+
+      const debtStr = this.citySave.streetCash < 0
+        ? ` | IN DEBT: -$${Math.abs(this.citySave.streetCash).toLocaleString()}`
+        : '';
+      this.cityPursuitStats.megaphoneSubtitle = {
+        text: "📢 MCPD OFFICER: 'Trunk search uncovered stolen heist cash! You are under arrest for the robbery!'",
+        timer: 6.5,
+        speaker: 'MCPD UNIT',
+      };
+      this.cityPursuitStats.activeAlertBanner = `🚨 BUSTED AT TRAFFIC STOP! Police seized $${confiscatedLoot.toLocaleString()} trunk cash + 2× fine (-$${fineTaken.toLocaleString()})! (Bust #${this.citySave.bankRobberyBustCount}${debtStr})`;
+      this.cityPursuitStats.activeAlertTimer = 7.0;
+      return { success: true, message: 'Busted at pull-over with stolen heist cash' };
+    }
+
     const fine = pullOver ? pullOver.fine : Math.round(350 + Math.random() * 450);
     this.citySave.streetCash -= fine; // Deduct ticket fine (can push into debt if needed)
     saveMetroCitySave(this.citySave);
@@ -5372,11 +5502,14 @@ export class PhysicsEngine {
   public setCityGpsTarget(x: number, z: number, label: string, colorHex: string = '#facc15') {
     if (!this.isCityMode) return;
     this.customGpsTarget = { x, z, label, colorHex };
-    if (!this.activeMissionTemplate && !this.activeJobSpec) {
+    const busyMissionOrJob = Boolean(this.activeMissionTemplate || this.activeJobSpec);
+    if (!busyMissionOrJob) {
       this.missionBeacon?.setWaypoint(x, z, colorHex, true, this.raceTimer);
     }
     soundEngine.playStartLightBeep(false);
-    this.cityPursuitStats.activeAlertBanner = `📍 GPS WAYPOINT SET: ${label.toUpperCase()}`;
+    this.cityPursuitStats.activeAlertBanner = busyMissionOrJob
+      ? `📍 GPS QUEUED (${label.toUpperCase()}) — FINISH ACTIVE MISSION/SHIFT TO ROUTE`
+      : `📍 GPS WAYPOINT SET: ${label.toUpperCase()}`;
     this.cityPursuitStats.activeAlertTimer = 3.5;
   }
 
@@ -5406,11 +5539,26 @@ export class PhysicsEngine {
       h ^= houseId.charCodeAt(i);
       h = Math.imul(h, 16777619);
     }
-    const u = Math.abs(h);
-    const isLocked = u % 100 < 62;
-    const hasSecuritySystem = isLocked && ((u >>> 4) % 100) < 42;
-    const pinCount = 3 + ((u >>> 8) % 2);
+    // Murmur-style avalanche so sequential house IDs (suburban_0, suburban_1, ...) distribute evenly
+    h ^= h >>> 16;
+    h = Math.imul(h, 0x85ebca6b);
+    h ^= h >>> 13;
+    const u = h >>> 0;
+    const isLocked = u % 100 < 56;
+    const hasSecuritySystem = isLocked && ((u >>> 8) % 100) < 38;
+    const pinCount = 3 + ((u >>> 16) % 2);
     return { isLocked, hasSecuritySystem, pinCount };
+  }
+
+  private computeHouseBreachDelaySec(payoutCash: number): number {
+    // 10-20s response time before police burst in based on house security bot count:
+    // More bots (higher-security/payout residence) = faster police response (10s); fewer bots = 20s
+    if (payoutCash >= 45000) return 10; // 8 bots
+    if (payoutCash >= 30000) return 13; // 6 bots
+    if (payoutCash >= 22000) return 15; // 5 bots
+    if (payoutCash >= 15000) return 17; // 4 bots
+    if (payoutCash >= 10000) return 18; // 3 bots
+    return 20; // 2 bots
   }
 
   private resolveMinigameTargetSpec(targetId: string): CityHeistTargetSpec | undefined {
@@ -5517,12 +5665,17 @@ export class PhysicsEngine {
 
       const payoutCash = this.computeSuburbanHousePayout(idx);
       const alarmBreach = this.houseAlarmTriggeredIds.has(houseId);
-      const hotPursuitBreach = this.cityPursuitStats.wantedStars > 0 || this.recentRobberyHeatTimer > 0;
+      const hotPursuitBreach = this.cityPursuitStats.wantedStars > 0 && this.cityPursuitStats.pursuitState !== 'CLEAR';
       const policeBreach = alarmBreach || hotPursuitBreach;
-      const breachReason = alarmBreach
-        ? 'HOME SECURITY ALARM TRIPPED — POLICE BURSTING THROUGH THE DOOR!'
+      const breachDelaySec = alarmBreach
+        ? this.computeHouseBreachDelaySec(payoutCash)
         : hotPursuitBreach
-        ? 'ACTIVE POLICE HEAT FROM PRIOR ROBBERY — POLICE RAIDING INSIDE!'
+        ? 2.2
+        : undefined;
+      const breachReason = alarmBreach
+        ? `HOME SECURITY ALARM TRIPPED — POLICE ARRIVING IN ${breachDelaySec}S!`
+        : hotPursuitBreach
+        ? 'ACTIVE POLICE CHASE — OFFICERS BREACHING INSIDE!'
         : undefined;
 
       this.activeRobberyState = null;
@@ -5538,6 +5691,7 @@ export class PhysicsEngine {
         hidePayoutUntilStolen: true,
         policeBreach,
         breachReason,
+        breachDelaySec,
       };
       soundEngine.playStartLightBeep(true);
       return;
@@ -5584,13 +5738,19 @@ export class PhysicsEngine {
       return;
     }
 
+    const payoutCash = this.computeHouseRobPayout(house);
     const alarmBreach = this.houseAlarmTriggeredIds.has(house.id);
-    const hotPursuitBreach = this.cityPursuitStats.wantedStars > 0 || this.recentRobberyHeatTimer > 0;
+    const hotPursuitBreach = this.cityPursuitStats.wantedStars > 0 && this.cityPursuitStats.pursuitState !== 'CLEAR';
     const policeBreach = alarmBreach || hotPursuitBreach;
-    const breachReason = alarmBreach
-      ? 'HOME SECURITY ALARM TRIPPED — POLICE BURSTING THROUGH THE DOOR!'
+    const breachDelaySec = alarmBreach
+      ? this.computeHouseBreachDelaySec(payoutCash)
       : hotPursuitBreach
-      ? 'ACTIVE POLICE HEAT FROM PRIOR ROBBERY — POLICE RAIDING INSIDE!'
+      ? 2.2
+      : undefined;
+    const breachReason = alarmBreach
+      ? `HOME SECURITY ALARM TRIPPED — POLICE ARRIVING IN ${breachDelaySec}S!`
+      : hotPursuitBreach
+      ? 'ACTIVE POLICE CHASE — OFFICERS BREACHING INSIDE!'
       : undefined;
 
     this.activeRobberyState = null;
@@ -5600,12 +5760,13 @@ export class PhysicsEngine {
       id: robTargetId,
       name: house.name,
       category: 'HOUSE',
-      payoutCash: this.computeHouseRobPayout(house),
+      payoutCash,
       streetLocation: house.streetLocation,
       icon: '🏠',
       hidePayoutUntilStolen: true,
       policeBreach,
       breachReason,
+      breachDelaySec,
     };
     soundEngine.playStartLightBeep(true);
   }
@@ -5767,8 +5928,8 @@ export class PhysicsEngine {
       return;
     }
 
-    // Launch Top-Down Retro Heist Shooter Minigame for ALL robberies (bot count scales by payout!)
-    const hotPursuitBreach = this.cityPursuitStats.wantedStars > 0 || this.recentRobberyHeatTimer > 0;
+    // Launch Top-Down Retro Heist Shooter Minigame for ALL robberies (police only breach if actively chasing!)
+    const hotPursuitBreach = this.cityPursuitStats.wantedStars > 0 && this.cityPursuitStats.pursuitState !== 'CLEAR';
     this.activeRobberyState = null;
     this.playerSpeedKmh = 0;
     this.isMinigamePaused = true;
@@ -5782,8 +5943,9 @@ export class PhysicsEngine {
       hidePayoutUntilStolen: target.category === 'HOUSE',
       policeBreach: hotPursuitBreach,
       breachReason: hotPursuitBreach
-        ? 'ACTIVE POLICE MANHUNT — OFFICERS BURSTING THROUGH THE DOOR!'
+        ? 'ACTIVE POLICE CHASE — OFFICERS BURSTING THROUGH THE DOOR!'
         : undefined,
+      breachDelaySec: hotPursuitBreach ? 2.2 : undefined,
     };
     soundEngine.playStartLightBeep(true);
     return;
@@ -5877,6 +6039,107 @@ export class PhysicsEngine {
     }
   }
 
+  public triggerSportsMinigame(venueId?: string) {
+    if (!this.isCityMode || this.sportsMinigameGraceTimer > 0) return;
+    const targetId = venueId || this.cityPursuitStats.nearbySportsPrompt?.venueId;
+    if (!targetId) return;
+    const venue: CitySportVenueSpec | undefined = CITY_SPORTS_CATALOG.find((v) => v.id === targetId);
+    if (!venue) return;
+
+    this.playerSpeedKmh = 0;
+    this.isMinigamePaused = true;
+    this.cityPursuitStats.activeSportsMinigame = {
+      venueId: venue.id,
+      sport: venue.sport,
+      name: venue.name,
+      icon: venue.icon,
+      streetLocation: venue.streetLocation,
+    };
+    soundEngine.playStartLightBeep(true);
+  }
+
+  public completeSportsMinigame(cashEarned: number, summaryBanner: string) {
+    this.isMinigamePaused = false;
+    this.cityPursuitStats.activeSportsMinigame = null;
+    this.sportsMinigameGraceTimer = 2.5;
+    if (cashEarned > 0) {
+      this.citySave.streetCash += cashEarned;
+      saveMetroCitySave(this.citySave);
+      this.cityPursuitStats.streetCash = this.citySave.streetCash;
+      this.cityPursuitStats.inDebt = this.citySave.streetCash < 0;
+      this.cityPursuitStats.heistDebtAmount = Math.max(0, -this.citySave.streetCash);
+      this.awardStreetSkillBonus(summaryBanner, cashEarned);
+    } else {
+      this.cityPursuitStats.activeAlertBanner = summaryBanner;
+      this.cityPursuitStats.activeAlertTimer = 4.2;
+    }
+    soundEngine.playStartLightBeep(true);
+  }
+
+  public abortSportsMinigame() {
+    this.isMinigamePaused = false;
+    this.cityPursuitStats.activeSportsMinigame = null;
+    this.sportsMinigameGraceTimer = 1.5;
+  }
+
+  public triggerServiceStationPitStop(stationId?: string) {
+    if (!this.isCityMode) return;
+    const targetId = stationId || this.cityPursuitStats.nearbyServicePrompt?.id;
+    const st = CITY_SERVICE_STATIONS.find((s) => s.id === targetId);
+    if (!st) return;
+
+    const cost = this.citySave.streetCash >= 150 ? 150 : 0;
+    if (cost > 0) {
+      this.citySave.streetCash -= cost;
+      saveMetroCitySave(this.citySave);
+      this.cityPursuitStats.streetCash = this.citySave.streetCash;
+    }
+
+    this.ersBattery = 100;
+    this.tireLife = 100;
+    this.tireCorners = { fl: 100, fr: 100, rl: 100, rr: 100 };
+
+    if (this.cityPursuitStats.wantedStars === 1) {
+      this.cityPursuitStats.wantedStars = 0;
+      this.cityPursuitStats.pursuitState = 'CLEAR';
+      this.cityPursuitStats.bustProgress = 0;
+      this.cityPursuitStats.escapeProgress = 0;
+      for (const cop of this.cityPoliceCars) {
+        cop.built.setSirenActive(false, 0);
+      }
+    }
+
+    soundEngine.playStartLightBeep(true);
+    this.cityPursuitStats.activeAlertBanner = `⛽ ${st.name.toUpperCase()}: NITRO 100%, FRESH TIRES & DETAILING!${cost > 0 ? ` (-$${cost})` : ' (COURTESY)'}`;
+    this.cityPursuitStats.activeAlertTimer = 4.0;
+  }
+
+  public triggerCarMeetShowcase(zoneId?: string) {
+    if (!this.isCityMode) return;
+    const targetId = zoneId || this.cityPursuitStats.nearbyCarMeetPrompt?.id;
+    const meet = CITY_CAR_MEET_ZONES.find((m) => m.id === targetId);
+    if (!meet) return;
+    if ((this.carMeetCooldowns[meet.id] || 0) > 0) return;
+
+    const carSpec = getEffectiveStreetCarSpec(
+      this.cityPursuitStats.currentStreetCar,
+      this.citySave.activeTrimByCar?.[this.cityPursuitStats.currentStreetCar.id]
+    );
+    const tierMult = Math.min(2.6, Math.max(1.0, carSpec.price / 65000));
+    const prize = Math.round(meet.rewardCash * tierMult);
+
+    this.carMeetCooldowns[meet.id] = 90;
+    this.ersBattery = 100;
+    this.citySave.streetCash += prize;
+    saveMetroCitySave(this.citySave);
+    this.cityPursuitStats.streetCash = this.citySave.streetCash;
+
+    soundEngine.playStartLightBeep(true);
+    this.awardStreetSkillBonus(`🏁 ${meet.name.toUpperCase()} SHOWCASE`, prize);
+    this.cityPursuitStats.activeAlertBanner = `🏁 ${meet.name.toUpperCase()}: CROWD LOVED YOUR ${carSpec.name.toUpperCase()}! WON +$${prize.toLocaleString()} + 100% NITRO!`;
+    this.cityPursuitStats.activeAlertTimer = 4.8;
+  }
+
   private getPlayerSafehouseTarget(): { x: number; z: number; name: string } {
     const activeId = this.citySave.activeHomeId;
     if (activeId && this.citySave.ownedHouseIds.includes(activeId)) {
@@ -5930,6 +6193,9 @@ export class PhysicsEngine {
   private updateCityModeSimulation(dt: number, playerFwd: THREE.Vector3, input?: UnifiedInput) {
     if (this.bankMinigameGraceTimer > 0) {
       this.bankMinigameGraceTimer = Math.max(0, this.bankMinigameGraceTimer - dt);
+    }
+    if (this.sportsMinigameGraceTimer > 0) {
+      this.sportsMinigameGraceTimer = Math.max(0, this.sportsMinigameGraceTimer - dt);
     }
     if (this.recentRobberyHeatTimer > 0) {
       this.recentRobberyHeatTimer = Math.max(0, this.recentRobberyHeatTimer - dt);
@@ -6107,6 +6373,124 @@ export class PhysicsEngine {
         };
       } else {
         this.cityPursuitStats.nearbyHousePrompt = null;
+      }
+    }
+
+    // 0e. Check Proximity to Top-Down Retro Sports Venues (Basketball, Golf, Baseball)
+    {
+      let closestSport: CitySportVenueSpec | null = null;
+      let closestSportDist = Infinity;
+      for (let i = 0; i < CITY_SPORTS_CATALOG.length; i++) {
+        const venue = CITY_SPORTS_CATALOG[i];
+        const d = Math.hypot(venue.x - this.playerPos.x, venue.z - this.playerPos.z);
+        if (d <= venue.radius && d < closestSportDist) {
+          closestSportDist = d;
+          closestSport = venue;
+        }
+      }
+      if (closestSport) {
+        this.cityPursuitStats.nearbySportsPrompt = {
+          venueId: closestSport.id,
+          sport: closestSport.sport,
+          name: closestSport.name,
+          shortLabel: closestSport.shortLabel,
+          icon: closestSport.icon,
+          distMeters: Math.round(closestSportDist),
+          rewardDesc: closestSport.rewardDesc,
+          streetLocation: closestSport.streetLocation,
+          badgeColor: closestSport.badgeColor,
+        };
+      } else {
+        this.cityPursuitStats.nearbySportsPrompt = null;
+      }
+    }
+
+    // 0f. Check Proximity to Service / Gas / EV Pit Stop Stations
+    {
+      let closestSvc: (typeof CITY_SERVICE_STATIONS)[number] | null = null;
+      let closestSvcDist = 24.0;
+      for (let i = 0; i < CITY_SERVICE_STATIONS.length; i++) {
+        const s = CITY_SERVICE_STATIONS[i];
+        const d = Math.hypot(s.x - this.playerPos.x, s.z - this.playerPos.z);
+        if (d < closestSvcDist) {
+          closestSvcDist = d;
+          closestSvc = s;
+        }
+      }
+      this.cityPursuitStats.nearbyServicePrompt = closestSvc
+        ? {
+            id: closestSvc.id,
+            name: closestSvc.name,
+            icon: '⛽',
+            brandColor: '#f59e0b',
+            distMeters: Math.round(closestSvcDist),
+            cost: this.citySave.streetCash >= closestSvc.serviceCost ? closestSvc.serviceCost : 0,
+          }
+        : null;
+    }
+
+    // 0g. Check Proximity to RIO / Crown Car Meet Showcase Zones
+    {
+      for (const mk of Object.keys(this.carMeetCooldowns)) {
+        if (this.carMeetCooldowns[mk] > 0) {
+          this.carMeetCooldowns[mk] = Math.max(0, this.carMeetCooldowns[mk] - dt);
+        }
+      }
+      let closestMeet: (typeof CITY_CAR_MEET_ZONES)[number] | null = null;
+      let closestMeetDist = Infinity;
+      for (let i = 0; i < CITY_CAR_MEET_ZONES.length; i++) {
+        const m = CITY_CAR_MEET_ZONES[i];
+        const d = Math.hypot(m.x - this.playerPos.x, m.z - this.playerPos.z);
+        if (d <= m.radius && d < closestMeetDist) {
+          closestMeetDist = d;
+          closestMeet = m;
+        }
+      }
+      if (closestMeet) {
+        const carSpec = getEffectiveStreetCarSpec(
+          this.cityPursuitStats.currentStreetCar,
+          this.citySave.activeTrimByCar?.[this.cityPursuitStats.currentStreetCar.id]
+        );
+        const tierMult = Math.min(2.6, Math.max(1.0, carSpec.price / 65000));
+        this.cityPursuitStats.nearbyCarMeetPrompt = {
+          id: closestMeet.id,
+          name: closestMeet.name,
+          icon: '🏁',
+          distMeters: Math.round(closestMeetDist),
+          cooldownLeftSec: Math.ceil(this.carMeetCooldowns[closestMeet.id] || 0),
+          payoutCash: Math.round(closestMeet.rewardCash * tierMult),
+        };
+      } else {
+        this.cityPursuitStats.nearbyCarMeetPrompt = null;
+      }
+    }
+
+    // 0h. Highway & Blvd Speed Camera Flyby Cash Bonuses
+    {
+      for (const ck of Object.keys(this.speedCameraCooldowns)) {
+        if (this.speedCameraCooldowns[ck] > 0) {
+          this.speedCameraCooldowns[ck] = Math.max(0, this.speedCameraCooldowns[ck] - dt);
+        }
+      }
+      const absKmh = Math.abs(this.playerSpeedKmh);
+      for (let i = 0; i < MARYLAND_SPEED_CAMERAS.length; i++) {
+        const cam = MARYLAND_SPEED_CAMERAS[i];
+        if ((this.speedCameraCooldowns[cam.id] || 0) > 0) continue;
+        const d = Math.hypot(cam.x - this.playerPos.x, cam.z - this.playerPos.z);
+        if (d < cam.triggerRadius && absKmh >= cam.targetSpeedKmh) {
+          this.speedCameraCooldowns[cam.id] = 45;
+          const mph = Math.round(absKmh * 0.621371);
+          const excess = Math.max(0, absKmh - cam.targetSpeedKmh);
+          const bonus = Math.min(1800, Math.round(cam.bonusCash + excess * 9));
+          this.citySave.streetCash += bonus;
+          saveMetroCitySave(this.citySave);
+          this.cityPursuitStats.streetCash = this.citySave.streetCash;
+          soundEngine.playStartLightBeep(true);
+          this.awardStreetSkillBonus(`📸 RADAR FLYBY @ ${mph} MPH`, bonus);
+          this.cityPursuitStats.activeAlertBanner = `📸 ${cam.name.toUpperCase()}: CLOCKED ${mph} MPH! +$${bonus.toLocaleString()} SPEED CAM BONUS!`;
+          this.cityPursuitStats.activeAlertTimer = 3.6;
+          break;
+        }
       }
     }
 
@@ -6355,8 +6739,11 @@ export class PhysicsEngine {
       }
     }
 
-    // Street Drift Skill Check
-    if (Math.abs(this.playerSpeedKmh) > 72 && Math.abs(this.telemetry?.steer || 0) > 0.65) {
+    // Street Drift Skill Check (supports both high-speed drift & handbrake slide)
+    const isDriftingNow =
+      (Math.abs(this.playerSpeedKmh) > 72 && Math.abs(this.telemetry?.steer || 0) > 0.65) ||
+      (this.handbrakeActive && Math.abs(this.playerSpeedKmh) > 36 && Math.abs(this.handbrakeSlideAngle) > 0.14);
+    if (isDriftingNow) {
       this.streetDriftAccum += dt;
       if (this.streetDriftAccum >= 0.85) {
         this.streetDriftAccum = 0;
@@ -6367,7 +6754,9 @@ export class PhysicsEngine {
     }
 
     // 3b. Vehicle Lighting: Flashing Turn Signals, Hazard Flashers, Crimson Brake Lights & Police Strobes
-    const isPlayerBraking = this.playerSpeedKmh > 4 && Boolean(input && input.brake > 0.05);
+    const isPlayerBraking =
+      Boolean(input && input.handbrake) ||
+      (this.playerSpeedKmh > 4 && Boolean(input && input.brake > 0.05));
     const sigMode = this.cityPursuitStats.turnSignal;
     const playerLeftSignal = sigMode === 'left' || sigMode === 'hazards';
     const playerRightSignal = sigMode === 'right' || sigMode === 'hazards';
@@ -7922,10 +8311,14 @@ export class PhysicsEngine {
         this.customGpsTarget.z - this.playerPos.z
       );
       if (distGps < 18.0) {
+        const arrivedLabel = this.customGpsTarget.label;
         this.customGpsTarget = null;
         if (!this.pendingHeistLoot) {
           this.missionBeacon?.setWaypoint(0, 0, '#10b981', false, 0);
         }
+        soundEngine.playStartLightBeep(true);
+        this.cityPursuitStats.activeAlertBanner = `🎯 ARRIVED AT ${arrivedLabel.toUpperCase()}`;
+        this.cityPursuitStats.activeAlertTimer = 3.5;
       }
     } else {
       if (!activeBeaconSet) {

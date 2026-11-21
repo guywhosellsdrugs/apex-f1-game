@@ -16,6 +16,7 @@ interface ControlsSettingsModalProps {
 const ACTION_LABELS: Record<keyof CustomControlBindings, { label: string; desc: string }> = {
   throttle: { label: 'Throttle (Accelerate)', desc: 'Forward drive & launch acceleration' },
   brake: { label: 'Brakes & Reverse', desc: 'Braking deceleration & reverse gear' },
+  handbrake: { label: 'Handbrake / E-Brake [Space]', desc: 'Lock rear tires for tight handbrake drifts & parking hold' },
   steerLeft: { label: 'Steer Left', desc: 'Turn vehicle wheel left' },
   steerRight: { label: 'Steer Right', desc: 'Turn vehicle wheel right' },
   shiftUp: { label: 'Shift Gear Up (+)', desc: 'Force shift up to next gear (1–8, default: F)' },
