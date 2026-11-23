@@ -105,7 +105,20 @@ export const MD_LANDMARKS = {
   bohrerFootballField: { x: gx(-42), z: gz(2242) },
   rioBowlingArcade: { x: gx(-348), z: gz(2268) },
   rioFishingPier: { x: gx(-464), z: gz(2274) },
+  daveAndBusters: { x: gx(-376), z: gz(2170) },
+  chuckECheese: { x: gx(-224), z: gz(1742) },
   annapolisFishingDock: { x: 1455, z: 730 },
+};
+
+export const MAYHILL_CT_ROUNDABOUT = {
+  cx: gx(714),
+  cz: gz(1464),
+  stemStartX: gx(600),
+  ringRadius: 28.0,
+  houseRadius: 44.0,
+  numbers: ['2', '4', '6', '8', '10', '12', '11', '9', '7', '5', '3', '1'] as const,
+  thetaStart: Math.PI + 0.39,
+  thetaEnd: Math.PI * 3 - 0.39,
 };
 
 export type CitySportType = 'basketball' | 'golf' | 'baseball' | 'football' | 'soccer' | 'bowling' | 'fishing';
@@ -871,12 +884,26 @@ export const GAITHERSBURG_NEIGHBORHOOD_ROADS: MarylandRoadSpec[] = [
     width: 10.5,
     speedLimitMph: 25,
     isResidential: true,
-    culDeSacEndRadius: 12.5,
     region: 'gaithersburg',
     points: [
       { x: gx(600), z: gz(1464) },
-      { x: gx(676), z: gz(1464) },
+      { x: gx(714 - 28), z: gz(1464) },
     ],
+  },
+  {
+    id: 'mayhill_ct_roundabout',
+    name: 'MAYHILL CT ROUNDABOUT (HADLEY FARMS)',
+    width: 10.5,
+    speedLimitMph: 20,
+    isResidential: true,
+    region: 'gaithersburg',
+    points: Array.from({ length: 25 }, (_, i) => {
+      const ang = Math.PI + (i / 24) * Math.PI * 2;
+      return {
+        x: gx(714) + Math.cos(ang) * 28.0,
+        z: gz(1464) + Math.sin(ang) * 28.0,
+      };
+    }),
   },
   // Hadley Farms West (Spacious 76m Blocks West of Woodfield Rd: 130..492)
   {

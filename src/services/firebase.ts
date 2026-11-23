@@ -26,6 +26,7 @@ import {
   updateDoc,
   deleteDoc,
   Firestore,
+  Timestamp,
 } from 'firebase/firestore';
 import {
   getDatabase,
@@ -36,6 +37,15 @@ import {
   Database,
 } from 'firebase/database';
 import localFirebaseConfig from '../../firebase-applet-config.json';
+import {
+  MetroCitySaveSlot,
+  loadMetroCitySlots,
+  saveMetroCitySlots,
+  getActiveMetroCitySlotId,
+  setActiveMetroCitySlotId,
+  normalizeMetroCitySave,
+  mergeMetroCitySlotLists,
+} from '../game/cityTrafficBuilder';
 
 // Universal Environment Resolution:
 // Supports:
@@ -323,6 +333,7 @@ export interface CloudCareerData {
   customTeamName?: string;
   seasonStateJson?: string;
   activeCareerSlotId?: string;
+  activeMetroCitySlotId?: string;
   careerSlotsJson?: string;
   createdAt?: any;
   updatedAt?: any;
@@ -996,9 +1007,273 @@ export async function saveGlobalBugReportsWithPin(
   return { success: true };
 }
 
+// =========================================================================
+// METRO CITY MULTI-SLOT CLOUD PERSISTENCE (/users/{uid}/metroCitySaves/{slotId})
+// Stores native Firestore Maps & Lists (no JSON.stringify) with strict rules
+// =========================================================================
+
+function toMillis(ts: any, fallback: number): number {
+  if (typeof ts === 'number' && Number.isFinite(ts)) return ts;
+  if (ts instanceof Timestamp) return ts.toMillis();
+  if (ts && typeof ts.toMillis === 'function') return ts.toMillis();
+  return fallback;
+}
+
+function buildNativeMetroCitySlotPayload(slot: MetroCitySaveSlot, uid: string) {
+  const s = normalizeMetroCitySave(slot.state);
+  const ownedCarIds = (Array.isArray(s.ownedCarIds) ? s.ownedCarIds : ['honda_civic'])
+    .map((id) => String(id).slice(0, 64))
+    .slice(0, 64);
+  if (ownedCarIds.length === 0) ownedCarIds.push('honda_civic');
+
+  const completedMissionIds = (Array.isArray(s.completedMissionIds) ? s.completedMissionIds : [])
+    .map((id) => String(id).slice(0, 64))
+    .slice(0, 100);
+
+  const ownedHouseIds = (Array.isArray(s.ownedHouseIds) ? s.ownedHouseIds : [])
+    .map((id) => String(id).slice(0, 64))
+    .slice(0, 64);
+
+  const customPaintByCar: Record<string, string> = {};
+  for (const [k, v] of Object.entries(s.customPaintByCar || {}).slice(0, 64)) {
+    if (typeof k === 'string' && typeof v === 'string') {
+      customPaintByCar[k.slice(0, 64)] = v.slice(0, 32);
+    }
+  }
+
+  const unlockedTrimsByCar: Record<string, string[]> = {};
+  for (const [k, v] of Object.entries(s.unlockedTrimsByCar || {}).slice(0, 64)) {
+    if (typeof k === 'string' && Array.isArray(v)) {
+      unlockedTrimsByCar[k.slice(0, 64)] = v.map((t) => String(t).slice(0, 64)).slice(0, 16);
+    }
+  }
+
+  const activeTrimByCar: Record<string, string> = {};
+  for (const [k, v] of Object.entries(s.activeTrimByCar || {}).slice(0, 64)) {
+    if (typeof k === 'string' && typeof v === 'string') {
+      activeTrimByCar[k.slice(0, 64)] = v.slice(0, 64);
+    }
+  }
+
+  const houseFurnishings: Record<string, string[]> = {};
+  for (const [houseId, items] of Object.entries(s.houseFurnishings || {}).slice(0, 64)) {
+    if (typeof houseId === 'string' && houseId && Array.isArray(items)) {
+      const cleanedItems = items.map((t) => String(t).slice(0, 64)).filter(Boolean).slice(0, 24);
+      if (cleanedItems.length > 0) {
+        houseFurnishings[houseId.slice(0, 64)] = cleanedItems;
+      }
+    }
+  }
+
+  return {
+    slotId: String(slot.slotId).replace(/[^a-zA-Z0-9_\-]/g, '_').slice(0, 64) || 'mc_slot_1',
+    ownerUid: uid,
+    slotName: (String(slot.slotName || 'Metro City Save').trim() || 'Metro City Save').slice(0, 64),
+    streetCash: Number.isFinite(s.streetCash) ? Math.max(-100000000, Math.min(1000000000, s.streetCash)) : 5000,
+    ownedCarIds,
+    selectedCarId: String(s.selectedCarId || 'honda_civic').slice(0, 64),
+    customPaintByCar,
+    unlockedTrimsByCar,
+    activeTrimByCar,
+    completedMissions: Math.max(0, Math.min(500, Math.round(s.completedMissions || completedMissionIds.length))),
+    completedMissionIds,
+    totalEarnedCash: Number.isFinite(s.totalEarnedCash) ? Math.max(0, Math.min(1000000000, s.totalEarnedCash)) : 5000,
+    streetRepLevel: Math.max(1, Math.min(1000, Math.round(s.streetRepLevel || 1))),
+    pendingMissionId: typeof s.pendingMissionId === 'string' && s.pendingMissionId ? s.pendingMissionId.slice(0, 64) : null,
+    ownedHouseIds,
+    activeHomeId: typeof s.activeHomeId === 'string' && s.activeHomeId ? s.activeHomeId.slice(0, 64) : null,
+    houseFurnishings,
+    unpaidCrashTicketsTab: Number.isFinite(s.unpaidCrashTicketsTab) ? Math.max(0, Math.min(100000000, s.unpaidCrashTicketsTab)) : 0,
+    totalJobsCompleted: Math.max(0, Math.min(100000, Math.round(s.totalJobsCompleted || 0))),
+    totalHeistsCompleted: Math.max(0, Math.min(100000, Math.round(s.totalHeistsCompleted || 0))),
+    bankRobberyBustCount: Math.max(0, Math.min(100000, Math.round(s.bankRobberyBustCount || 0))),
+  };
+}
+
+async function ensureUserDocForMetroCity(user: FirebaseUser, activeSlotId: string): Promise<void> {
+  const userRef = doc(db, 'users', user.uid);
+  const snap = await getDoc(userRef);
+  const safeDisplayName = ((user.displayName || 'Metro City Driver').trim() || 'Metro City Driver').slice(0, 80);
+  if (!snap.exists()) {
+    await setDoc(userRef, {
+      uid: user.uid,
+      displayName: safeDisplayName,
+      email: (user.email || '').slice(0, 150),
+      cashBalance: 5000,
+      activeMetroCitySlotId: activeSlotId.slice(0, 64),
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+  } else {
+    const existing = snap.data() || {};
+    await updateDoc(userRef, {
+      uid: existing.uid || user.uid,
+      displayName: (typeof existing.displayName === 'string' && existing.displayName.trim() ? existing.displayName : safeDisplayName).slice(0, 80),
+      cashBalance: typeof existing.cashBalance === 'number' ? existing.cashBalance : 5000,
+      activeMetroCitySlotId: activeSlotId.slice(0, 64),
+      updatedAt: serverTimestamp(),
+    });
+  }
+}
+
+export interface MetroCityCloudSyncResult {
+  success: boolean;
+  syncedCount: number;
+  uid?: string;
+  error?: string;
+}
+
+export async function saveMetroCitySlotsToCloud(
+  slotsOverride?: MetroCitySaveSlot[],
+  activeSlotIdOverride?: string,
+  allowGuestSignIn = false
+): Promise<MetroCityCloudSyncResult> {
+  let user = auth.currentUser;
+  if (!user && allowGuestSignIn) {
+    user = await signInAsGuest();
+  }
+  if (!user) {
+    return {
+      success: false,
+      syncedCount: 0,
+      error: 'Sign in with Google or Guest in Firebase Cloud to sync Metro City saves online.',
+    };
+  }
+
+  const slots = slotsOverride && slotsOverride.length > 0 ? slotsOverride : loadMetroCitySlots();
+  const activeSlotId = activeSlotIdOverride || getActiveMetroCitySlotId(slots);
+
+  try {
+    await ensureUserDocForMetroCity(user, activeSlotId);
+  } catch (err) {
+    return {
+      success: false,
+      syncedCount: 0,
+      uid: user.uid,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+
+  let syncedCount = 0;
+  for (const slot of slots) {
+    const nativePayload = buildNativeMetroCitySlotPayload(slot, user.uid);
+    const slotPath = `users/${user.uid}/metroCitySaves/${nativePayload.slotId}`;
+    const slotRef = doc(db, 'users', user.uid, 'metroCitySaves', nativePayload.slotId);
+    try {
+      const existingSnap = await getDoc(slotRef);
+      if (existingSnap.exists()) {
+        await updateDoc(slotRef, {
+          ...nativePayload,
+          updatedAt: serverTimestamp(),
+        });
+      } else {
+        await setDoc(slotRef, {
+          ...nativePayload,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+      }
+      syncedCount++;
+    } catch (err) {
+      try {
+        handleFirestoreError(err, OperationType.WRITE, slotPath);
+      } catch (wrappedErr: any) {
+        return {
+          success: false,
+          syncedCount,
+          uid: user.uid,
+          error: wrappedErr?.message || String(err),
+        };
+      }
+    }
+  }
+
+  return { success: true, syncedCount, uid: user.uid };
+}
+
+export async function loadMetroCitySlotsFromCloud(): Promise<{
+  slots: MetroCitySaveSlot[];
+  activeSlotId?: string;
+  uid?: string;
+} | null> {
+  const user = auth.currentUser;
+  if (!user) return null;
+
+  let cloudActiveSlotId: string | undefined;
+  try {
+    const userSnap = await getDoc(doc(db, 'users', user.uid));
+    if (userSnap.exists()) {
+      const data = userSnap.data();
+      if (typeof data?.activeMetroCitySlotId === 'string' && data.activeMetroCitySlotId) {
+        cloudActiveSlotId = data.activeMetroCitySlotId;
+      }
+    }
+  } catch {}
+
+  try {
+    const colRef = collection(db, 'users', user.uid, 'metroCitySaves');
+    const q = query(colRef, where('ownerUid', '==', user.uid), limit(25));
+    const snap = await getDocs(q);
+    const now = Date.now();
+    const loaded: MetroCitySaveSlot[] = snap.docs.map((d) => {
+      const raw = d.data() || {};
+      return {
+        slotId: String(raw.slotId || d.id),
+        slotName: typeof raw.slotName === 'string' && raw.slotName.trim() ? raw.slotName : 'Metro City Save',
+        createdAt: toMillis(raw.createdAt, now),
+        updatedAt: toMillis(raw.updatedAt, now),
+        state: normalizeMetroCitySave(raw),
+      };
+    });
+    return { slots: loaded, activeSlotId: cloudActiveSlotId, uid: user.uid };
+  } catch (err) {
+    console.warn('[Firebase] Metro City cloud slots load fallback:', err);
+    return null;
+  }
+}
+
+export async function syncAndMergeMetroCitySlotsWithCloud(
+  pushMergedToCloud = true
+): Promise<{ slots: MetroCitySaveSlot[]; activeSlotId: string; syncedCloud: boolean }> {
+  const localSlots = loadMetroCitySlots();
+  const localActiveId = getActiveMetroCitySlotId(localSlots);
+  const cloudRes = await loadMetroCitySlotsFromCloud();
+  if (!cloudRes) {
+    return { slots: localSlots, activeSlotId: localActiveId, syncedCloud: false };
+  }
+  const merged = mergeMetroCitySlotLists(cloudRes.slots, localSlots);
+  const chosenActiveId =
+    (cloudRes.activeSlotId && merged.some((s) => s.slotId === cloudRes.activeSlotId)
+      ? cloudRes.activeSlotId
+      : undefined) ||
+    (merged.some((s) => s.slotId === localActiveId) ? localActiveId : merged[0]?.slotId || 'mc_slot_1');
+
+  setActiveMetroCitySlotId(chosenActiveId);
+  saveMetroCitySlots(merged, true);
+
+  let syncedCloud = cloudRes.slots.length > 0;
+  if (pushMergedToCloud && merged.length > 0) {
+    const pushRes = await saveMetroCitySlotsToCloud(merged, chosenActiveId, false);
+    syncedCloud = pushRes.success;
+  }
+  return { slots: merged, activeSlotId: chosenActiveId, syncedCloud };
+}
+
+export async function deleteMetroCitySlotFromCloud(slotId: string): Promise<boolean> {
+  const user = auth.currentUser;
+  if (!user) return false;
+  const cleanId = String(slotId || '').replace(/[^a-zA-Z0-9_\-]/g, '_').slice(0, 64);
+  if (!cleanId) return false;
+  try {
+    await deleteDoc(doc(db, 'users', user.uid, 'metroCitySaves', cleanId));
+    return true;
+  } catch (err) {
+    console.warn('[Firebase] Metro City cloud slot delete notice:', err);
+    return false;
+  }
+}
+
 // Run test connection silently on module load
 if (typeof window !== 'undefined') {
   testConnection();
 }
-
-

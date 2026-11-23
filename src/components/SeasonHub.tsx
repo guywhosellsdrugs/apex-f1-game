@@ -1,5 +1,6 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { MarylandGoogleMapModal } from './MarylandGoogleMapModal';
+import { MetroCitySlotsModal } from './MetroCitySlotsModal';
 import {
   CircuitInfo,
   SeasonState,
@@ -126,9 +127,13 @@ import {
   CITY_MISSIONS_CATALOG,
   loadMetroCitySave,
   saveMetroCitySave,
+  loadMetroCitySlots,
+  getActiveMetroCitySlotId,
   MetroCitySaveState,
+  MetroCitySaveSlot,
   getEffectiveStreetCarSpec,
 } from '../game/cityTrafficBuilder';
+import { saveMetroCitySlotsToCloud } from '../services/firebase';
 
 interface SeasonHubProps {
   season: SeasonState;
@@ -228,9 +233,23 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'weekend' | 'metrocity' | 'newsfeed' | 'analytics' | 'offseason' | 'contracts' | 'myteam' | 'standings' | 'calendar' | 'records' | 'devnotes' | 'patchnotes' | 'bugreports'>('weekend');
   const [citySave, setCitySave] = useState<MetroCitySaveState>(() => loadMetroCitySave());
+  const [citySlots, setCitySlots] = useState<MetroCitySaveSlot[]>(() => loadMetroCitySlots());
+  const [activeCitySlotId, setActiveCitySlotIdState] = useState<string>(() => getActiveMetroCitySlotId());
+  const [showMetroCitySlotsModal, setShowMetroCitySlotsModal] = useState<boolean>(false);
   const [cityHubSubTab, setCityHubSubTab] = useState<'garage' | 'dealership' | 'missions'>('garage');
   const [showGoogleMapsModal, setShowGoogleMapsModal] = useState<boolean>(false);
   const [selectedLaps, setSelectedLaps] = useState<number>(season.lapCount || 5);
+
+  useEffect(() => {
+    const syncCityState = () => {
+      const latestSlots = loadMetroCitySlots();
+      setCitySlots(latestSlots);
+      setActiveCitySlotIdState(getActiveMetroCitySlotId(latestSlots));
+      setCitySave(loadMetroCitySave());
+    };
+    window.addEventListener('metro-city-save-updated', syncCityState);
+    return () => window.removeEventListener('metro-city-save-updated', syncCityState);
+  }, []);
   const [startingTireCompound, setStartingTireCompound] = useState<TireCompound>(getStoredStartingTireCompound());
   const [unitSystem, setUnitSystem] = useState<UnitSystem>(getStoredUnitSystem());
   const [graphicsQuality, setGraphicsQuality] = useState<GraphicsQuality>(getStoredGraphicsQuality());
@@ -2885,7 +2904,7 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
                     </span>
                   ) : season.difficulty === 'legend' ? (
                     <span>
-                      <strong>Legend Simulation:</strong> 1.14x-1.18x ferocious AI pace, 5.0s stall penalty on collision. Verstappen & Norris push to the absolute edge with razor-sharp braking.
+                      <strong>Legend Simulation:</strong> 1.0x true F1 benchmark AI pace, 5.0s stall penalty on collision. Verstappen &amp; Norris push to the limit with razor-sharp braking.
                     </span>
                   ) : (
                     <span>
@@ -7668,6 +7687,34 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
                       <Play className="w-4 h-4 fill-black" />
                       <span>DRIVE OUT INTO METRO CITY ({activeCar.name})</span>
                     </button>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setShowMetroCitySlotsModal(true)}
+                        className="px-3.5 py-2 rounded-xl bg-sky-500/20 hover:bg-sky-500/30 border border-sky-400/40 text-sky-200 font-bold text-xs flex items-center gap-1.5 cursor-pointer transition-colors"
+                      >
+                        <FolderKanban className="w-3.5 h-3.5 text-sky-400" />
+                        <span>
+                          Save: {citySlots.find((s) => s.slotId === activeCitySlotId)?.slotName || 'Metro City Save #1'} ({citySlots.length})
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const res = await saveMetroCitySlotsToCloud(undefined, undefined, true);
+                          if (res.success) {
+                            setNotificationMsg(`✓ Synced ${res.syncedCount} Metro City save(s) to Firebase Cloud!`);
+                          } else {
+                            setNotificationMsg(res.error || 'Could not sync Metro City saves to Firebase.');
+                          }
+                        }}
+                        className="px-3.5 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/40 text-amber-200 font-bold text-xs flex items-center gap-1.5 cursor-pointer transition-colors"
+                      >
+                        <Cloud className="w-3.5 h-3.5 text-amber-400" />
+                        <span>Firebase Cloud Sync</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
 
@@ -9247,7 +9294,7 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
                 {practiceDifficulty === 'rookie'
                   ? 'Rookie: 0.80x AI pace. Soft braking, forgiving AI lines.'
                   : practiceDifficulty === 'legend'
-                  ? 'Legend Simulation: 1.15x fierce AI pace, late-braking passes.'
+                  ? 'Legend Simulation: 1.0x true benchmark AI pace, late-braking passes.'
                   : 'Pro Standard: 0.89x authentic F1 race pace.'}
               </p>
             </div>
@@ -9613,6 +9660,17 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
           }
         />
       )}
+
+      <MetroCitySlotsModal
+        isOpen={showMetroCitySlotsModal}
+        onClose={() => setShowMetroCitySlotsModal(false)}
+        onSlotChanged={() => {
+          const latestSlots = loadMetroCitySlots();
+          setCitySlots(latestSlots);
+          setActiveCitySlotIdState(getActiveMetroCitySlotId(latestSlots));
+          setCitySave(loadMetroCitySave());
+        }}
+      />
     </div>
   );
 };

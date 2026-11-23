@@ -43,6 +43,7 @@ import {
   MARYLAND_SPEED_CAMERAS,
   CITY_CAR_MEET_ZONES,
   isOnMarylandPavedSurface,
+  MAYHILL_CT_ROUNDABOUT,
 } from './marylandRoadNetwork';
 import type {
   CitySportType,
@@ -103,6 +104,7 @@ export interface CityBuildingBox {
   minZ: number;
   maxZ: number;
   height?: number;
+  stories?: number;
   name?: string;
 }
 
@@ -1867,6 +1869,7 @@ export interface MetroCitySaveState {
   pendingMissionId?: string | null;
   ownedHouseIds: string[];
   activeHomeId: string | null;
+  houseFurnishings: Record<string, string[]>;
   unpaidCrashTicketsTab: number;
   totalJobsCompleted: number;
   totalHeistsCompleted: number;
@@ -2074,6 +2077,7 @@ export interface CityHeistTargetSpec {
   id: string;
   name: string;
   category: 'BANK' | 'JEWELRY' | 'STORE' | 'HOUSE';
+  robbable?: boolean;
   icon: string;
   x: number;
   z: number;
@@ -2119,18 +2123,18 @@ export const CITY_HEIST_TARGETS_CATALOG: CityHeistTargetSpec[] = [
   },
   {
     id: 'bank_national_harbor',
-    name: 'National Harbor MGM Casino Vault',
+    name: 'National Harbor Waterfront Reserve Vault',
     category: 'BANK',
-    icon: '🎰',
+    icon: '🏦',
     x: MD_LANDMARKS.nationalHarbor.x,
     z: MD_LANDMARKS.nationalHarbor.z,
-    streetLocation: '101 MGM National Ave (National Harbor)',
+    streetLocation: '150 Waterfront St (National Harbor)',
     payoutCash: 42000,
     robDurationSec: 5.0,
     wantedStarsTriggered: 5,
     cooldownSec: 85,
     badgeColor: '#f97316',
-    description: 'High-roller Potomac riverfront casino cage & bullion room—defeat the heavy security detail to crack the vault!',
+    description: 'High-security Potomac riverfront treasury & bullion room—defeat the security detail to crack the vault!',
   },
   {
     id: 'bank_frederick_trust',
@@ -2312,6 +2316,38 @@ export const CITY_HEIST_TARGETS_CATALOG: CityHeistTargetSpec[] = [
     badgeColor: '#4ade80',
     description: 'Neighborhood Gaithersburg plaza market just down Woodfield Rd—lightest bot security for quick cash!',
   },
+  {
+    id: 'store_dave_and_busters',
+    name: "Dave & Buster's RIO Arcade & Grill",
+    category: 'STORE',
+    robbable: true,
+    icon: '🕹️',
+    x: MD_LANDMARKS.daveAndBusters.x,
+    z: MD_LANDMARKS.daveAndBusters.z,
+    streetLocation: '9811 Washingtonian Blvd · RIO Center (Gaithersburg)',
+    payoutCash: 16200,
+    robDurationSec: 3.0,
+    wantedStarsTriggered: 5,
+    cooldownSec: 50,
+    badgeColor: '#f97316',
+    description: '3-floor mega RIO arcade with elevators & all 13 skill games (Pool, Air Hockey, Skee-Ball, Pop-a-Shot, Pinball, F1 Sim & more). Explore & play peacefully or raid the prize vaults!',
+  },
+  {
+    id: 'store_chuck_e_cheese',
+    name: "Chuck E. Cheese's Lakeforest Fun Center",
+    category: 'STORE',
+    robbable: false,
+    icon: '🍕',
+    x: MD_LANDMARKS.chuckECheese.x,
+    z: MD_LANDMARKS.chuckECheese.z,
+    streetLocation: '700 N Frederick Ave · Lakeforest Plaza (Gaithersburg)',
+    payoutCash: 0,
+    robDurationSec: 2.6,
+    wantedStarsTriggered: 0,
+    cooldownSec: 45,
+    badgeColor: '#a855f7',
+    description: 'Massive 3-floor family pizza & arcade zone with elevators, Skee-Ball, Claw Machines, Whack-a-Bot, Pinball, Pop-a-Shot & Dance Stage! Explore-only public fun center.',
+  },
 ];
 
 export interface CityHouseSpec {
@@ -2340,9 +2376,9 @@ export const CITY_HOUSES_CATALOG: CityHouseSpec[] = [
     tierLabel: 'STARTER HOUSE',
     tier: 'STARTER HOUSE',
     icon: '🏡',
-    price: 7500,
-    passiveIncomePer30s: 380,
-    passiveIncomePerMin: 760,
+    price: 285000,
+    passiveIncomePer30s: 2200,
+    passiveIncomePerMin: 4400,
     garageSlots: 2,
     x: 785,
     z: -105,
@@ -2350,7 +2386,7 @@ export const CITY_HOUSES_CATALOG: CityHouseSpec[] = [
     spawnHeading: 0,
     streetLocation: '1211 N Rolling Rd (Catonsville)',
     badgeColor: '#38bdf8',
-    description: 'Cozy starter residence minutes from ISB on Johnnycake Rd & I-695 with private driveway and rental income.',
+    description: 'Classic 2-story Catonsville starter residence minutes from ISB on Johnnycake Rd & I-695 with private driveway and rental income.',
   },
   {
     id: 'house_southside_loft',
@@ -2358,9 +2394,9 @@ export const CITY_HOUSES_CATALOG: CityHouseSpec[] = [
     tierLabel: 'ROCKVILLE HOME',
     tier: 'ROCKVILLE HOME',
     icon: '🏠',
-    price: 9500,
-    passiveIncomePer30s: 450,
-    passiveIncomePerMin: 900,
+    price: 395000,
+    passiveIncomePer30s: 3100,
+    passiveIncomePerMin: 6200,
     garageSlots: 2,
     x: -618,
     z: 1378,
@@ -2368,7 +2404,7 @@ export const CITY_HOUSES_CATALOG: CityHouseSpec[] = [
     spawnHeading: -Math.PI / 2,
     streetLocation: '215 W Montgomery Ave (Rockville)',
     badgeColor: '#0ea5e9',
-    description: 'Classic Montgomery County brick residence near Rockville Town Square & Shady Grove Metro.',
+    description: 'Classic 2-story Montgomery County brick residence near Rockville Town Square & Shady Grove Metro.',
   },
   {
     id: 'house_midtown_townhouse',
@@ -2376,9 +2412,9 @@ export const CITY_HOUSES_CATALOG: CityHouseSpec[] = [
     tierLabel: 'FREDERICK HOME',
     tier: 'FREDERICK HOME',
     icon: '🏠',
-    price: 24000,
-    passiveIncomePer30s: 1100,
-    passiveIncomePerMin: 2200,
+    price: 525000,
+    passiveIncomePer30s: 4200,
+    passiveIncomePerMin: 8400,
     garageSlots: 4,
     x: -1112,
     z: -332,
@@ -2386,7 +2422,7 @@ export const CITY_HOUSES_CATALOG: CityHouseSpec[] = [
     spawnHeading: Math.PI / 2,
     streetLocation: '214 N Market St (Frederick)',
     badgeColor: '#10b981',
-    description: 'Historic red-brick residence steps from Carroll Creek Linear Park and Clustered Spires in Downtown Frederick.',
+    description: 'Historic 2-story red-brick residence steps from Carroll Creek Linear Park and Clustered Spires in Downtown Frederick.',
   },
   {
     id: 'house_pinecrest_colonial',
@@ -2394,9 +2430,9 @@ export const CITY_HOUSES_CATALOG: CityHouseSpec[] = [
     tierLabel: 'HOWARD CO COLONIAL',
     tier: 'HOWARD CO COLONIAL',
     icon: '🏡',
-    price: 38000,
-    passiveIncomePer30s: 1750,
-    passiveIncomePerMin: 3500,
+    price: 685000,
+    passiveIncomePer30s: 5500,
+    passiveIncomePerMin: 11000,
     garageSlots: 4,
     x: 228,
     z: 72,
@@ -2412,9 +2448,9 @@ export const CITY_HOUSES_CATALOG: CityHouseSpec[] = [
     tierLabel: 'CAPITAL WATERFRONT',
     tier: 'CAPITAL WATERFRONT',
     icon: '⛵',
-    price: 55000,
-    passiveIncomePer30s: 2500,
-    passiveIncomePerMin: 5000,
+    price: 1150000,
+    passiveIncomePer30s: 9200,
+    passiveIncomePerMin: 18400,
     garageSlots: 6,
     x: 1410,
     z: 745,
@@ -2430,9 +2466,9 @@ export const CITY_HOUSES_CATALOG: CityHouseSpec[] = [
     tierLabel: 'COASTAL RESORT',
     tier: 'COASTAL RESORT',
     icon: '🏖️',
-    price: 115000,
-    passiveIncomePer30s: 5200,
-    passiveIncomePerMin: 10400,
+    price: 1650000,
+    passiveIncomePer30s: 13500,
+    passiveIncomePerMin: 27000,
     garageSlots: 10,
     x: 2452,
     z: 1060,
@@ -2448,9 +2484,9 @@ export const CITY_HOUSES_CATALOG: CityHouseSpec[] = [
     tierLabel: 'LUXURY MANSION',
     tier: 'LUXURY MANSION',
     icon: '💎',
-    price: 175000,
-    passiveIncomePer30s: 8200,
-    passiveIncomePerMin: 16400,
+    price: 2450000,
+    passiveIncomePer30s: 19500,
+    passiveIncomePerMin: 39000,
     garageSlots: 10,
     x: -555,
     z: 1735,
@@ -2458,7 +2494,7 @@ export const CITY_HOUSES_CATALOG: CityHouseSpec[] = [
     spawnHeading: -Math.PI / 2,
     streetLocation: '4902 Edgemoor Ln (Bethesda)',
     badgeColor: '#ec4899',
-    description: 'Prestigious Bethesda estate just inside I-495 Capital Beltway with panoramic glass wing and collector garage.',
+    description: 'Prestigious Bethesda estate just inside I-495 Capital Beltway with panoramic pool deck and collector garage.',
   },
   {
     id: 'house_billionaire_compound',
@@ -2466,9 +2502,9 @@ export const CITY_HOUSES_CATALOG: CityHouseSpec[] = [
     tierLabel: 'CROWN JEWEL ESTATE',
     tier: 'CROWN JEWEL ESTATE',
     icon: '🏔️',
-    price: 240000,
-    passiveIncomePer30s: 11500,
-    passiveIncomePerMin: 23000,
+    price: 3850000,
+    passiveIncomePer30s: 30000,
+    passiveIncomePerMin: 60000,
     garageSlots: 12,
     x: -2365,
     z: -500,
@@ -2481,6 +2517,16 @@ export const CITY_HOUSES_CATALOG: CityHouseSpec[] = [
 ];
 
 const METRO_CITY_SAVE_KEY = 'apex26_metro_city_game_v1';
+const METRO_CITY_SLOTS_KEY = 'apex26_metro_city_slots_v1';
+const ACTIVE_METRO_CITY_SLOT_KEY = 'apex26_active_metro_city_slot_v1';
+
+export interface MetroCitySaveSlot {
+  slotId: string;
+  slotName: string;
+  createdAt: number;
+  updatedAt: number;
+  state: MetroCitySaveState;
+}
 
 const LEGACY_CAR_ID_MAP: Record<string, string> = {
   starter_hatch: 'honda_civic',
@@ -2503,7 +2549,7 @@ function mapCarId(id: string): string {
   return CITY_STREET_CARS.some((c) => c.id === mapped) ? mapped : 'honda_civic';
 }
 
-export function loadMetroCitySave(): MetroCitySaveState {
+export function createDefaultMetroCitySave(): MetroCitySaveState {
   const defaultUnlockedTrims: Record<string, string[]> = {};
   const defaultActiveTrims: Record<string, string> = {};
   for (const car of CITY_STREET_CARS) {
@@ -2512,8 +2558,7 @@ export function loadMetroCitySave(): MetroCitySaveState {
       defaultActiveTrims[car.id] = car.trims[0].id;
     }
   }
-
-  const fallback: MetroCitySaveState = {
+  return {
     streetCash: 5000,
     ownedCarIds: ['honda_civic', 'toyota_camry'],
     selectedCarId: 'honda_civic',
@@ -2527,104 +2572,382 @@ export function loadMetroCitySave(): MetroCitySaveState {
     pendingMissionId: null,
     ownedHouseIds: [],
     activeHomeId: null,
+    houseFurnishings: {},
     unpaidCrashTicketsTab: 0,
     totalJobsCompleted: 0,
     totalHeistsCompleted: 0,
     bankRobberyBustCount: 0,
   };
-  if (typeof window === 'undefined') return fallback;
-  try {
-    const raw = localStorage.getItem(METRO_CITY_SAVE_KEY);
-    if (!raw) return fallback;
-    const parsed = JSON.parse(raw);
+}
 
-    const mappedOwnedSet = new Set<string>(['honda_civic', 'toyota_camry']);
-    if (Array.isArray(parsed.ownedCarIds)) {
-      for (const rawId of parsed.ownedCarIds) {
-        if (typeof rawId === 'string') {
-          mappedOwnedSet.add(mapCarId(rawId));
-        }
+export function normalizeMetroCitySave(rawParsed: unknown): MetroCitySaveState {
+  const fallback = createDefaultMetroCitySave();
+  if (!rawParsed || typeof rawParsed !== 'object') return fallback;
+  const parsed = rawParsed as Record<string, any>;
+
+  const mappedOwnedSet = new Set<string>(['honda_civic', 'toyota_camry']);
+  if (Array.isArray(parsed.ownedCarIds)) {
+    for (const rawId of parsed.ownedCarIds) {
+      if (typeof rawId === 'string') {
+        mappedOwnedSet.add(mapCarId(rawId));
       }
     }
-    const rawOwned = Array.from(mappedOwnedSet);
-    const rawSelected =
-      typeof parsed.selectedCarId === 'string' ? mapCarId(parsed.selectedCarId) : 'honda_civic';
-
-    const unlockedTrimsByCar: Record<string, string[]> = { ...defaultUnlockedTrims };
-    if (parsed.unlockedTrimsByCar && typeof parsed.unlockedTrimsByCar === 'object') {
-      for (const [carId, trimList] of Object.entries(parsed.unlockedTrimsByCar)) {
-        const carSpec = CITY_STREET_CARS.find((c) => c.id === carId);
-        if (carSpec && Array.isArray(trimList)) {
-          const validTrims = trimList.filter(
-            (t): t is string => typeof t === 'string' && carSpec.trims.some((tr) => tr.id === t)
-          );
-          if (!validTrims.includes(carSpec.trims[0].id)) {
-            validTrims.unshift(carSpec.trims[0].id);
-          }
-          unlockedTrimsByCar[carId] = validTrims;
-        }
-      }
-    }
-
-    const activeTrimByCar: Record<string, string> = { ...defaultActiveTrims };
-    if (parsed.activeTrimByCar && typeof parsed.activeTrimByCar === 'object') {
-      for (const [carId, trimId] of Object.entries(parsed.activeTrimByCar)) {
-        const carSpec = CITY_STREET_CARS.find((c) => c.id === carId);
-        if (
-          carSpec &&
-          typeof trimId === 'string' &&
-          carSpec.trims.some((tr) => tr.id === trimId)
-        ) {
-          activeTrimByCar[carId] = trimId;
-        }
-      }
-    }
-
-    const completedMissionIds = Array.isArray(parsed.completedMissionIds)
-      ? parsed.completedMissionIds.filter((id: unknown): id is string => typeof id === 'string')
-      : [];
-
-    return {
-      streetCash: typeof parsed.streetCash === 'number' ? parsed.streetCash : 5000,
-      ownedCarIds: rawOwned,
-      selectedCarId: rawSelected,
-      customPaintByCar:
-        parsed.customPaintByCar && typeof parsed.customPaintByCar === 'object'
-          ? parsed.customPaintByCar
-          : {},
-      unlockedTrimsByCar,
-      activeTrimByCar,
-      completedMissions:
-        typeof parsed.completedMissions === 'number'
-          ? Math.max(parsed.completedMissions, completedMissionIds.length)
-          : completedMissionIds.length,
-      completedMissionIds,
-      totalEarnedCash: typeof parsed.totalEarnedCash === 'number' ? parsed.totalEarnedCash : 5000,
-      streetRepLevel: typeof parsed.streetRepLevel === 'number' ? parsed.streetRepLevel : 1,
-      pendingMissionId: typeof parsed.pendingMissionId === 'string' ? parsed.pendingMissionId : null,
-      ownedHouseIds: Array.isArray(parsed.ownedHouseIds) ? parsed.ownedHouseIds : [],
-      activeHomeId: typeof parsed.activeHomeId === 'string' ? parsed.activeHomeId : null,
-      unpaidCrashTicketsTab:
-        typeof parsed.unpaidCrashTicketsTab === 'number' ? parsed.unpaidCrashTicketsTab : 0,
-      totalJobsCompleted:
-        typeof parsed.totalJobsCompleted === 'number' ? parsed.totalJobsCompleted : 0,
-      totalHeistsCompleted:
-        typeof parsed.totalHeistsCompleted === 'number' ? parsed.totalHeistsCompleted : 0,
-      bankRobberyBustCount:
-        typeof parsed.bankRobberyBustCount === 'number' ? parsed.bankRobberyBustCount : 0,
-    };
-  } catch {
-    return fallback;
   }
+  const rawOwned = Array.from(mappedOwnedSet);
+  const rawSelected =
+    typeof parsed.selectedCarId === 'string' ? mapCarId(parsed.selectedCarId) : 'honda_civic';
+
+  const unlockedTrimsByCar: Record<string, string[]> = { ...fallback.unlockedTrimsByCar };
+  if (parsed.unlockedTrimsByCar && typeof parsed.unlockedTrimsByCar === 'object') {
+    for (const [carId, trimList] of Object.entries(parsed.unlockedTrimsByCar)) {
+      const carSpec = CITY_STREET_CARS.find((c) => c.id === carId);
+      if (carSpec && Array.isArray(trimList)) {
+        const validTrims = trimList.filter(
+          (t): t is string => typeof t === 'string' && carSpec.trims.some((tr) => tr.id === t)
+        );
+        if (!validTrims.includes(carSpec.trims[0].id)) {
+          validTrims.unshift(carSpec.trims[0].id);
+        }
+        unlockedTrimsByCar[carId] = validTrims;
+      }
+    }
+  }
+
+  const activeTrimByCar: Record<string, string> = { ...fallback.activeTrimByCar };
+  if (parsed.activeTrimByCar && typeof parsed.activeTrimByCar === 'object') {
+    for (const [carId, trimId] of Object.entries(parsed.activeTrimByCar)) {
+      const carSpec = CITY_STREET_CARS.find((c) => c.id === carId);
+      if (
+        carSpec &&
+        typeof trimId === 'string' &&
+        carSpec.trims.some((tr) => tr.id === trimId)
+      ) {
+        activeTrimByCar[carId] = trimId;
+      }
+    }
+  }
+
+  const completedMissionIds = Array.isArray(parsed.completedMissionIds)
+    ? parsed.completedMissionIds.filter((id: unknown): id is string => typeof id === 'string')
+    : [];
+
+  const customPaintByCar: Record<string, string> = {};
+  if (parsed.customPaintByCar && typeof parsed.customPaintByCar === 'object') {
+    for (const [k, v] of Object.entries(parsed.customPaintByCar)) {
+      if (typeof k === 'string' && typeof v === 'string') {
+        customPaintByCar[k] = v.slice(0, 32);
+      }
+    }
+  }
+
+  const houseFurnishings: Record<string, string[]> = {};
+  if (parsed.houseFurnishings && typeof parsed.houseFurnishings === 'object') {
+    for (const [houseId, items] of Object.entries(parsed.houseFurnishings).slice(0, 64)) {
+      if (typeof houseId === 'string' && houseId && Array.isArray(items)) {
+        const uniq: string[] = [];
+        for (const item of items) {
+          if (typeof item === 'string' && item && !uniq.includes(item)) {
+            uniq.push(item.slice(0, 64));
+          }
+          if (uniq.length >= 24) break;
+        }
+        if (uniq.length > 0) {
+          houseFurnishings[houseId.slice(0, 64)] = uniq;
+        }
+      }
+    }
+  }
+
+  return {
+    streetCash: typeof parsed.streetCash === 'number' && Number.isFinite(parsed.streetCash) ? parsed.streetCash : 5000,
+    ownedCarIds: rawOwned,
+    selectedCarId: rawSelected,
+    customPaintByCar,
+    unlockedTrimsByCar,
+    activeTrimByCar,
+    completedMissions:
+      typeof parsed.completedMissions === 'number'
+        ? Math.max(parsed.completedMissions, completedMissionIds.length)
+        : completedMissionIds.length,
+    completedMissionIds,
+    totalEarnedCash: typeof parsed.totalEarnedCash === 'number' && Number.isFinite(parsed.totalEarnedCash) ? parsed.totalEarnedCash : 5000,
+    streetRepLevel: typeof parsed.streetRepLevel === 'number' && Number.isFinite(parsed.streetRepLevel) ? Math.max(1, parsed.streetRepLevel) : 1,
+    pendingMissionId: typeof parsed.pendingMissionId === 'string' ? parsed.pendingMissionId : null,
+    ownedHouseIds: Array.isArray(parsed.ownedHouseIds)
+      ? parsed.ownedHouseIds.filter((id: unknown): id is string => typeof id === 'string')
+      : [],
+    activeHomeId: typeof parsed.activeHomeId === 'string' ? parsed.activeHomeId : null,
+    houseFurnishings,
+    unpaidCrashTicketsTab:
+      typeof parsed.unpaidCrashTicketsTab === 'number' && Number.isFinite(parsed.unpaidCrashTicketsTab)
+        ? Math.max(0, parsed.unpaidCrashTicketsTab)
+        : 0,
+    totalJobsCompleted:
+      typeof parsed.totalJobsCompleted === 'number' && Number.isFinite(parsed.totalJobsCompleted)
+        ? Math.max(0, parsed.totalJobsCompleted)
+        : 0,
+    totalHeistsCompleted:
+      typeof parsed.totalHeistsCompleted === 'number' && Number.isFinite(parsed.totalHeistsCompleted)
+        ? Math.max(0, parsed.totalHeistsCompleted)
+        : 0,
+    bankRobberyBustCount:
+      typeof parsed.bankRobberyBustCount === 'number' && Number.isFinite(parsed.bankRobberyBustCount)
+        ? Math.max(0, parsed.bankRobberyBustCount)
+        : 0,
+  };
+}
+
+function notifyMetroCitySaveUpdated(detail?: { activeSlotId?: string }) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.dispatchEvent(new CustomEvent('metro-city-save-updated', { detail }));
+  } catch {}
+}
+
+function sanitizeSlotId(rawId: string, fallbackIdx = 1): string {
+  const cleaned = String(rawId || '')
+    .trim()
+    .replace(/[^a-zA-Z0-9_-]/g, '_')
+    .slice(0, 64);
+  return cleaned || `mc_slot_${fallbackIdx}`;
+}
+
+export function loadMetroCitySlots(): MetroCitySaveSlot[] {
+  const now = Date.now();
+  if (typeof window === 'undefined') {
+    return [
+      {
+        slotId: 'mc_slot_1',
+        slotName: 'Metro City Save #1',
+        createdAt: now,
+        updatedAt: now,
+        state: createDefaultMetroCitySave(),
+      },
+    ];
+  }
+  try {
+    const rawSlots = localStorage.getItem(METRO_CITY_SLOTS_KEY);
+    if (rawSlots) {
+      const parsed = JSON.parse(rawSlots);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        const cleaned: MetroCitySaveSlot[] = [];
+        const seen = new Set<string>();
+        parsed.forEach((entry: any, idx: number) => {
+          if (!entry || typeof entry !== 'object') return;
+          const slotId = sanitizeSlotId(entry.slotId || `mc_slot_${idx + 1}`, idx + 1);
+          if (seen.has(slotId)) return;
+          seen.add(slotId);
+          cleaned.push({
+            slotId,
+            slotName:
+              typeof entry.slotName === 'string' && entry.slotName.trim()
+                ? entry.slotName.trim().slice(0, 64)
+                : `Metro City Save #${cleaned.length + 1}`,
+            createdAt: typeof entry.createdAt === 'number' ? entry.createdAt : now,
+            updatedAt: typeof entry.updatedAt === 'number' ? entry.updatedAt : now,
+            state: normalizeMetroCitySave(entry.state || entry),
+          });
+        });
+        if (cleaned.length > 0) return cleaned;
+      }
+    }
+
+    // Migrate legacy single-save key cleanly into Slot #1
+    const rawLegacy = localStorage.getItem(METRO_CITY_SAVE_KEY);
+    const migratedState = rawLegacy
+      ? normalizeMetroCitySave(JSON.parse(rawLegacy))
+      : createDefaultMetroCitySave();
+    const initialSlots: MetroCitySaveSlot[] = [
+      {
+        slotId: 'mc_slot_1',
+        slotName: 'Metro City Save #1',
+        createdAt: now,
+        updatedAt: now,
+        state: migratedState,
+      },
+    ];
+    localStorage.setItem(METRO_CITY_SLOTS_KEY, JSON.stringify(initialSlots));
+    localStorage.setItem(ACTIVE_METRO_CITY_SLOT_KEY, 'mc_slot_1');
+    return initialSlots;
+  } catch {
+    return [
+      {
+        slotId: 'mc_slot_1',
+        slotName: 'Metro City Save #1',
+        createdAt: now,
+        updatedAt: now,
+        state: createDefaultMetroCitySave(),
+      },
+    ];
+  }
+}
+
+export function saveMetroCitySlots(slots: MetroCitySaveSlot[], emitEvent = true): void {
+  if (typeof window === 'undefined' || !Array.isArray(slots) || slots.length === 0) return;
+  try {
+    const activeId = getActiveMetroCitySlotId(slots);
+    localStorage.setItem(METRO_CITY_SLOTS_KEY, JSON.stringify(slots));
+    localStorage.setItem(ACTIVE_METRO_CITY_SLOT_KEY, activeId);
+    const activeSlot = slots.find((s) => s.slotId === activeId) || slots[0];
+    if (activeSlot) {
+      localStorage.setItem(METRO_CITY_SAVE_KEY, JSON.stringify(activeSlot.state));
+    }
+    if (emitEvent) {
+      notifyMetroCitySaveUpdated({ activeSlotId: activeId });
+    }
+  } catch {
+    // ignore storage errors
+  }
+}
+
+export function getActiveMetroCitySlotId(slotsOverride?: MetroCitySaveSlot[]): string {
+  const slots = slotsOverride || loadMetroCitySlots();
+  if (typeof window === 'undefined') return slots[0]?.slotId || 'mc_slot_1';
+  try {
+    const saved = localStorage.getItem(ACTIVE_METRO_CITY_SLOT_KEY);
+    if (saved && slots.some((s) => s.slotId === saved)) {
+      return saved;
+    }
+  } catch {}
+  return slots[0]?.slotId || 'mc_slot_1';
+}
+
+export function setActiveMetroCitySlotId(slotId: string): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(ACTIVE_METRO_CITY_SLOT_KEY, slotId);
+    const slots = loadMetroCitySlots();
+    const match = slots.find((s) => s.slotId === slotId);
+    if (match) {
+      localStorage.setItem(METRO_CITY_SAVE_KEY, JSON.stringify(match.state));
+    }
+    notifyMetroCitySaveUpdated({ activeSlotId: slotId });
+  } catch {}
+}
+
+export function getActiveMetroCitySlot(): MetroCitySaveSlot {
+  const slots = loadMetroCitySlots();
+  const activeId = getActiveMetroCitySlotId(slots);
+  return slots.find((s) => s.slotId === activeId) || slots[0];
+}
+
+export function loadMetroCitySave(): MetroCitySaveState {
+  return getActiveMetroCitySlot().state;
 }
 
 export function saveMetroCitySave(state: MetroCitySaveState): void {
   if (typeof window === 'undefined') return;
   try {
-    localStorage.setItem(METRO_CITY_SAVE_KEY, JSON.stringify(state));
+    const slots = loadMetroCitySlots();
+    const activeId = getActiveMetroCitySlotId(slots);
+    const now = Date.now();
+    const normalized = normalizeMetroCitySave(state);
+    const idx = slots.findIndex((s) => s.slotId === activeId);
+    let nextSlots: MetroCitySaveSlot[];
+    if (idx >= 0) {
+      nextSlots = slots.map((s, i) =>
+        i === idx ? { ...s, state: normalized, updatedAt: now } : s
+      );
+    } else {
+      nextSlots = [
+        ...slots,
+        {
+          slotId: activeId,
+          slotName: `Metro City Save #${slots.length + 1}`,
+          createdAt: now,
+          updatedAt: now,
+          state: normalized,
+        },
+      ];
+    }
+    saveMetroCitySlots(nextSlots, true);
   } catch {
     // ignore storage errors
   }
+}
+
+export function createMetroCitySlot(slotName: string, copyCurrentState = false): MetroCitySaveSlot {
+  const slots = loadMetroCitySlots();
+  const now = Date.now();
+  const slotId = `mc_${now.toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+  const cleanName = slotName.trim().slice(0, 64) || `Metro City Save #${slots.length + 1}`;
+  const state = copyCurrentState
+    ? normalizeMetroCitySave(JSON.parse(JSON.stringify(loadMetroCitySave())))
+    : createDefaultMetroCitySave();
+  const created: MetroCitySaveSlot = {
+    slotId,
+    slotName: cleanName,
+    createdAt: now,
+    updatedAt: now,
+    state,
+  };
+  const nextSlots = [...slots, created];
+  try {
+    localStorage.setItem(ACTIVE_METRO_CITY_SLOT_KEY, slotId);
+    localStorage.setItem(METRO_CITY_SAVE_KEY, JSON.stringify(created.state));
+  } catch {}
+  saveMetroCitySlots(nextSlots, true);
+  return created;
+}
+
+export function switchMetroCitySlot(slotId: string): MetroCitySaveSlot | null {
+  const slots = loadMetroCitySlots();
+  const target = slots.find((s) => s.slotId === slotId);
+  if (!target) return null;
+  setActiveMetroCitySlotId(target.slotId);
+  return target;
+}
+
+export function renameMetroCitySlot(slotId: string, newName: string): MetroCitySaveSlot[] {
+  const clean = newName.trim().slice(0, 64);
+  const slots = loadMetroCitySlots();
+  if (!clean) return slots;
+  const now = Date.now();
+  const next = slots.map((s) =>
+    s.slotId === slotId ? { ...s, slotName: clean, updatedAt: now } : s
+  );
+  saveMetroCitySlots(next, true);
+  return next;
+}
+
+export function deleteMetroCitySlot(slotId: string): { slots: MetroCitySaveSlot[]; activeSlotId: string } {
+  const slots = loadMetroCitySlots();
+  if (slots.length <= 1) {
+    return { slots, activeSlotId: getActiveMetroCitySlotId(slots) };
+  }
+  const filtered = slots.filter((s) => s.slotId !== slotId);
+  const prevActive = getActiveMetroCitySlotId(slots);
+  const nextActive = prevActive === slotId ? filtered[0].slotId : prevActive;
+  try {
+    localStorage.setItem(ACTIVE_METRO_CITY_SLOT_KEY, nextActive);
+  } catch {}
+  saveMetroCitySlots(filtered, true);
+  return { slots: filtered, activeSlotId: nextActive };
+}
+
+export function mergeMetroCitySlotLists(
+  primary: MetroCitySaveSlot[],
+  secondary: MetroCitySaveSlot[]
+): MetroCitySaveSlot[] {
+  const byId = new Map<string, MetroCitySaveSlot>();
+  for (const list of [secondary, primary]) {
+    if (!Array.isArray(list)) continue;
+    for (const item of list) {
+      if (!item || !item.slotId || !item.state) continue;
+      const normalized: MetroCitySaveSlot = {
+        slotId: sanitizeSlotId(item.slotId),
+        slotName: typeof item.slotName === 'string' && item.slotName.trim() ? item.slotName.trim().slice(0, 64) : 'Metro City Save',
+        createdAt: typeof item.createdAt === 'number' ? item.createdAt : Date.now(),
+        updatedAt: typeof item.updatedAt === 'number' ? item.updatedAt : Date.now(),
+        state: normalizeMetroCitySave(item.state),
+      };
+      const existing = byId.get(normalized.slotId);
+      if (!existing || normalized.updatedAt >= existing.updatedAt) {
+        byId.set(normalized.slotId, normalized);
+      }
+    }
+  }
+  return Array.from(byId.values()).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
 }
 
 export interface CityMissionWaypoint {
@@ -2894,7 +3217,7 @@ export const CITY_MISSIONS_CATALOG: CityMissionTemplate[] = [
   {
     id: 'oceanview_supercar_heist',
     level: 16,
-    title: 'Level 16: National Harbor Casino Vault & Beltway Manhunt',
+    title: 'Level 16: National Harbor Waterfront Vault & Beltway Manhunt',
     type: 'getaway',
     rewardCash: 65000,
     replayCash: 14000,
@@ -3385,7 +3708,10 @@ function getMarylandRoadGraph() {
   connectPoiSpur(gx(428), gz(1762), 'Church of the Redeemer Driveway');
   connectPoiSpur(778, -328, 'ISB Campus Entrance');
   connectPoiSpur(gx(556), gz(1594.5), '19624 Kildonan Dr Driveway');
-  connectPoiSpur(gx(622), gz(1446.5), '2 Mayhill Ct Driveway');
+  const mayhill2Theta = MAYHILL_CT_ROUNDABOUT.thetaStart;
+  const mayhill2DriveX = MAYHILL_CT_ROUNDABOUT.cx + Math.cos(mayhill2Theta) * (MAYHILL_CT_ROUNDABOUT.ringRadius + 5.5);
+  const mayhill2DriveZ = MAYHILL_CT_ROUNDABOUT.cz + Math.sin(mayhill2Theta) * (MAYHILL_CT_ROUNDABOUT.ringRadius + 5.5);
+  connectPoiSpur(mayhill2DriveX, mayhill2DriveZ, '2 Mayhill Ct Driveway');
   connectPoiSpur(MD_LANDMARKS.hadleyFarms.x, MD_LANDMARKS.hadleyFarms.z, 'Hadley Farms · Resnik ES');
   connectPoiSpur(MD_LANDMARKS.bwiAirport.x, MD_LANDMARKS.bwiAirport.z, 'BWI Airport');
   connectPoiSpur(MD_LANDMARKS.kgaiAirpark.x, MD_LANDMARKS.kgaiAirpark.z, 'KGAI Airpark');
@@ -4183,6 +4509,26 @@ const STATIC_MARYLAND_GPS_ENTRIES: MarylandGpsEntry[] = (() => {
       color: '#a855f7',
     },
     {
+      id: 'gps_dave_and_busters',
+      label: "Dave & Buster's RIO Arcade & Grill",
+      address: '9811 Washingtonian Blvd · RIO Center, Gaithersburg, MD',
+      category: 'ARCADE',
+      icon: '🕹️',
+      x: MD_LANDMARKS.daveAndBusters.x,
+      z: MD_LANDMARKS.daveAndBusters.z,
+      color: '#f97316',
+    },
+    {
+      id: 'gps_chuck_e_cheese',
+      label: "Chuck E. Cheese's Lakeforest Fun Center",
+      address: '700 N Frederick Ave · Lakeforest Plaza, Gaithersburg, MD',
+      category: 'ARCADE',
+      icon: '🍕',
+      x: MD_LANDMARKS.chuckECheese.x,
+      z: MD_LANDMARKS.chuckECheese.z,
+      color: '#a855f7',
+    },
+    {
       id: 'gps_rio_fishing',
       label: 'RIO Lakefront Boardwalk Fishing Pier',
       address: '9841 Washingtonian Blvd · RIO Pier, Gaithersburg, MD',
@@ -4264,12 +4610,18 @@ const STATIC_MARYLAND_GPS_ENTRIES: MarylandGpsEntry[] = (() => {
     },
     {
       id: 'gps_2_mayhill_ct',
-      label: '2 Mayhill Ct (Hadley Farms)',
+      label: '2 Mayhill Ct (Hadley Farms Roundabout)',
       address: '2 Mayhill Ct, Hadley Farms, Gaithersburg, MD',
       category: 'RESIDENCE',
       icon: '🏡',
-      x: gx(625),
-      z: gz(1454),
+      x: Math.round(
+        MAYHILL_CT_ROUNDABOUT.cx +
+          Math.cos(MAYHILL_CT_ROUNDABOUT.thetaStart) * (MAYHILL_CT_ROUNDABOUT.ringRadius + 5.5)
+      ),
+      z: Math.round(
+        MAYHILL_CT_ROUNDABOUT.cz +
+          Math.sin(MAYHILL_CT_ROUNDABOUT.thetaStart) * (MAYHILL_CT_ROUNDABOUT.ringRadius + 5.5)
+      ),
       color: '#22c55e',
     },
     {
@@ -5548,12 +5900,36 @@ export function buildPoliceInterceptorMesh(): BuiltPoliceCar {
  * attached garage, front porch with columns, front lawn, and concrete driveway connecting to the road.
  * Used in the Suburbs District for neighborhood ambiance and criminal hideouts.
  */
+export interface HouseExteriorProfile {
+  wallColorHex: string;
+  roofColorHex: string;
+  style: 'starter' | 'colonial' | 'split' | 'luxury' | 'townhouse' | 'lodge' | 'coastal';
+  stories: 1 | 2;
+  hasGarage: boolean;
+  hasPool: boolean;
+  hasBasement: boolean;
+}
+
 export interface BuiltSuburbanHouse {
   group: THREE.Group;
   collider: CityBuildingBox;
   drivewayTarget: { x: number; z: number };
   drivewayCoord: { x: number; z: number };
   address: string;
+  exteriorProfile?: HouseExteriorProfile;
+}
+
+function colorNumToHex(c: number): string {
+  return '#' + (c & 0xffffff).toString(16).padStart(6, '0');
+}
+
+function hashAddressSeed(s: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
 }
 
 export function buildSuburbanHouseMesh(
@@ -5705,6 +6081,15 @@ export function buildSuburbanHouseMesh(
       drivewayTarget: { x: x + dLocal.x, z: z + dLocal.z },
       drivewayCoord: { x: x + dLocal.x, z: z + dLocal.z },
       address: opts.address,
+      exteriorProfile: {
+        wallColorHex: colorNumToHex(opts.wallColor),
+        roofColorHex: colorNumToHex(opts.roofColor),
+        style: 'starter',
+        stories: 1,
+        hasGarage: true,
+        hasPool: false,
+        hasBasement: false,
+      },
     };
   } else if (tier === 'luxury') {
     const lawn = new THREE.Mesh(new THREE.BoxGeometry(24, 0.02, 25), grassMat);
@@ -5804,12 +6189,29 @@ export function buildSuburbanHouseMesh(
     const dLocal = new THREE.Vector3(6.4, 0, 8.0);
     dLocal.applyAxisAngle(new THREE.Vector3(0, 1, 0), rotationY);
 
+    const lowerAddr = opts.address.toLowerCase();
+    const luxStyle: HouseExteriorProfile['style'] =
+      lowerAddr.includes('deep creek') || lowerAddr.includes('marsh hill') || lowerAddr.includes('glendale')
+        ? 'lodge'
+        : lowerAddr.includes('ocean city') || lowerAddr.includes('coastal')
+        ? 'coastal'
+        : 'luxury';
+
     return {
       group,
       collider: makeRotatedCollider(10.8, 8.0, 10.5),
       drivewayTarget: { x: x + dLocal.x, z: z + dLocal.z },
       drivewayCoord: { x: x + dLocal.x, z: z + dLocal.z },
       address: opts.address,
+      exteriorProfile: {
+        wallColorHex: colorNumToHex(opts.wallColor),
+        roofColorHex: colorNumToHex(opts.roofColor),
+        style: luxStyle,
+        stories: 2,
+        hasGarage: true,
+        hasPool: true,
+        hasBasement: true,
+      },
     };
   }
 
@@ -5909,6 +6311,15 @@ export function buildSuburbanHouseMesh(
     drivewayTarget: { x: x + dLocal.x, z: z + dLocal.z },
     drivewayCoord: { x: x + dLocal.x, z: z + dLocal.z },
     address: opts.address,
+    exteriorProfile: {
+      wallColorHex: colorNumToHex(opts.wallColor),
+      roofColorHex: colorNumToHex(opts.roofColor),
+      style: 'colonial',
+      stories: 2,
+      hasGarage: true,
+      hasPool: false,
+      hasBasement: hashAddressSeed(opts.address) % 2 === 0,
+    },
   };
 }
 
@@ -6110,20 +6521,19 @@ function attachPlayerHeadlightRig(
   halfSpreadX: number,
   headMat: HeadlightLensMaterial
 ): PlayerHeadlightRigData {
-  // Physically calibrated automotive HID/LED projector SpotLight with ECE asymmetric cutoff projection map
-  const spotLight = new THREE.SpotLight(0xf3f7ff, 0, 165, Math.PI / 3.7, 0.62, 1.08);
-  spotLight.position.set(0, yPos + 0.12, frontZ + 0.1);
-  spotLight.map = getAutomotiveHeadlightPatternTexture();
-  spotLight.castShadow = false;
-  parent.add(spotLight);
+    const spotLight = new THREE.SpotLight(0xf8fbff, 0, 210, Math.PI / 3.4, 0.56, 0.84);
+    spotLight.position.set(0, yPos + 0.12, frontZ + 0.1);
+    spotLight.map = getAutomotiveHeadlightPatternTexture();
+    spotLight.castShadow = false;
+    parent.add(spotLight);
 
-  const spotTarget = new THREE.Object3D();
-  spotTarget.position.set(0, 0.14, frontZ - 42);
-  parent.add(spotTarget);
-  spotLight.target = spotTarget;
+    const spotTarget = new THREE.Object3D();
+    spotTarget.position.set(0, 0.12, frontZ - 48);
+    parent.add(spotTarget);
+    spotLight.target = spotTarget;
 
-  // Crisp foreground road/curb scatter directly ahead of bumper
-  const bounceLight = new THREE.PointLight(0xeef6ff, 0, 26, 1.25);
+    // Crisp foreground road/curb scatter directly ahead of bumper
+    const bounceLight = new THREE.PointLight(0xeef6ff, 0, 36, 0.95);
   bounceLight.position.set(0, yPos + 0.1, frontZ - 3.2);
   parent.add(bounceLight);
 
@@ -6199,34 +6609,34 @@ export function updatePlayerHeadlightRig(
       rig.headMat.emissiveIntensity = 0.06;
     }
   } else if (state === 'low') {
-    rig.spotLight.intensity = 135;
-    rig.spotLight.distance = 165;
-    rig.spotLight.angle = Math.PI / 3.6;
-    rig.spotLight.penumbra = 0.64;
-    rig.spotTarget.position.set(0, 0.12, -44);
-    rig.bounceLight.intensity = 8.5;
+    rig.spotLight.intensity = 340;
+    rig.spotLight.distance = 215;
+    rig.spotLight.angle = Math.PI / 3.4;
+    rig.spotLight.penumbra = 0.56;
+    rig.spotTarget.position.set(0, 0.10, -48);
+    rig.bounceLight.intensity = 15.5;
     rig.haloGroup.visible = true;
-    rig.haloMat.opacity = 0.68;
-    rig.groundPoolMesh.scale.set(1, 1, 1);
-    rig.groundPoolMat.opacity = 0.15;
+    rig.haloMat.opacity = 0.78;
+    rig.groundPoolMesh.scale.set(1.06, 1, 1.15);
+    rig.groundPoolMat.opacity = 0.24;
     rig.headMat.color.setHex(0xf8fbff);
     if (rig.headMat instanceof THREE.MeshStandardMaterial) {
-      rig.headMat.emissiveIntensity = 2.4;
+      rig.headMat.emissiveIntensity = 3.2;
     }
   } else {
-    rig.spotLight.intensity = 275;
-    rig.spotLight.distance = 240;
-    rig.spotLight.angle = Math.PI / 3.0;
-    rig.spotLight.penumbra = 0.54;
-    rig.spotTarget.position.set(0, 0.34, -72);
-    rig.bounceLight.intensity = 14.5;
+    rig.spotLight.intensity = 660;
+    rig.spotLight.distance = 300;
+    rig.spotLight.angle = Math.PI / 2.85;
+    rig.spotLight.penumbra = 0.46;
+    rig.spotTarget.position.set(0, 0.28, -82);
+    rig.bounceLight.intensity = 28.0;
     rig.haloGroup.visible = true;
-    rig.haloMat.opacity = 0.92;
-    rig.groundPoolMesh.scale.set(1.22, 1, 1.45);
-    rig.groundPoolMat.opacity = 0.23;
+    rig.haloMat.opacity = 0.96;
+    rig.groundPoolMesh.scale.set(1.28, 1, 1.55);
+    rig.groundPoolMat.opacity = 0.36;
     rig.headMat.color.setHex(0xffffff);
     if (rig.headMat instanceof THREE.MeshStandardMaterial) {
-      rig.headMat.emissiveIntensity = 3.8;
+      rig.headMat.emissiveIntensity = 4.6;
     }
   }
 }

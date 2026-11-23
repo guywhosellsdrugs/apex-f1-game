@@ -837,11 +837,11 @@ export function updateSceneDiurnalLighting(
   const twiSunHex = isStormOrOvercast ? 0xcbd5e1 : 0xfb923c;
   const twiAmbHex = isStormOrOvercast ? 0x64748b : 0xd99b72;
 
-  const nightFogHex = 0x070c18;
-  const nightSunHex = 0x60a5fa;
-  const nightSunInt = isUltra ? 0.34 : 0.40;
-  const nightAmbHex = 0x162238;
-  const nightAmbInt = isUltra ? 0.14 : 0.18;
+  const nightFogHex = 0x03050c;
+  const nightSunHex = 0x476898;
+  const nightSunInt = isUltra ? 0.08 : 0.12;
+  const nightAmbHex = 0x090f1d;
+  const nightAmbInt = isUltra ? 0.028 : 0.048;
 
   _diurnalTmpA.setHex(nightFogHex).lerp(_diurnalTmpB.setHex(dayFogHex), dayWeight);
   _diurnalTmpA.lerp(_diurnalTmpC.setHex(twiFogHex), twilightPeak * (isStormOrOvercast ? 0.45 : 0.86));
@@ -852,7 +852,7 @@ export function updateSceneDiurnalLighting(
   }
   if (scene.fog) {
     scene.fog.color.copy(_diurnalTmpA);
-    const nightFogDensity = isRain || isSnow ? 0.0038 : 0.0018;
+    const nightFogDensity = isRain || isSnow ? 0.0040 : 0.0022;
     (scene.fog as THREE.FogExp2).density = THREE.MathUtils.lerp(nightFogDensity, dayFogDensity, dayWeight);
   }
 
@@ -861,14 +861,14 @@ export function updateSceneDiurnalLighting(
   sunLight.color.copy(_diurnalTmpA);
   sunLight.intensity =
     THREE.MathUtils.lerp(nightSunInt, daySunInt, dayWeight) +
-    twilightPeak * (isStormOrOvercast ? 0.14 : 0.48);
+    twilightPeak * (isStormOrOvercast ? 0.14 : 0.44);
 
   _diurnalTmpA.setHex(nightAmbHex).lerp(_diurnalTmpB.setHex(dayAmbHex), dayWeight);
   _diurnalTmpA.lerp(_diurnalTmpC.setHex(twiAmbHex), twilightPeak * 0.65);
   ambientLight.color.copy(_diurnalTmpA);
   ambientLight.intensity = THREE.MathUtils.lerp(nightAmbInt, dayAmbInt, dayWeight);
 
-  hemiLight.color.setHex(0x16223a).lerp(_diurnalTmpB.setHex(dayHemiSky), dayWeight);
-  hemiLight.groundColor.setHex(0x060910).lerp(_diurnalTmpB.setHex(dayHemiGnd), dayWeight);
-  hemiLight.intensity = THREE.MathUtils.lerp(isUltra ? 0.26 : 0.30, isUltra ? 0.66 : 0.64, dayWeight);
+  hemiLight.color.setHex(0x0c1428).lerp(_diurnalTmpB.setHex(dayHemiSky), dayWeight);
+  hemiLight.groundColor.setHex(0x020306).lerp(_diurnalTmpB.setHex(dayHemiGnd), dayWeight);
+  hemiLight.intensity = THREE.MathUtils.lerp(isUltra ? 0.055 : 0.085, isUltra ? 0.66 : 0.64, dayWeight);
 }

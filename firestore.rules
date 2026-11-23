@@ -43,7 +43,77 @@ service cloud.firestore {
              (!('podiums' in data) || data.podiums is number) &&
              (!('championshipPoints' in data) || data.championshipPoints is number) &&
              (!('customTeamName' in data) || (data.customTeamName is string && data.customTeamName.size() <= 80)) &&
-             (!('seasonStateJson' in data) || data.seasonStateJson is string);
+             (!('seasonStateJson' in data) || data.seasonStateJson is string) &&
+             (!('activeCareerSlotId' in data) || (data.activeCareerSlotId is string && data.activeCareerSlotId.size() <= 64)) &&
+             (!('careerSlotsJson' in data) || data.careerSlotsJson is string) &&
+             (!('activeMetroCitySlotId' in data) || (data.activeMetroCitySlotId is string && data.activeMetroCitySlotId.size() <= 64));
+    }
+
+    // Entity Validation: Metro City Multi-Slot Save (Native Firestore Maps/Lists)
+    function isValidMetroCitySave(data, userId, slotId) {
+      let requiredFields = [
+        'slotId',
+        'ownerUid',
+        'slotName',
+        'streetCash',
+        'ownedCarIds',
+        'selectedCarId',
+        'completedMissions',
+        'completedMissionIds',
+        'totalEarnedCash',
+        'streetRepLevel',
+        'ownedHouseIds',
+        'createdAt',
+        'updatedAt'
+      ];
+      let allowedFields = [
+        'slotId',
+        'ownerUid',
+        'slotName',
+        'streetCash',
+        'ownedCarIds',
+        'selectedCarId',
+        'customPaintByCar',
+        'unlockedTrimsByCar',
+        'activeTrimByCar',
+        'completedMissions',
+        'completedMissionIds',
+        'totalEarnedCash',
+        'streetRepLevel',
+        'pendingMissionId',
+        'ownedHouseIds',
+        'activeHomeId',
+        'houseFurnishings',
+        'unpaidCrashTicketsTab',
+        'totalJobsCompleted',
+        'totalHeistsCompleted',
+        'bankRobberyBustCount',
+        'createdAt',
+        'updatedAt'
+      ];
+      return data.keys().hasAll(requiredFields) &&
+             data.keys().hasOnly(allowedFields) &&
+             data.slotId is string && isValidId(data.slotId) && data.slotId.size() <= 64 && data.slotId == slotId &&
+             data.ownerUid is string && isValidId(data.ownerUid) && data.ownerUid == userId &&
+             data.slotName is string && data.slotName.size() > 0 && data.slotName.size() <= 64 &&
+             data.streetCash is number && data.streetCash >= -100000000 && data.streetCash <= 1000000000 &&
+             data.ownedCarIds is list && data.ownedCarIds.size() >= 1 && data.ownedCarIds.size() <= 64 &&
+             data.selectedCarId is string && data.selectedCarId.size() > 0 && data.selectedCarId.size() <= 64 &&
+             (!('customPaintByCar' in data) || (data.customPaintByCar is map && data.customPaintByCar.size() <= 64)) &&
+             (!('unlockedTrimsByCar' in data) || (data.unlockedTrimsByCar is map && data.unlockedTrimsByCar.size() <= 64)) &&
+             (!('activeTrimByCar' in data) || (data.activeTrimByCar is map && data.activeTrimByCar.size() <= 64)) &&
+             data.completedMissions is int && data.completedMissions >= 0 && data.completedMissions <= 500 &&
+             data.completedMissionIds is list && data.completedMissionIds.size() <= 100 &&
+             data.totalEarnedCash is number && data.totalEarnedCash >= 0 && data.totalEarnedCash <= 1000000000 &&
+             data.streetRepLevel is int && data.streetRepLevel >= 1 && data.streetRepLevel <= 1000 &&
+             (!('pendingMissionId' in data) || data.pendingMissionId == null || (data.pendingMissionId is string && data.pendingMissionId.size() <= 64)) &&
+             data.ownedHouseIds is list && data.ownedHouseIds.size() <= 64 &&
+             (!('activeHomeId' in data) || data.activeHomeId == null || (data.activeHomeId is string && data.activeHomeId.size() <= 64)) &&
+             (!('houseFurnishings' in data) || (data.houseFurnishings is map && data.houseFurnishings.size() <= 64)) &&
+             (!('unpaidCrashTicketsTab' in data) || (data.unpaidCrashTicketsTab is number && data.unpaidCrashTicketsTab >= 0 && data.unpaidCrashTicketsTab <= 100000000)) &&
+             (!('totalJobsCompleted' in data) || (data.totalJobsCompleted is int && data.totalJobsCompleted >= 0 && data.totalJobsCompleted <= 100000)) &&
+             (!('totalHeistsCompleted' in data) || (data.totalHeistsCompleted is int && data.totalHeistsCompleted >= 0 && data.totalHeistsCompleted <= 100000)) &&
+             (!('bankRobberyBustCount' in data) || (data.bankRobberyBustCount is int && data.bankRobberyBustCount >= 0 && data.bankRobberyBustCount <= 100000));
     }
 
     // Entity Validation: Leaderboard Record
@@ -72,21 +142,67 @@ service cloud.firestore {
 
     // Test connection check rule
     match /test/connection {
-      allow read: if true;
+      allow read: if isSignedIn() || resource == null;
     }
 
     // 1. User Profiles & Persistent Career Saves
     match /users/{userId} {
-      allow get: if isSignedIn() || true;
+      allow get: if isValidId(userId);
       allow list: if false;
 
-      allow create, update: if isValidId(userId);
+      allow create, update: if isValidId(userId) && isValidUser(incoming());
       allow delete: if false; // Protect career progress from accidental loss
+
+      // 1B. Multi-Slot Metro City Saves (Strictly Owner-Scoped & Schema-Validated)
+      match /metroCitySaves/{slotId} {
+        allow get: if isOwner(userId) && isValidId(slotId);
+        allow list: if isOwner(userId) && resource.data.ownerUid == request.auth.uid;
+
+        allow create: if isOwner(userId) &&
+          isValidId(slotId) &&
+          exists(/databases/$(database)/documents/users/$(userId)) &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          isValidMetroCitySave(incoming(), userId, slotId);
+
+        allow update: if isOwner(userId) &&
+          isValidId(slotId) &&
+          exists(/databases/$(database)/documents/users/$(userId)) &&
+          incoming().slotId == existing().slotId &&
+          incoming().ownerUid == existing().ownerUid &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'slotName',
+            'streetCash',
+            'ownedCarIds',
+            'selectedCarId',
+            'customPaintByCar',
+            'unlockedTrimsByCar',
+            'activeTrimByCar',
+            'completedMissions',
+            'completedMissionIds',
+            'totalEarnedCash',
+            'streetRepLevel',
+            'pendingMissionId',
+            'ownedHouseIds',
+            'activeHomeId',
+            'houseFurnishings',
+            'unpaidCrashTicketsTab',
+            'totalJobsCompleted',
+            'totalHeistsCompleted',
+            'bankRobberyBustCount',
+            'updatedAt'
+          ]) &&
+          isValidMetroCitySave(incoming(), userId, slotId);
+
+        allow delete: if isOwner(userId) && isValidId(slotId);
+      }
     }
 
     // 2. Circuit Hot Lap Leaderboards (Global Public Read, Authenticated Write)
     match /leaderboards/{circuitId}/records/{recordId} {
-      allow get, list: if true; // Public lap time leaderboard
+      allow get, list: if isValidId(circuitId); // Public lap time leaderboard
 
       allow create: if isSignedIn() &&
         isValidId(circuitId) && isValidId(recordId) &&
@@ -112,12 +228,14 @@ service cloud.firestore {
       allow update, delete: if false; // Race finishes are permanent race records
     }
 
-    // 4. Serverless Multiplayer Grand Prix Rooms & Telemetry
+    // 4. Serverless Multiplayer Grand Prix Rooms & Global Developer Notes/Bug Reports
     match /rooms/{roomCode} {
-      allow read, write: if true;
+      allow read: if isValidId(roomCode);
+      allow write: if isValidId(roomCode);
 
       match /telemetry/{playerId} {
-        allow read, write: if true;
+        allow read: if isValidId(roomCode) && isValidId(playerId);
+        allow write: if isValidId(roomCode) && isValidId(playerId);
       }
     }
   }

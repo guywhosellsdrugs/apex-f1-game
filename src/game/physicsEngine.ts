@@ -15,6 +15,7 @@ import {
 import { DRIVERS, TEAMS } from '../constants/f1Data';
 import { UnifiedInput, inputManager } from '../services/inputManager';
 import { soundEngine } from '../services/soundEngine';
+import { computeBuildingFloorCount } from '../components/heistFloorplans';
 import {
   ALL_MARYLAND_ROADS,
   MARYLAND_SIGNAL_JUNCTIONS,
@@ -59,7 +60,10 @@ import {
   CITY_SERVICE_STATIONS,
   MARYLAND_SPEED_CAMERAS,
   CITY_CAR_MEET_ZONES,
+  HouseExteriorProfile,
+  CityBuildingBox,
 } from './cityTrafficBuilder';
+import { getHomeFurnishingById } from './homeFurnishings';
 import type { LockpickTargetInfo } from '../components/LockpickMinigame';
 import {
   fetchLiveGaithersburgWeather,
@@ -463,6 +467,7 @@ export class PhysicsEngine {
     customPaintByCar: Record<string, string>;
     ownedHouseIds: string[];
     activeHomeId: string | null;
+    houseFurnishings: Record<string, string[]>;
     passiveIncomePer30s: number;
     unpaidCrashTicketsTab: number;
     totalJobsCompleted: number;
@@ -508,6 +513,7 @@ export class PhysicsEngine {
       name: string;
       icon: string;
       category: string;
+      robbable: boolean;
       payoutCash: number;
       wantedStarsTriggered: number;
       distMeters: number;
@@ -644,7 +650,9 @@ export class PhysicsEngine {
     activeBankMinigameTarget: {
       id: string;
       name: string;
-      category: 'BANK' | 'JEWELRY' | 'STORE' | 'HOUSE';
+      category: 'BANK' | 'JEWELRY' | 'STORE' | 'HOUSE' | 'SERVICE' | 'POLICE' | 'BUILDING';
+      buildingHeight?: number;
+      buildingStories?: number;
       payoutCash: number;
       streetLocation: string;
       icon: string;
@@ -652,6 +660,9 @@ export class PhysicsEngine {
       policeBreach?: boolean;
       breachReason?: string;
       breachDelaySec?: number;
+      mode?: 'heist' | 'explore';
+      isOwnedHouse?: boolean;
+      exteriorProfile?: HouseExteriorProfile;
     } | null;
     activeLockpickTarget: LockpickTargetInfo | null;
     nearbySportsPrompt: {
@@ -679,6 +690,15 @@ export class PhysicsEngine {
       brandColor: string;
       distMeters: number;
       cost: number;
+    } | null;
+    nearbyCityBuildingPrompt: {
+      id: string;
+      name: string;
+      categoryLabel: string;
+      icon: string;
+      height: number;
+      distMeters: number;
+      floorsLabel: string;
     } | null;
     nearbyCarMeetPrompt: {
       id: string;
@@ -729,6 +749,7 @@ export class PhysicsEngine {
     customPaintByCar: {},
     ownedHouseIds: [],
     activeHomeId: null,
+    houseFurnishings: {},
     passiveIncomePer30s: 0,
     unpaidCrashTicketsTab: 0,
     totalJobsCompleted: 0,
@@ -778,6 +799,7 @@ export class PhysicsEngine {
     nearbySportsPrompt: null,
     activeSportsMinigame: null,
     nearbyServicePrompt: null,
+    nearbyCityBuildingPrompt: null,
     nearbyCarMeetPrompt: null,
     handbrakeActive: false,
     headlightMode: 'auto',
@@ -808,6 +830,113 @@ export class PhysicsEngine {
   private radarWarningBeepTimer: number = 0;
   private speedCameraCooldowns: Record<string, number> = {};
   private carMeetCooldowns: Record<string, number> = {};
+  private explorableBuildingsTrackRef: CityBuildingBox[] | undefined = undefined;
+  private explorableCityBuildings: {
+    id: string;
+    box: CityBuildingBox;
+    cx: number;
+    cz: number;
+    name: string;
+    categoryLabel: string;
+    icon: string;
+    height: number;
+    stories?: number;
+    floorsLabel: string;
+  }[] = [];
+
+  private ensureExplorableCityBuildingsCache() {
+    const rawBuildings = this.track.cityBuildings;
+    if (rawBuildings === this.explorableBuildingsTrackRef) return;
+    this.explorableBuildingsTrackRef = rawBuildings;
+    if (!rawBuildings || rawBuildings.length === 0) {
+      this.explorableCityBuildings = [];
+      return;
+    }
+
+    const subColliderSet = new Set<CityBuildingBox>();
+    for (const sub of this.track.suburbanHouses || []) {
+      if (sub.collider) subColliderSet.add(sub.collider);
+    }
+
+    const list: typeof this.explorableCityBuildings = [];
+    for (let i = 0; i < rawBuildings.length; i++) {
+      const box = rawBuildings[i];
+      if (subColliderSet.has(box)) continue;
+      const w = box.maxX - box.minX;
+      const d = box.maxZ - box.minZ;
+      if (w < 4 || d < 4) continue;
+
+      const cx = (box.minX + box.maxX) * 0.5;
+      const cz = (box.minZ + box.maxZ) * 0.5;
+
+      // Skip private catalog houses (only robbable when unowned, or owned_house explore prompt when owned)
+      if (CITY_HOUSES_CATALOG.some((h) => Math.hypot(h.x - cx, h.z - cz) < 26)) continue;
+      // Skip heist/arcade catalog landmarks (already handled by nearbyHeistPrompt [V] & [R])
+      if (CITY_HEIST_TARGETS_CATALOG.some((h) => Math.hypot(h.x - cx, h.z - cz) < 26)) continue;
+      // Skip service stations & central police precinct (handled by their dedicated explore prompts)
+      if (CITY_SERVICE_STATIONS.some((s) => Math.hypot(s.x - cx, s.z - cz) < 22)) continue;
+      if (Math.hypot(MD_LANDMARKS.baltimorePoliceHQ.x - cx, MD_LANDMARKS.baltimorePoliceHQ.z - cz) < 30) continue;
+
+      const rawName = (box.name || 'Metro City Building').trim();
+      const lower = rawName.toLowerCase();
+      // Strictly disallow exploring ICM (Islamic Center of Maryland) buildings; outdoor basketball court [B] remains active
+      if (lower.includes('islamic center of maryland') || /\bicm\b/.test(lower)) continue;
+
+      const height = box.height ?? 12;
+      const floors = computeBuildingFloorCount(height, rawName, box.stories);
+      const floorsLabel = floors >= 2 ? `${floors} FLOORS · ELEVATOR` : '1 FLOOR';
+
+      let icon = '🏢';
+      let categoryLabel = 'CITY BUILDING';
+      if (lower.includes('school') || lower.includes('elementary') || lower.includes('high') || lower.includes('academy') || lower.includes('isb') || lower.includes('college')) {
+        icon = '🏫';
+        categoryLabel = 'CAMPUS / SCHOOL';
+      } else if (lower.includes('hospital') || lower.includes('medical') || lower.includes('clinic') || lower.includes('nih')) {
+        icon = '🏥';
+        categoryLabel = 'MEDICAL CENTER';
+      } else if (lower.includes('mall') || lower.includes('plaza') || lower.includes('market') || lower.includes('shopping') || lower.includes('giant') || lower.includes('center')) {
+        icon = '🏬';
+        categoryLabel = 'SHOPPING / PLAZA';
+      } else if (lower.includes('airpark') || lower.includes('airport') || lower.includes('hangar') || lower.includes('station') || lower.includes('marc')) {
+        icon = '🚉';
+        categoryLabel = 'TRANSIT / TERMINAL';
+      } else if (lower.includes('bowl') || lower.includes('golf') || lower.includes('bohrer') || lower.includes('stadium') || lower.includes('arena') || lower.includes('bleacher') || lower.includes('clubhouse') || lower.includes('pavilion') || lower.includes('kiosk')) {
+        icon = '🏟️';
+        categoryLabel = 'RECREATION VENUE';
+      } else if (lower.includes('nist') || lower.includes('research') || lower.includes('lab')) {
+        icon = '🔬';
+        categoryLabel = 'RESEARCH LAB';
+      } else if (lower.includes('mansion') || lower.includes('historic') || lower.includes('museum')) {
+        icon = '🏛️';
+        categoryLabel = 'HISTORIC LANDMARK';
+      } else if (lower.includes('apartment') || lower.includes('townhome') || lower.includes('condo') || lower.includes('loft')) {
+        icon = '🏘️';
+        categoryLabel = 'LOBBY & COMMONS';
+      } else if (height >= 26 || floors >= 6) {
+        icon = '🏙️';
+        categoryLabel = 'HIGH-RISE TOWER';
+      }
+
+      const slug = rawName
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '_')
+        .replace(/^_|_$/g, '')
+        .slice(0, 32);
+      list.push({
+        id: `city_bldg_${i}_${slug || 'bldg'}`,
+        box,
+        cx,
+        cz,
+        name: rawName,
+        categoryLabel,
+        icon,
+        height,
+        stories: floors,
+        floorsLabel,
+      });
+    }
+    this.explorableCityBuildings = list;
+  }
 
   public async refreshLiveWeather(): Promise<void> {
     if (this.weatherMode !== 'live_gaithersburg') return;
@@ -3115,9 +3244,9 @@ export class PhysicsEngine {
 
   private updateAICars(dt: number) {
     // Difficulty speed modifier
-    // Rookie: 0.80x, Pro: 0.89x, Legend: 1.22x to 1.26x (Significantly harder, intense championship pace!)
+    // Rookie: 0.80x, Pro: 0.89x, Legend: 1.00x (Authentic 1.0x F1 benchmark pace)
     const baseDifficultyScale =
-      this.difficulty === 'rookie' ? 0.80 : this.difficulty === 'legend' ? 1.22 : 0.89;
+      this.difficulty === 'rookie' ? 0.80 : this.difficulty === 'legend' ? 1.00 : 0.89;
 
     // Pre-query player track surface & instantaneous lateral velocity once per frame for all AI cars
     const playerSurf = this.track.checkSurfaceType(this.playerPos, this.playerProgress);
@@ -3161,9 +3290,8 @@ export class PhysicsEngine {
         ai.passHoldTimer = Math.max(0, ai.passHoldTimer - dt);
       }
 
-      // Legend & Car Tier scaling: Tier 1 (Red Bull, McLaren, Ferrari) gets additional performance boost
-      const tierFactor = (4 - ai.team.performanceTier) * 0.025;
-      const difficultyScale = baseDifficultyScale + (this.difficulty === 'legend' ? Math.max(0.02, tierFactor) : 0);
+      // Difficulty scale: Legend runs cleanly at 1.00x benchmark pace (no artificial speed boost over 1.0x)
+      const difficultyScale = baseDifficultyScale;
 
       // Handle CPU Crash Penalty Wait Timer (Rookie: 2.0s, Pro: 3.5s, Legend: 5.0s)
       if (ai.waitTimer > 0) {
@@ -4256,6 +4384,11 @@ export class PhysicsEngine {
     this.cityPursuitStats.customPaintByCar = { ...this.citySave.customPaintByCar };
     this.cityPursuitStats.ownedHouseIds = [...(this.citySave.ownedHouseIds || [])];
     this.cityPursuitStats.activeHomeId = this.citySave.activeHomeId || null;
+    const syncedFurnishings: Record<string, string[]> = {};
+    for (const [hk, hItems] of Object.entries(this.citySave.houseFurnishings || {})) {
+      if (Array.isArray(hItems)) syncedFurnishings[hk] = [...hItems];
+    }
+    this.cityPursuitStats.houseFurnishings = syncedFurnishings;
     this.cityPursuitStats.unpaidCrashTicketsTab = this.citySave.unpaidCrashTicketsTab || 0;
     this.cityPursuitStats.totalJobsCompleted = this.citySave.totalJobsCompleted || 0;
     this.cityPursuitStats.totalHeistsCompleted = this.citySave.totalHeistsCompleted || 0;
@@ -5457,6 +5590,47 @@ export class PhysicsEngine {
     return { success: true, message: `Purchased ${spec.name}!` };
   }
 
+  public buyHouseFurnishing(houseId: string, itemId: string): { success: boolean; message: string } {
+    if (!this.isCityMode) return { success: false, message: 'Not in Metro City Mode' };
+    if (!(this.citySave.ownedHouseIds || []).includes(houseId)) {
+      return { success: false, message: 'You must own this house first' };
+    }
+    const item = getHomeFurnishingById(itemId);
+    if (!item) return { success: false, message: 'Item not found' };
+
+    if (!this.citySave.houseFurnishings) {
+      this.citySave.houseFurnishings = {};
+    }
+    const currentList = [...(this.citySave.houseFurnishings[houseId] || [])];
+    if (currentList.includes(item.id)) {
+      return { success: false, message: `${item.name} is already installed in this house` };
+    }
+    if (this.citySave.streetCash < item.price) {
+      const needed = item.price - this.citySave.streetCash;
+      this.cityPursuitStats.activeAlertBanner = `❌ NEED $${needed.toLocaleString()} MORE FOR ${item.name.toUpperCase()}`;
+      this.cityPursuitStats.activeAlertTimer = 3.5;
+      return { success: false, message: `Need $${needed.toLocaleString()} more` };
+    }
+
+    this.citySave.streetCash -= item.price;
+    currentList.push(item.id);
+    this.citySave.houseFurnishings[houseId] = currentList;
+    saveMetroCitySave(this.citySave);
+
+    this.cityPursuitStats.streetCash = this.citySave.streetCash;
+    this.cityPursuitStats.inDebt = this.citySave.streetCash < 0;
+    this.cityPursuitStats.heistDebtAmount = Math.max(0, -this.citySave.streetCash);
+    this.cityPursuitStats.houseFurnishings = {
+      ...this.cityPursuitStats.houseFurnishings,
+      [houseId]: [...currentList],
+    };
+
+    soundEngine.playStartLightBeep(true);
+    this.cityPursuitStats.activeAlertBanner = `🛋️ INSTALLED ${item.icon} ${item.name.toUpperCase()} INSIDE YOUR HOUSE!`;
+    this.cityPursuitStats.activeAlertTimer = 4.2;
+    return { success: true, message: `Installed ${item.name}!` };
+  }
+
   /**
    * Start or switch to a Legal Street Job (Taxi Driver, Pizza Delivery, Express Courier, Burger Blitz, Paramedic)
    */
@@ -5517,7 +5691,11 @@ export class PhysicsEngine {
     return Math.round(Math.max(4500, Math.min(34000, house.price * 0.22)));
   }
 
-  private computeSuburbanHousePayout(idx: number): number {
+  private computeSuburbanHousePayout(idx: number, address?: string): number {
+    // 2 Mayhill Ct is an ordinary modest suburban residence (~$850), never a $60k+ mansion vault
+    if (address && /^2\s+mayhill\s+ct\b/i.test(address.trim())) {
+      return 850;
+    }
     // Wide randomized cash inside suburban houses: from very little ($350-$1,850) up to surprise big safes ($38k-$95k)
     const raw = Math.imul((idx + 17) ^ this.houseLootSalt, 2654435761) >>> 0;
     const pct = (raw % 1000) / 1000;
@@ -5597,7 +5775,7 @@ export class PhysicsEngine {
             x: sub.drivewayTarget.x,
             z: sub.drivewayTarget.z,
             streetLocation: sub.address,
-            payoutCash: this.computeSuburbanHousePayout(idx),
+            payoutCash: this.computeSuburbanHousePayout(idx, sub.address),
             robDurationSec: 3.0,
             wantedStarsTriggered: 5,
             cooldownSec: 70,
@@ -5606,6 +5784,31 @@ export class PhysicsEngine {
           };
         }
       }
+    }
+    return undefined;
+  }
+
+  private getHouseExteriorProfile(idOrHouseId: string, x?: number, z?: number): HouseExteriorProfile | undefined {
+    const cleanId = idOrHouseId.startsWith('house_rob_')
+      ? idOrHouseId.slice('house_rob_'.length)
+      : idOrHouseId;
+    if (cleanId.startsWith('suburban_')) {
+      const idx = Number(cleanId.slice('suburban_'.length));
+      return Number.isFinite(idx) ? this.track.suburbanHouses?.[idx]?.exteriorProfile : undefined;
+    }
+    if (x !== undefined && z !== undefined && this.track.suburbanHouses && this.track.suburbanHouses.length > 0) {
+      let best: HouseExteriorProfile | undefined;
+      let bestDist = 30;
+      for (let i = 0; i < this.track.suburbanHouses.length; i++) {
+        const sub = this.track.suburbanHouses[i];
+        if (!sub.exteriorProfile) continue;
+        const d = Math.hypot(sub.drivewayTarget.x - x, sub.drivewayTarget.z - z);
+        if (d < bestDist) {
+          bestDist = d;
+          best = sub.exteriorProfile;
+        }
+      }
+      if (best) return best;
     }
     return undefined;
   }
@@ -5663,7 +5866,7 @@ export class PhysicsEngine {
         return;
       }
 
-      const payoutCash = this.computeSuburbanHousePayout(idx);
+      const payoutCash = this.computeSuburbanHousePayout(idx, sub.address);
       const alarmBreach = this.houseAlarmTriggeredIds.has(houseId);
       const hotPursuitBreach = this.cityPursuitStats.wantedStars > 0 && this.cityPursuitStats.pursuitState !== 'CLEAR';
       const policeBreach = alarmBreach || hotPursuitBreach;
@@ -5692,6 +5895,8 @@ export class PhysicsEngine {
         policeBreach,
         breachReason,
         breachDelaySec,
+        mode: 'heist',
+        exteriorProfile: sub.exteriorProfile,
       };
       soundEngine.playStartLightBeep(true);
       return;
@@ -5701,7 +5906,7 @@ export class PhysicsEngine {
     if (!house) return;
 
     if ((this.citySave.ownedHouseIds || []).includes(house.id)) {
-      this.cityPursuitStats.activeAlertBanner = `🏡 YOU ALREADY OWN ${house.name.toUpperCase()} — YOU CAN'T ROB YOUR OWN HOUSE!`;
+      this.cityPursuitStats.activeAlertBanner = `🏡 YOU ALREADY OWN ${house.name.toUpperCase()} — PRESS [V] TO EXPLORE INSIDE PEACEFULLY!`;
       this.cityPursuitStats.activeAlertTimer = 3.5;
       return;
     }
@@ -5762,13 +5967,189 @@ export class PhysicsEngine {
       category: 'HOUSE',
       payoutCash,
       streetLocation: house.streetLocation,
-      icon: '🏠',
+      icon: house.icon || '🏠',
       hidePayoutUntilStolen: true,
       policeBreach,
       breachReason,
       breachDelaySec,
+      mode: 'heist',
+      exteriorProfile: this.getHouseExteriorProfile(house.id, house.x, house.z),
     };
     soundEngine.playStartLightBeep(true);
+  }
+
+  /**
+   * Enter & peacefully explore commercial/public buildings or your OWN purchased houses without robbing them.
+   * Strictly disallows entering other people's unowned houses unless robbing them.
+   */
+  public triggerExploreBuilding(
+    kind: 'heist_target' | 'owned_house' | 'service' | 'police' | 'city_building',
+    id?: string
+  ) {
+    if (!this.isCityMode) return;
+
+    if (kind === 'city_building') {
+      this.ensureExplorableCityBuildingsCache();
+      const bId = id || this.cityPursuitStats.nearbyCityBuildingPrompt?.id;
+      const entry = bId ? this.explorableCityBuildings.find((b) => b.id === bId) : undefined;
+      if (!entry) return;
+      const entryLower = entry.name.toLowerCase();
+      if (entryLower.includes('islamic center of maryland') || /\bicm\b/.test(entryLower)) return;
+
+      this.activeRobberyState = null;
+      this.playerSpeedKmh = 0;
+      this.isMinigamePaused = true;
+      this.cityPursuitStats.activeBankMinigameTarget = {
+        id: entry.id,
+        name: entry.name,
+        category: 'BUILDING',
+        buildingHeight: entry.height,
+        buildingStories: entry.stories,
+        payoutCash: 0,
+        streetLocation: `${entry.categoryLabel} · ${entry.floorsLabel}`,
+        icon: entry.icon,
+        mode: 'explore',
+      };
+      soundEngine.playStartLightBeep(false);
+      return;
+    }
+
+    if (kind === 'heist_target') {
+      const targetId = id || this.cityPursuitStats.nearbyHeistPrompt?.targetId;
+      const target = targetId
+        ? CITY_HEIST_TARGETS_CATALOG.find((h) => h.id === targetId)
+        : undefined;
+      if (!target) return;
+
+      // STRICT RULE: Never allow peaceful exploration of other people's houses!
+      if (target.category === 'HOUSE') {
+        soundEngine.playCrash(0.2);
+        this.cityPursuitStats.activeAlertBanner = `❌ PRIVATE RESIDENCE: You can only enter someone else's house to rob it ([R])!`;
+        this.cityPursuitStats.activeAlertTimer = 4.0;
+        return;
+      }
+
+      const dist = Math.hypot(target.x - this.playerPos.x, target.z - this.playerPos.z);
+      if (dist > 45) {
+        this.setCityGpsTarget(target.x, target.z, `${target.icon} ${target.name}`, target.badgeColor);
+        return;
+      }
+
+      this.activeRobberyState = null;
+      this.playerSpeedKmh = 0;
+      this.isMinigamePaused = true;
+      this.cityPursuitStats.activeBankMinigameTarget = {
+        id: target.id,
+        name: target.name,
+        category: target.category,
+        payoutCash: target.payoutCash,
+        streetLocation: target.streetLocation,
+        icon: target.icon,
+        mode: 'explore',
+      };
+      soundEngine.playStartLightBeep(false);
+      return;
+    }
+
+    if (kind === 'owned_house') {
+      const houseId = id || this.cityPursuitStats.nearbyHousePrompt?.houseId;
+      if (!houseId) return;
+      const isOwned = (this.citySave.ownedHouseIds || []).includes(houseId);
+      if (!isOwned) {
+        soundEngine.playCrash(0.2);
+        this.cityPursuitStats.activeAlertBanner = `❌ PRIVATE RESIDENCE: You can only enter someone else's house to rob it ([R])!`;
+        this.cityPursuitStats.activeAlertTimer = 4.0;
+        return;
+      }
+      const house = CITY_HOUSES_CATALOG.find((h) => h.id === houseId);
+      if (!house) return;
+      const dist = Math.hypot(house.x - this.playerPos.x, house.z - this.playerPos.z);
+      if (dist > 40) {
+        this.setCityGpsTarget(house.x, house.z, `🏡 ${house.name}`, house.badgeColor);
+        return;
+      }
+
+      this.activeRobberyState = null;
+      this.playerSpeedKmh = 0;
+      this.isMinigamePaused = true;
+      this.cityPursuitStats.activeBankMinigameTarget = {
+        id: house.id,
+        name: house.name,
+        category: 'HOUSE',
+        payoutCash: 0,
+        streetLocation: house.streetLocation,
+        icon: house.icon || '🏡',
+        mode: 'explore',
+        isOwnedHouse: true,
+        exteriorProfile: this.getHouseExteriorProfile(house.id, house.x, house.z),
+      };
+      soundEngine.playStartLightBeep(false);
+      return;
+    }
+
+    if (kind === 'service') {
+      const svcId = id || this.cityPursuitStats.nearbyServicePrompt?.id;
+      const svc = svcId ? CITY_SERVICE_STATIONS.find((s) => s.id === svcId) : undefined;
+      if (!svc) return;
+      const dist = Math.hypot(svc.x - this.playerPos.x, svc.z - this.playerPos.z);
+      if (dist > 40) {
+        this.setCityGpsTarget(svc.x, svc.z, `⛽ ${svc.name}`, '#f59e0b');
+        return;
+      }
+
+      this.activeRobberyState = null;
+      this.playerSpeedKmh = 0;
+      this.isMinigamePaused = true;
+      this.cityPursuitStats.activeBankMinigameTarget = {
+        id: svc.id,
+        name: svc.name,
+        category: 'SERVICE',
+        payoutCash: 0,
+        streetLocation: `${svc.name} Service Lounge`,
+        icon: '⛽',
+        mode: 'explore',
+      };
+      soundEngine.playStartLightBeep(false);
+      return;
+    }
+
+    if (kind === 'police') {
+      const distToPrecinct = Math.hypot(
+        this.playerPos.x - MD_LANDMARKS.baltimorePoliceHQ.x,
+        this.playerPos.z - MD_LANDMARKS.baltimorePoliceHQ.z
+      );
+      if (distToPrecinct > 45) return;
+
+      this.activeRobberyState = null;
+      this.playerSpeedKmh = 0;
+      this.isMinigamePaused = true;
+      this.cityPursuitStats.activeBankMinigameTarget = {
+        id: 'police_precinct',
+        name: 'MCPD Central Police Precinct',
+        category: 'POLICE',
+        payoutCash: 0,
+        streetLocation: '10002 Watkins Mill Rd (Gaithersburg)',
+        icon: '🚔',
+        mode: 'explore',
+      };
+      soundEngine.playStartLightBeep(false);
+    }
+  }
+
+  public awardInteriorMinigameCash(delta: number, label: string) {
+    if (!this.isCityMode || !Number.isFinite(delta) || delta === 0) return;
+    const prev = this.citySave.streetCash;
+    const next = prev < 0 ? Math.round(prev + delta) : Math.max(0, Math.round(prev + delta));
+    const appliedDelta = next - prev;
+    this.citySave.streetCash = next;
+    saveMetroCitySave(this.citySave);
+    this.cityPursuitStats.streetCash = this.citySave.streetCash;
+    this.cityPursuitStats.inDebt = this.citySave.streetCash < 0;
+    this.cityPursuitStats.heistDebtAmount = Math.max(0, -this.citySave.streetCash);
+    if (appliedDelta > 0) {
+      soundEngine.playStartLightBeep(true);
+      this.awardStreetSkillBonus(label, appliedDelta);
+    }
   }
 
   private dispatchNearbyPoliceUnitsForRobbery(unitCount: number = 2) {
@@ -5913,6 +6294,13 @@ export class PhysicsEngine {
       return;
     }
 
+    if (target.robbable === false) {
+      soundEngine.playCrash(0.18);
+      this.cityPursuitStats.activeAlertBanner = `🎡 ${target.name.toUpperCase()} IS EXPLORE-ONLY! PRESS [V] TO ENTER & PLAY ARCADE GAMES!`;
+      this.cityPursuitStats.activeAlertTimer = 4.0;
+      return;
+    }
+
     const dist = Math.hypot(target.x - this.playerPos.x, target.z - this.playerPos.z);
     if (dist > 45) {
       this.setCityGpsTarget(target.x, target.z, `${target.icon} ${target.name}`, target.badgeColor);
@@ -5946,20 +6334,29 @@ export class PhysicsEngine {
         ? 'ACTIVE POLICE CHASE — OFFICERS BURSTING THROUGH THE DOOR!'
         : undefined,
       breachDelaySec: hotPursuitBreach ? 2.2 : undefined,
+      mode: 'heist',
+      exteriorProfile:
+        target.category === 'HOUSE'
+          ? this.getHouseExteriorProfile(target.id, target.x, target.z)
+          : undefined,
     };
     soundEngine.playStartLightBeep(true);
     return;
   }
 
-  public completeBankHeistMinigameWin(targetId: string) {
+  public completeBankHeistMinigameWin(targetId: string, stolenCashOverride?: number) {
     this.isMinigamePaused = false;
     this.cityPursuitStats.activeBankMinigameTarget = null;
     this.bankMinigameGraceTimer = 8.0;
     if (targetId.startsWith('house_rob_')) {
       this.houseAlarmTriggeredIds.delete(targetId.slice('house_rob_'.length));
     }
-    const target = this.resolveMinigameTargetSpec(targetId);
-    if (target) {
+    const baseTarget = this.resolveMinigameTargetSpec(targetId);
+    if (baseTarget) {
+      const target =
+        stolenCashOverride && stolenCashOverride > 0
+          ? { ...baseTarget, payoutCash: Math.round(stolenCashOverride) }
+          : baseTarget;
       this.completeActiveHeistRobbery(target);
     }
   }
@@ -6019,6 +6416,12 @@ export class PhysicsEngine {
     this.isMinigamePaused = false;
     this.cityPursuitStats.activeBankMinigameTarget = null;
     this.bankMinigameGraceTimer = 2.0;
+
+    if (aborted?.mode === 'explore') {
+      this.cityPursuitStats.activeAlertBanner = `🚪 EXITED ${aborted.name.toUpperCase()} — THANKS FOR VISITING!`;
+      this.cityPursuitStats.activeAlertTimer = 2.6;
+      return;
+    }
 
     if (aborted) {
       const target = this.resolveMinigameTargetSpec(aborted.id);
@@ -6243,15 +6646,17 @@ export class PhysicsEngine {
       }
     }
 
-    // 0c. Check Proximity to Banks & Jewelry Stores (Robbery Trigger & Progress Bar)
-    if (this.cityPursuitStats.isPoliceOnDuty) {
-      this.activeRobberyState = null;
-      this.cityPursuitStats.nearbyHeistPrompt = null;
-    } else {
+    // 0c. Check Proximity to Banks, Jewelry Stores, Shops & Unowned Houses (Explore & Heist Prompt)
+    {
+      const onDuty = this.cityPursuitStats.isPoliceOnDuty;
+      if (onDuty) {
+        this.activeRobberyState = null;
+      }
       let closestHeist: CityHeistTargetSpec | null = null;
       let closestHeistDist = 26.0;
       for (let i = 0; i < CITY_HEIST_TARGETS_CATALOG.length; i++) {
         const h = CITY_HEIST_TARGETS_CATALOG[i];
+        if (onDuty && h.category === 'HOUSE') continue;
         const d = Math.hypot(h.x - this.playerPos.x, h.z - this.playerPos.z);
         if (d < closestHeistDist) {
           closestHeistDist = d;
@@ -6261,17 +6666,9 @@ export class PhysicsEngine {
 
       if (closestHeist) {
         const cd = this.cityPursuitStats.heistCooldowns[closestHeist.id] || 0;
-        // Auto-rob when parked inside the 14.5m glowing ring OR if triggered via [R] / button within 24m
-        const isParkedInsideVaultZone = closestHeistDist < 14.5 && Math.abs(this.playerSpeedKmh) < 18 && cd <= 0;
-        if (
-          isParkedInsideVaultZone &&
-          this.bankMinigameGraceTimer <= 0 &&
-          !this.cityPursuitStats.activeBankMinigameTarget
-        ) {
-          this.triggerRobberyAtNearestTarget(closestHeist.id);
-        }
+        // Player explicitly chooses [V] Explore (non-house buildings) or [R] Start Heist when parked nearby!
 
-        if (this.activeRobberyState && this.activeRobberyState.target.id === closestHeist.id) {
+        if (!onDuty && closestHeist.robbable !== false && this.activeRobberyState && this.activeRobberyState.target.id === closestHeist.id) {
           if (closestHeistDist <= 22.0 && cd <= 0) {
             this.activeRobberyState.elapsedSec += dt;
             const pct = Math.min(100, (this.activeRobberyState.elapsedSec / closestHeist.robDurationSec) * 100);
@@ -6280,6 +6677,7 @@ export class PhysicsEngine {
               name: closestHeist.name,
               icon: closestHeist.icon,
               category: closestHeist.category,
+              robbable: true,
               payoutCash: closestHeist.payoutCash,
               wantedStarsTriggered: closestHeist.wantedStarsTriggered,
               distMeters: Math.round(closestHeistDist),
@@ -6299,6 +6697,7 @@ export class PhysicsEngine {
             name: closestHeist.name,
             icon: closestHeist.icon,
             category: closestHeist.category,
+            robbable: closestHeist.robbable !== false,
             payoutCash: closestHeist.payoutCash,
             wantedStarsTriggered: closestHeist.wantedStarsTriggered,
             distMeters: Math.round(closestHeistDist),
@@ -6367,7 +6766,7 @@ export class PhysicsEngine {
           isOwned: false,
           passiveIncomePerMin: 0,
           distMeters: Math.round(bestSubDist),
-          robPayoutCash: this.computeSuburbanHousePayout(bestSubIdx),
+          robPayoutCash: this.computeSuburbanHousePayout(bestSubIdx, bestSub.address),
           robCooldownLeftSec: Math.ceil(this.cityPursuitStats.heistCooldowns[robId] || 0),
           hideRobPayout: true,
         };
@@ -6425,6 +6824,37 @@ export class PhysicsEngine {
             brandColor: '#f59e0b',
             distMeters: Math.round(closestSvcDist),
             cost: this.citySave.streetCash >= closestSvc.serviceCost ? closestSvc.serviceCost : 0,
+          }
+        : null;
+    }
+
+    // 0f2. Check Proximity to ANY Explorable City Building (malls, schools, hospitals, arenas, towers, clubhouses, etc.)
+    {
+      this.ensureExplorableCityBuildingsCache();
+      let bestBldg: (typeof this.explorableCityBuildings)[number] | null = null;
+      let bestEdgeDist = 18.0;
+      const px = this.playerPos.x;
+      const pz = this.playerPos.z;
+      for (let i = 0; i < this.explorableCityBuildings.length; i++) {
+        const b = this.explorableCityBuildings[i];
+        const dx = Math.max(b.box.minX - px, 0, px - b.box.maxX);
+        const dz = Math.max(b.box.minZ - pz, 0, pz - b.box.maxZ);
+        if (dx > 18 || dz > 18) continue;
+        const dEdge = Math.hypot(dx, dz);
+        if (dEdge < bestEdgeDist) {
+          bestEdgeDist = dEdge;
+          bestBldg = b;
+        }
+      }
+      this.cityPursuitStats.nearbyCityBuildingPrompt = bestBldg
+        ? {
+            id: bestBldg.id,
+            name: bestBldg.name,
+            categoryLabel: bestBldg.categoryLabel,
+            icon: bestBldg.icon,
+            height: bestBldg.height,
+            distMeters: Math.round(bestEdgeDist),
+            floorsLabel: bestBldg.floorsLabel,
           }
         : null;
     }

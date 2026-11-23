@@ -5,6 +5,7 @@ import {
   GAITHERSBURG_SIGNAL_JUNCTIONS,
   ICM_CAMPUS_ORIGIN,
   REDEEMER_CAMPUS_ORIGIN,
+  MAYHILL_CT_ROUNDABOUT,
   gx,
   gz,
   distSqPointToSeg,
@@ -95,7 +96,8 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
     w: number,
     d: number,
     height: number,
-    name: string
+    name: string,
+    stories?: number
   ) => {
     const c = Math.cos(rotY);
     const s = Math.sin(rotY);
@@ -109,6 +111,7 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
       minZ: wz - hd,
       maxZ: wz + hd,
       height,
+      stories,
       name,
     });
   };
@@ -299,7 +302,7 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
     mSign.position.set(-12.7, 4.05, 0);
     musalla.add(mSign);
     icmGroup.add(musalla);
-    addRotatedCollider(ICM_CAMPUS_ORIGIN.x, ICM_CAMPUS_ORIGIN.z, ICM_CAMPUS_ORIGIN.rotY, 46, 6, 20, 18, 10, 'ICM Front Musalla (19411 Woodfield Rd)');
+    addRotatedCollider(ICM_CAMPUS_ORIGIN.x, ICM_CAMPUS_ORIGIN.z, ICM_CAMPUS_ORIGIN.rotY, 46, 6, 20, 18, 10, 'ICM Front Musalla (19411 Woodfield Rd)', 1);
 
     // 4B. Outdoor Fenced Basketball Court directly between Front Musalla & Back Main Building
     const courtGroup = new THREE.Group();
@@ -402,7 +405,7 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
     );
     backSign.position.set(101.0, 5.75, 6);
     icmGroup.add(backSign);
-    addRotatedCollider(ICM_CAMPUS_ORIGIN.x, ICM_CAMPUS_ORIGIN.z, ICM_CAMPUS_ORIGIN.rotY, 138, 6, 60, 56, 15, 'Islamic Center of Maryland — Main Center');
+    addRotatedCollider(ICM_CAMPUS_ORIGIN.x, ICM_CAMPUS_ORIGIN.z, ICM_CAMPUS_ORIGIN.rotY, 138, 6, 60, 56, 15, 'Islamic Center of Maryland — Main Center', 2);
 
     const icmMonBase = new THREE.Mesh(new THREE.BoxGeometry(1.6, 2.4, 12.5), icmSandBrickMat);
     icmMonBase.position.set(25.5, 1.2, 0);
@@ -487,7 +490,7 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
     redMonFace.position.set(19.1, 1.4, -2);
     redGroup.add(redMonFace);
 
-    addRotatedCollider(REDEEMER_CAMPUS_ORIGIN.x, REDEEMER_CAMPUS_ORIGIN.z, REDEEMER_CAMPUS_ORIGIN.rotY, 126, 2, 60, 50, 17, 'Church of the Redeemer (19425 Woodfield Rd)');
+    addRotatedCollider(REDEEMER_CAMPUS_ORIGIN.x, REDEEMER_CAMPUS_ORIGIN.z, REDEEMER_CAMPUS_ORIGIN.rotY, 126, 2, 60, 50, 17, 'Church of the Redeemer (19425 Woodfield Rd)', 2);
     sceneryGroup.add(redGroup);
   }
 
@@ -776,12 +779,12 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
     poolWater.rotation.x = -Math.PI / 2;
     poolWater.position.set(gx(524), 0.28, gz(1577));
     sceneryGroup.add(poolWater);
-    cityBuildings.push({ minX: gx(515), maxX: gx(533), minZ: gz(1559), maxZ: gz(1571), height: 7, name: 'Hadley Farms Community Pool & Clubhouse' });
+    cityBuildings.push({ minX: gx(515), maxX: gx(533), minZ: gz(1559), maxZ: gz(1571), height: 7, stories: 1, name: 'Hadley Farms Community Pool & Clubhouse' });
 
     drawGaithParkingLot(gx(577), gz(1565), 22, 30, 0);
     const schGroup = new THREE.Group();
     schGroup.position.set(gx(610), 0.25, gz(1564));
-    const schBrickMat = makeBrickFacadeMat('#9b3b2c', '#e5e7eb', '#1e3a5f', 7, 2, false);
+    const schBrickMat = makeBrickFacadeMat('#9b3b2c', '#e5e7eb', '#1e3a5f', 7, 1, false);
     const schTrimMat = makeCityMat({ color: 0xede5d4, roughness: 0.58 });
     const mainWing = new THREE.Mesh(new THREE.BoxGeometry(30, 7.4, 18), boxWithRoofMat(schBrickMat, flatRoofMat));
     mainWing.position.set(0, 3.7, -2);
@@ -798,7 +801,7 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
     schSign.position.set(-15.4, 4.6, -2);
     schGroup.add(schSign);
     sceneryGroup.add(schGroup);
-    cityBuildings.push({ minX: gx(594), maxX: gx(626), minZ: gz(1552), maxZ: gz(1579), height: 10, name: 'Judith A. Resnik Elementary School (7301 Hadley Farms Dr)' });
+    cityBuildings.push({ minX: gx(594), maxX: gx(626), minZ: gz(1552), maxZ: gz(1579), height: 10, stories: 1, name: 'Judith A. Resnik Elementary School (7301 Hadley Farms Dr)' });
 
     let hadleyCount = 0;
     const addHadleyLot = (x: number, z: number, rotY: number, houseNum: string, street: string) => {
@@ -872,16 +875,39 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
     addHadleyLot(gx(538), gz(1481.5), Math.PI, '3', 'Harkness Ct');
     addHadleyLot(gx(579), gz(1464), -Math.PI / 2, '5', 'Harkness Ct');
 
-    // Mayhill Ct Cul-de-Sac (z=1464, x=600..676) — Featuring 2 Mayhill Ct + 1, 3, 4, 5, 6, 7, 8 Mayhill Ct!
-    addHadleyLot(gx(622), gz(1446.5), 0, '2', 'Mayhill Ct');
-    addHadleyLot(gx(648), gz(1446.5), 0, '4', 'Mayhill Ct');
-    addHadleyLot(gx(674), gz(1446.5), 0, '6', 'Mayhill Ct');
-    addHadleyLot(gx(622), gz(1481.5), Math.PI, '1', 'Mayhill Ct');
-    addHadleyLot(gx(648), gz(1481.5), Math.PI, '3', 'Mayhill Ct');
-    addHadleyLot(gx(674), gz(1481.5), Math.PI, '5', 'Mayhill Ct');
-    addHadleyLot(gx(695), gz(1453), -Math.PI * 0.35, '8', 'Mayhill Ct');
-    addHadleyLot(gx(695), gz(1475), -Math.PI * 0.65, '7', 'Mayhill Ct');
-    addStreetNamePost(gx(606), gz(1454), 'MAYHILL CT · 1–8', 0);
+    // Mayhill Ct Circular Roundabout (Center gx(714), gz(1464), Ring R=28m) — 12 Homes (1–12 Mayhill Ct)!
+    {
+      const { cx, cz, ringRadius, houseRadius, numbers, thetaStart, thetaEnd } = MAYHILL_CT_ROUNDABOUT;
+      // Landscaped circular center island + stone curb ring + center tree & plaque
+      const islandGrass = new THREE.Mesh(
+        new THREE.CircleGeometry(ringRadius - 5.6, 28),
+        makeCityMat({ color: 0x15803d, roughness: 0.9 })
+      );
+      islandGrass.rotation.x = -Math.PI / 2;
+      islandGrass.position.set(cx, 0.27, cz);
+      islandGrass.receiveShadow = isUltra;
+      sceneryGroup.add(islandGrass);
+
+      const islandCurb = new THREE.Mesh(
+        new THREE.RingGeometry(ringRadius - 6.0, ringRadius - 5.3, 28),
+        makeCityMat({ color: 0xd6d3d1, roughness: 0.78 })
+      );
+      islandCurb.rotation.x = -Math.PI / 2;
+      islandCurb.position.set(cx, 0.285, cz);
+      sceneryGroup.add(islandCurb);
+
+      addLandscapedTree(cx, cz, 1.15);
+      addStreetNamePost(cx - 2.5, cz - 3.5, 'MAYHILL CT · 1–12', 0);
+
+      const step = (thetaEnd - thetaStart) / Math.max(1, numbers.length - 1);
+      numbers.forEach((hNum, idx) => {
+        const theta = thetaStart + idx * step;
+        const hx = cx + Math.cos(theta) * houseRadius;
+        const hz = cz + Math.sin(theta) * houseRadius;
+        const rotY = Math.atan2(-Math.cos(theta), -Math.sin(theta));
+        addHadleyLot(hx, hz, rotY, hNum, 'Mayhill Ct');
+      });
+    }
 
     // Hadley Farms Dr North-Side Homes (z=1540, facing South)
     for (const [hx, hz, rotY, hNum, hSt] of [
@@ -917,7 +943,7 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
       sceneryGroup.add(thGrp);
       const halfX = Math.abs(Math.cos(rotY)) > 0.5 ? 12 : 6;
       const halfZ = Math.abs(Math.cos(rotY)) > 0.5 ? 6 : 12;
-      cityBuildings.push({ minX: tx - halfX, maxX: tx + halfX, minZ: tz - halfZ, maxZ: tz + halfZ, height: 11, name: label });
+      cityBuildings.push({ minX: tx - halfX, maxX: tx + halfX, minZ: tz - halfZ, maxZ: tz + halfZ, height: 11, stories: 3, name: label });
     }
     addStreetNamePost(gx(466), gz(1552), 'HADLEY FARMS DR', 0);
   }
@@ -958,10 +984,10 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
     );
     kgaiSign.position.set(gx(364), 11.2, gz(2012.5));
     sceneryGroup.add(kgaiSign);
-    cityBuildings.push({ minX: gx(349), maxX: gx(379), minZ: gz(1975), maxZ: gz(2013), height: 14, name: 'Montgomery County Airpark (KGAI) Hangar' });
+    cityBuildings.push({ minX: gx(349), maxX: gx(379), minZ: gz(1975), maxZ: gz(2013), height: 14, stories: 1, name: 'Montgomery County Airpark (KGAI) Hangar' });
 
     drawGaithParkingLot(gx(162), gz(2176), 72, 36, 0);
-    const fhBrick = makeBrickFacadeMat('#7c2d12', '#f8fafc', '#fde047', 8, 2, false);
+    const fhBrick = makeBrickFacadeMat('#7c2d12', '#f8fafc', '#fde047', 8, 1, false);
     const fhTrimMat = makeCityMat({ color: 0xe2e8f0, roughness: 0.6 });
     const fhCanopyMat = makeCityMat({ color: 0x064e3b, roughness: 0.55 });
     const fhPlaza = new THREE.Mesh(new THREE.BoxGeometry(68, 11, 24), boxWithRoofMat(fhBrick, flatRoofMat));
@@ -983,7 +1009,7 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
     );
     fhSign.position.set(gx(174), 10.6, gz(2155.1));
     sceneryGroup.add(fhSign);
-    cityBuildings.push({ minX: gx(139), maxX: gx(209), minZ: gz(2129), maxZ: gz(2155), height: 14, name: 'Flower Hill Shopping Center (Giant)' });
+    cityBuildings.push({ minX: gx(139), maxX: gx(209), minZ: gz(2129), maxZ: gz(2155), height: 14, stories: 1, name: 'Flower Hill Shopping Center (Giant)' });
   }
 
   // =========================================================================================
@@ -993,7 +1019,7 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
     const retailTrimMat = makeCityMat({ color: 0xe5e7eb, roughness: 0.6 });
     const retailDarkMat = makeCityMat({ color: 0x1e293b, roughness: 0.65 });
     drawGaithParkingLot(gx(-296), gz(1560), 68, 46, 0);
-    const giantAnchor = new THREE.Mesh(new THREE.BoxGeometry(60, 10, 26), boxWithRoofMat(makeBrickFacadeMat('#a16244', '#e5e7eb', '#1e293b', 8, 2, false), flatRoofMat));
+    const giantAnchor = new THREE.Mesh(new THREE.BoxGeometry(60, 10, 26), boxWithRoofMat(makeBrickFacadeMat('#a16244', '#e5e7eb', '#1e293b', 8, 1, false), flatRoofMat));
     giantAnchor.position.set(gx(-296), 5.25, gz(1520));
     sceneryGroup.add(giantAnchor);
     const giantCrown = new THREE.Mesh(new THREE.BoxGeometry(61, 1.0, 27), retailTrimMat);
@@ -1008,7 +1034,7 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
     );
     giantSign.position.set(gx(-296), 8.8, gz(1533.4));
     sceneryGroup.add(giantSign);
-    cityBuildings.push({ minX: gx(-327), maxX: gx(-265), minZ: gz(1506), maxZ: gz(1534), height: 12, name: 'Goshen Crossing Shopping Center (Giant)' });
+    cityBuildings.push({ minX: gx(-327), maxX: gx(-265), minZ: gz(1506), maxZ: gz(1534), height: 12, stories: 1, name: 'Goshen Crossing Shopping Center (Giant)' });
 
     const whetstoneLake = new THREE.Mesh(new THREE.PlaneGeometry(78, 56), waterMat);
     whetstoneLake.rotation.x = -Math.PI / 2;
@@ -1022,7 +1048,46 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
     const lfPent = new THREE.Mesh(new THREE.BoxGeometry(28, 3.2, 18), retailDarkMat);
     lfPent.position.set(gx(-286), 13.3, gz(1754));
     sceneryGroup.add(lfPent);
-    cityBuildings.push({ minX: gx(-315), maxX: gx(-257), minZ: gz(1739), maxZ: gz(1769), height: 15, name: 'Lakeforest / Lost Knife Plaza' });
+    cityBuildings.push({ minX: gx(-315), maxX: gx(-257), minZ: gz(1739), maxZ: gz(1769), height: 15, stories: 2, name: 'Lakeforest / Lost Knife Plaza' });
+
+    // Chuck E. Cheese's Fun Center & Arcade (3-Story Landmark Building matching 3F Interior!)
+    {
+      const cx = gx(-224);
+      const cz = gz(1720);
+      const cecGroup = new THREE.Group();
+      cecGroup.position.set(cx, 0.25, cz);
+      const cecWallMat = makeBrickFacadeMat('#581c87', '#facc15', '#38bdf8', 7, 3, true);
+      const cecBody = new THREE.Mesh(new THREE.BoxGeometry(32, 13.8, 18), boxWithRoofMat(cecWallMat, flatRoofMat));
+      cecBody.position.set(0, 6.9, 0);
+      cecBody.castShadow = isUltra;
+      cecGroup.add(cecBody);
+      const cecCrown = new THREE.Mesh(
+        new THREE.BoxGeometry(33.2, 1.3, 19.2),
+        makeCityMat({ color: 0xfacc15, roughness: 0.38 })
+      );
+      cecCrown.position.set(0, 14.3, 0);
+      cecGroup.add(cecCrown);
+      const cecCanopy = new THREE.Mesh(
+        new THREE.BoxGeometry(18, 0.7, 3.8),
+        makeCityMat({ color: 0x7e22ce, roughness: 0.45 })
+      );
+      cecCanopy.position.set(0, 4.1, 10.4);
+      cecGroup.add(cecCanopy);
+      const cecSign = new THREE.Mesh(
+        new THREE.BoxGeometry(24, 3.0, 0.45),
+        makeTextSignMat(["CHUCK E. CHEESE'S", '3 FLOORS · ARCADE · SKEE-BALL · CLAW'], '#4c1d95', '#fde047', '#facc15')
+      );
+      cecSign.position.set(0, 11.4, 9.3);
+      cecGroup.add(cecSign);
+      const cecRingMat = new THREE.MeshBasicMaterial({ color: 0xfacc15, side: THREE.DoubleSide, transparent: true, opacity: 0.8 });
+      disposables.push(cecRingMat);
+      const cecRing = new THREE.Mesh(new THREE.RingGeometry(3.2, 4.2, 24), cecRingMat);
+      cecRing.rotation.x = -Math.PI / 2;
+      cecRing.position.set(0, 0.05, 18); // gz(1738) inside parking lot
+      cecGroup.add(cecRing);
+      sceneryGroup.add(cecGroup);
+      cityBuildings.push({ minX: cx - 16.5, maxX: cx + 16.5, minZ: cz - 9.5, maxZ: cz + 9.5, height: 15.5, stories: 3, name: "Chuck E. Cheese's Fun Center & Arcade" });
+    }
 
     const fgOval = new THREE.Mesh(new THREE.CircleGeometry(24, 24), makeCityMat({ color: 0x926843, roughness: 0.95 }));
     fgOval.rotation.x = -Math.PI / 2;
@@ -1041,7 +1106,7 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
     );
     fgSign.position.set(gx(-265), 9.6, gz(1805.4));
     sceneryGroup.add(fgSign);
-    cityBuildings.push({ minX: gx(-291), maxX: gx(-239), minZ: gz(1784), maxZ: gz(1806), height: 13, name: 'Montgomery County Fairgrounds Pavilion' });
+    cityBuildings.push({ minX: gx(-291), maxX: gx(-239), minZ: gz(1784), maxZ: gz(1806), height: 13, stories: 2, name: 'Montgomery County Fairgrounds Pavilion' });
 
     // Historic 1884 Queen Anne B&O / MARC Station (red common-bond brick, projecting trackside bay gable, arched window, wood platform canopy & chimneys)
     const depotBrickMat = makeBrickFacadeMat('#991b1b', '#f8fafc', '#fde68a', 6, 2, true);
@@ -1108,7 +1173,7 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
     );
     depotSign.position.set(gx(-125), 9.2, gz(1966.5));
     sceneryGroup.add(depotSign);
-    cityBuildings.push({ minX: gx(-153), maxX: gx(-97), minZ: gz(1945), maxZ: gz(1972), height: 24, name: 'Gaithersburg 1884 B&O / MARC Station' });
+    cityBuildings.push({ minX: gx(-153), maxX: gx(-97), minZ: gz(1945), maxZ: gz(1972), height: 24, stories: 2, name: 'Gaithersburg 1884 B&O / MARC Station' });
 
     const ballast = new THREE.Mesh(new THREE.PlaneGeometry(580, 11.5), makeCityMat({ color: 0x57534e, roughness: 0.95 }));
     ballast.rotation.order = 'YXZ';
@@ -1128,7 +1193,7 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
     const bohrerRoof = buildPitchedRoofGroup(46.8, 26.8, 3.8, bohrerBrick, retailDarkMat, 'x');
     bohrerRoof.position.set(gx(-48), 10.25, gz(2102));
     sceneryGroup.add(bohrerRoof);
-    cityBuildings.push({ minX: gx(-72), maxX: gx(-24), minZ: gz(2088), maxZ: gz(2116), height: 14, name: 'Bohrer Park Activity Center' });
+    cityBuildings.push({ minX: gx(-72), maxX: gx(-24), minZ: gz(2088), maxZ: gz(2116), height: 14, stories: 2, name: 'Bohrer Park Activity Center' });
 
     // 10B. BOHRER PARK BASEBALL DIAMOND (East of Bohrer Park Activity Center, gx(32), gz(2096))
     {
@@ -1396,7 +1461,7 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
       fbGroup.add(fbRing);
 
       sceneryGroup.add(fbGroup);
-      cityBuildings.push({ minX: gx(-60), maxX: gx(-24), minZ: gz(2225), maxZ: gz(2229), height: 5, name: 'Bohrer Gridiron Bleachers' });
+      cityBuildings.push({ minX: gx(-60), maxX: gx(-24), minZ: gz(2225), maxZ: gz(2229), height: 5, stories: 1, name: 'Bohrer Gridiron Bleachers' });
     }
 
     // 10C. GAITHERSBURG COUNTRY CLUB GOLF FIELD (Clean open meadow at gx(515), gz(2275))
@@ -1496,7 +1561,7 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
       golfGroup.add(golfRing);
 
       sceneryGroup.add(golfGroup);
-      cityBuildings.push({ minX: gx(460), maxX: gx(468), minZ: gz(2260), maxZ: gz(2266), height: 6, name: 'Gaithersburg Golf Starter Kiosk' });
+      cityBuildings.push({ minX: gx(460), maxX: gx(468), minZ: gz(2260), maxZ: gz(2266), height: 6, stories: 1, name: 'Gaithersburg Golf Starter Kiosk' });
     }
   }
 
@@ -1521,7 +1586,7 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
     );
     nistSign.position.set(gx(-522), 18.0, gz(2066.4));
     sceneryGroup.add(nistSign);
-    cityBuildings.push({ minX: gx(-552), maxX: gx(-492), minZ: gz(2023), maxZ: gz(2067), height: 24, name: 'NIST Federal Research Campus' });
+    cityBuildings.push({ minX: gx(-552), maxX: gx(-492), minZ: gz(2023), maxZ: gz(2067), height: 24, stories: 4, name: 'NIST Federal Research Campus' });
 
     // RIO Lakefront: Genuine Planar Reflective Water, Small Visible Perimeter Barrier & Waterfront Stores
     const rioX = gx(-464);
@@ -1866,6 +1931,7 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
         minZ: st.z - st.d * 0.5 - 0.6,
         maxZ: st.z + st.d * 0.5 + 0.6,
         height: st.h + 2,
+        stories: 2,
         name: st.name,
       });
     }
@@ -1913,7 +1979,47 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
       bowlRing.rotation.x = -Math.PI / 2;
       bowlRing.position.set(gx(-348), 0.28, gz(2268));
       sceneryGroup.add(bowlRing);
-      cityBuildings.push({ minX: bx - 12.5, maxX: bx + 12.5, minZ: bz - 11.5, maxZ: bz + 11.5, height: 18, name: 'Downtown Crown Neon Bowling Lanes' });
+      cityBuildings.push({ minX: bx - 12.5, maxX: bx + 12.5, minZ: bz - 11.5, maxZ: bz + 11.5, height: 18, stories: 2, name: 'Downtown Crown Neon Bowling Lanes' });
+    }
+
+    // Dave & Buster's RIO Washingtonian Flagship (3-Story Landmark Building matching 3F Interior!)
+    {
+      const dbx = gx(-376);
+      const dbz = gz(2142);
+      drawGaithParkingLot(dbx, gz(2170), 42, 24, 0);
+      const dbGroup = new THREE.Group();
+      dbGroup.position.set(dbx, 0.25, dbz);
+      const dbWallMat = makeBrickFacadeMat('#1e293b', '#38bdf8', '#f97316', 8, 3, true);
+      const dbBody = new THREE.Mesh(new THREE.BoxGeometry(36, 15.0, 20), boxWithRoofMat(dbWallMat, flatRoofMat));
+      dbBody.position.set(0, 7.5, 0);
+      dbBody.castShadow = isUltra;
+      dbGroup.add(dbBody);
+      const dbTrim = new THREE.Mesh(
+        new THREE.BoxGeometry(37.2, 1.4, 21.2),
+        makeCityMat({ color: 0xf97316, roughness: 0.35 })
+      );
+      dbTrim.position.set(0, 15.6, 0);
+      dbGroup.add(dbTrim);
+      const dbPortal = new THREE.Mesh(
+        new THREE.CylinderGeometry(5.8, 5.8, 14.5, 16, 1, false, -Math.PI * 0.5, Math.PI),
+        makeCityMat({ color: 0x0f172a, roughness: 0.35, metalness: 0.5 })
+      );
+      dbPortal.position.set(0, 7.25, 10.0);
+      dbGroup.add(dbPortal);
+      const dbSign = new THREE.Mesh(
+        new THREE.BoxGeometry(28, 3.2, 0.5),
+        makeTextSignMat(["DAVE & BUSTER'S · RIO", '3 FLOORS · MEGA ARCADE · AIR HOCKEY · BILLIARDS'], '#1e3a8a', '#f97316', '#38bdf8')
+      );
+      dbSign.position.set(0, 12.2, 12.6);
+      dbGroup.add(dbSign);
+      const dbRingMat = new THREE.MeshBasicMaterial({ color: 0xf97316, side: THREE.DoubleSide, transparent: true, opacity: 0.82 });
+      disposables.push(dbRingMat);
+      const dbRing = new THREE.Mesh(new THREE.RingGeometry(3.4, 4.4, 24), dbRingMat);
+      dbRing.rotation.x = -Math.PI / 2;
+      dbRing.position.set(0, 0.05, 22); // gz(2164) in front of entrance
+      dbGroup.add(dbRing);
+      sceneryGroup.add(dbGroup);
+      cityBuildings.push({ minX: dbx - 18.5, maxX: dbx + 18.5, minZ: dbz - 10.5, maxZ: dbz + 11.5, height: 17, stories: 3, name: "Dave & Buster's RIO Washingtonian" });
     }
 
     // Surrounding Mixed-Use Downtown Crown Buildings (Retail + Penthouse Lofts)
@@ -1933,7 +2039,7 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
       const sg = new THREE.Mesh(new THREE.BoxGeometry(cw - 4, 2.2, 0.35), makeTextSignMat(signL, '#0f172a', '#fde047', '#f59e0b'));
       sg.position.set(cx, 5.4, cz - cd * 0.5 - 0.28);
       sceneryGroup.add(sg);
-      cityBuildings.push({ minX: cx - cw * 0.5 - 0.6, maxX: cx + cw * 0.5 + 0.6, minZ: cz - cd * 0.5 - 0.6, maxZ: cz + cd * 0.5 + 0.6, height: ch + 1.5, name: label });
+      cityBuildings.push({ minX: cx - cw * 0.5 - 0.6, maxX: cx + cw * 0.5 + 0.6, minZ: cz - cd * 0.5 - 0.6, maxZ: cz + cd * 0.5 + 0.6, height: ch + 1.5, stories: 3, name: label });
     }
 
     // INTERACTIVE WOODFIELD SHELL PIT STOP, WASHINGTONIAN EV BAY, CAR MEET PLAZA & GAITHERSBURG SPEED TRAPS
@@ -1998,7 +2104,7 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
     }
 
     drawGaithParkingLot(gx(-630), gz(2095), 72, 54, 0);
-    const kmPlaza = new THREE.Mesh(new THREE.BoxGeometry(66, 12, 28), boxWithRoofMat(makeBrickFacadeMat('#9a3412', '#fef3c7', '#38bdf8', 7, 2, false), flatRoofMat));
+    const kmPlaza = new THREE.Mesh(new THREE.BoxGeometry(66, 12, 28), boxWithRoofMat(makeBrickFacadeMat('#9a3412', '#fef3c7', '#38bdf8', 7, 1, false), flatRoofMat));
     kmPlaza.position.set(gx(-630), 6.25, gz(2046));
     sceneryGroup.add(kmPlaza);
     const kmParapet = new THREE.Mesh(new THREE.BoxGeometry(67.2, 1.1, 29.2), campusTrimMat);
@@ -2013,7 +2119,7 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
     );
     kmSign.position.set(gx(-630), 10.6, gz(2060.4));
     sceneryGroup.add(kmSign);
-    cityBuildings.push({ minX: gx(-664), maxX: gx(-596), minZ: gz(2031), maxZ: gz(2061), height: 14, name: 'Kentlands Market Square' });
+    cityBuildings.push({ minX: gx(-664), maxX: gx(-596), minZ: gz(2031), maxZ: gz(2061), height: 14, stories: 1, name: 'Kentlands Market Square' });
 
     const kLake = new THREE.Mesh(new THREE.PlaneGeometry(82, 56), waterMat);
     kLake.rotation.x = -Math.PI / 2;
@@ -2046,7 +2152,7 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
       mChim.position.set(gx(-610) + cx, 16.4, gz(2246));
       sceneryGroup.add(mChim);
     }
-    cityBuildings.push({ minX: gx(-631), maxX: gx(-589), minZ: gz(2234), maxZ: gz(2261), height: 19, name: 'Historic Kentlands Mansion' });
+    cityBuildings.push({ minX: gx(-631), maxX: gx(-589), minZ: gz(2234), maxZ: gz(2261), height: 19, stories: 3, name: 'Historic Kentlands Mansion' });
   }
 
   // =========================================================================================

@@ -86,12 +86,18 @@ export function buildBaltimoreDistrict(ctx: BaltimoreBuilderContext): {
 
   // Multi-floor tower facade materials & flat roof cap
   const flatRoofMat = makeCityMat({ color: 0x334155, roughness: 0.85, metalness: 0.1 });
-  const glassTowerMat = makeBrickFacadeMat('#1e293b', '#475569', '#93c5fd', 10, 22, false);
+  const glassTowerMat = makeBrickFacadeMat('#1e293b', '#475569', '#93c5fd', 10, 18, false);
+  const darkGlassMat14 = makeBrickFacadeMat('#334155', '#1e293b', '#bae6fd', 9, 14, false);
+  const glassTowerMat16 = makeBrickFacadeMat('#1e293b', '#475569', '#93c5fd', 10, 16, false);
   const limestoneOfficeMat = makeBrickFacadeMat('#cbd5e1', '#94a3b8', '#334155', 8, 18, false);
-  const darkGlassMat = makeBrickFacadeMat('#334155', '#1e293b', '#bae6fd', 9, 20, false);
+  const policeOfficeMat5 = makeBrickFacadeMat('#cbd5e1', '#94a3b8', '#334155', 8, 5, false);
   const brickMidriseMat = makeBrickFacadeMat('#7c2d12', '#d6d3d1', '#fde68a', 8, 12, true);
+  const jhHospitalBrickMat = makeBrickFacadeMat('#7c2d12', '#d6d3d1', '#fde68a', 10, 5, true);
+  const sciBrickMat3 = makeBrickFacadeMat('#7c2d12', '#d6d3d1', '#bae6fd', 8, 3, true);
+  const boaSetbackMat6 = makeBrickFacadeMat('#cbd5e1', '#94a3b8', '#334155', 6, 6, false);
+  const wtcFacadeMat27 = makeBrickFacadeMat('#cbd5e1', '#94a3b8', '#334155', 6, 27, false);
   const solidBrickMasonryMat = makeCityMat({ color: 0x7c2d12, roughness: 0.78 });
-  const wtcFacetTex = (limestoneOfficeMat as THREE.MeshLambertMaterial).map?.clone();
+  const wtcFacetTex = (wtcFacadeMat27 as THREE.MeshLambertMaterial).map?.clone();
   if (wtcFacetTex) {
     wtcFacetTex.repeat.set(4, 1);
     wtcFacetTex.needsUpdate = true;
@@ -162,6 +168,7 @@ export function buildBaltimoreDistrict(ctx: BaltimoreBuilderContext): {
       minZ: wtcZ - 19,
       maxZ: wtcZ + 19,
       height: 102,
+      stories: 27,
       name: 'World Trade Center Baltimore',
     });
 
@@ -202,6 +209,7 @@ export function buildBaltimoreDistrict(ctx: BaltimoreBuilderContext): {
       minZ: aqZ - 19,
       maxZ: aqZ + 19,
       height: 36,
+      stories: 3,
       name: 'National Aquarium in Baltimore',
     });
 
@@ -230,7 +238,7 @@ export function buildBaltimoreDistrict(ctx: BaltimoreBuilderContext): {
     // Maryland Science Center (Curved IMAX Dome & Exhibit Hall East of Light & Key Hwy)
     const sciX = 1292;
     const sciZ = -56;
-    const sciBody = new THREE.Mesh(new THREE.BoxGeometry(32, 14, 24), boxWithRoofMat(brickMidriseMat, flatRoofMat));
+    const sciBody = new THREE.Mesh(new THREE.BoxGeometry(32, 14, 24), boxWithRoofMat(sciBrickMat3, flatRoofMat));
     sciBody.position.set(sciX, 0.35 + 7, sciZ);
     sceneryGroup.add(sciBody);
     const imaxDrum = new THREE.Mesh(new THREE.CylinderGeometry(10, 10.5, 6, 16), limestoneMat);
@@ -248,6 +256,7 @@ export function buildBaltimoreDistrict(ctx: BaltimoreBuilderContext): {
       minZ: sciZ - 13,
       maxZ: sciZ + 13,
       height: 30,
+      stories: 3,
       name: 'Maryland Science Center',
     });
 
@@ -297,6 +306,7 @@ export function buildBaltimoreDistrict(ctx: BaltimoreBuilderContext): {
       minZ: domZ - 19,
       maxZ: domZ + 19,
       height: 44,
+      stories: 5,
       name: 'Domino Sugar Refinery',
     });
 
@@ -365,23 +375,24 @@ export function buildBaltimoreDistrict(ctx: BaltimoreBuilderContext): {
       minZ: ftZ - 24,
       maxZ: ftZ + 24,
       height: 12,
+      stories: 1,
       name: 'Fort McHenry National Monument',
     });
 
-    // Fells Point Waterfront Brick Tavern Row & Cobble Square (North of Thames St)
+    // Fells Point Waterfront Brick Shops Row & Cobble Square (North of Thames St)
     const fpX = 1455;
     const fpZ = -192;
     const fpPlaza = new THREE.Mesh(new THREE.BoxGeometry(62, 0.02, 22), promBrickMat);
     fpPlaza.position.set(fpX, 0.232, fpZ + 2);
     sceneryGroup.add(fpPlaza);
-    const tavernColors = ['#8b2e24', '#7c2d12', '#92400e', '#78350f'];
+    const brickRowColors = ['#8b2e24', '#7c2d12', '#92400e', '#78350f'];
     for (let t = 0; t < 4; t++) {
       const tx = fpX - 21 + t * 14;
-      const tavernMat = makeBrickFacadeMat(tavernColors[t], '#e2e8f0', '#fde68a', 3, 3, true);
-      const tavern = new THREE.Mesh(new THREE.BoxGeometry(13.2, 11.5, 16), boxWithRoofMat(tavernMat, flatRoofMat));
-      tavern.position.set(tx, 0.28 + 5.75, fpZ);
-      sceneryGroup.add(tavern);
-      const tRoof = buildPitchedRoofGroup(13.4, 16.2, 3.8, tavernMat, darkSlateRoofMat, 'x');
+      const brickRowMat = makeBrickFacadeMat(brickRowColors[t], '#e2e8f0', '#fde68a', 3, 3, true);
+      const shopMesh = new THREE.Mesh(new THREE.BoxGeometry(13.2, 11.5, 16), boxWithRoofMat(brickRowMat, flatRoofMat));
+      shopMesh.position.set(tx, 0.28 + 5.75, fpZ);
+      sceneryGroup.add(shopMesh);
+      const tRoof = buildPitchedRoofGroup(13.4, 16.2, 3.8, brickRowMat, darkSlateRoofMat, 'x');
       tRoof.position.set(tx, 0.28 + 11.5, fpZ);
       sceneryGroup.add(tRoof);
     }
@@ -397,6 +408,7 @@ export function buildBaltimoreDistrict(ctx: BaltimoreBuilderContext): {
       minZ: fpZ - 9,
       maxZ: fpZ + 9,
       height: 16,
+      stories: 3,
       name: 'Fells Point Waterfront Row',
     });
   }
@@ -468,6 +480,7 @@ export function buildBaltimoreDistrict(ctx: BaltimoreBuilderContext): {
         minZ: camZ - 35,
         maxZ: camZ + 35,
         height: 33,
+        stories: 6,
         name: 'Historic B&O Warehouse (Camden Yards)',
       },
       {
@@ -476,6 +489,7 @@ export function buildBaltimoreDistrict(ctx: BaltimoreBuilderContext): {
         minZ: camZ - 35,
         maxZ: camZ + 36,
         height: 20,
+        stories: 3,
         name: 'Oriole Park at Camden Yards',
       }
     );
@@ -516,6 +530,7 @@ export function buildBaltimoreDistrict(ctx: BaltimoreBuilderContext): {
       minZ: ravZ - 34,
       maxZ: ravZ + 34,
       height: 22,
+      stories: 3,
       name: 'M&T Bank Stadium',
     });
   }
@@ -559,13 +574,14 @@ export function buildBaltimoreDistrict(ctx: BaltimoreBuilderContext): {
       minZ: bZ - 14,
       maxZ: bZ + 19,
       height: 31,
+      stories: 3,
       name: 'Baltimore Reserve Bank',
     });
 
     // B. Baltimore Central Police HQ facing South toward E Fayette St (-245), clear of I-83 (1335)
     const pX = 1296;
     const pZ = -278;
-    const precinctBody = new THREE.Mesh(new THREE.BoxGeometry(30, 26, 26), boxWithRoofMat(limestoneOfficeMat, flatRoofMat));
+    const precinctBody = new THREE.Mesh(new THREE.BoxGeometry(30, 26, 26), boxWithRoofMat(policeOfficeMat5, flatRoofMat));
     precinctBody.position.set(pX, 0.35 + 13, pZ);
     precinctBody.castShadow = isUltra;
     sceneryGroup.add(precinctBody);
@@ -601,6 +617,7 @@ export function buildBaltimoreDistrict(ctx: BaltimoreBuilderContext): {
       minZ: pZ - 14,
       maxZ: pZ + 14,
       height: 43,
+      stories: 5,
       name: 'Baltimore Police Headquarters',
     });
 
@@ -633,6 +650,7 @@ export function buildBaltimoreDistrict(ctx: BaltimoreBuilderContext): {
       minZ: dZ - 11,
       maxZ: dZ + 11,
       height: 13,
+      stories: 1,
       name: 'Baltimore Motor Mile Dealership',
     });
 
@@ -643,7 +661,7 @@ export function buildBaltimoreDistrict(ctx: BaltimoreBuilderContext): {
     boaLower.position.set(boaX, 0.35 + 33, boaZ);
     boaLower.castShadow = isUltra;
     sceneryGroup.add(boaLower);
-    const boaSetback = new THREE.Mesh(new THREE.BoxGeometry(17, 20, 17), boxWithRoofMat(limestoneOfficeMat, flatRoofMat));
+    const boaSetback = new THREE.Mesh(new THREE.BoxGeometry(17, 20, 17), boxWithRoofMat(boaSetbackMat6, flatRoofMat));
     boaSetback.position.set(boaX, 0.35 + 66 + 10, boaZ);
     sceneryGroup.add(boaSetback);
     const boaRoof = new THREE.Mesh(new THREE.ConeGeometry(12.2, 14, 4), terracottaRoofMat);
@@ -659,15 +677,16 @@ export function buildBaltimoreDistrict(ctx: BaltimoreBuilderContext): {
       minZ: boaZ - 13,
       maxZ: boaZ + 13,
       height: 108,
+      stories: 24,
       name: '10 Light St Art-Deco Tower',
     });
 
     // E. Transamerica / 100 E Pratt Harbor Glass Skyline Towers (inside city blocks)
     for (const tw of [
-      { x: 1298, z: -202, w: 24, d: 24, h: 76, mat: glassTowerMat, name: '100 E Pratt Glass Tower' },
-      { x: 1138, z: -202, w: 26, d: 24, h: 58, mat: darkGlassMat, name: 'Charles Center Plaza Tower' },
-      { x: 1262, z: -326, w: 26, d: 24, h: 64, mat: glassTowerMat, name: '1 E Pratt / Midtown Tower' },
-      { x: 1136, z: -380, w: 24, d: 24, h: 46, mat: brickMidriseMat, name: 'Mercantile Trust Tower' },
+      { x: 1298, z: -202, w: 24, d: 24, h: 76, stories: 19, mat: glassTowerMat, name: '100 E Pratt Glass Tower' },
+      { x: 1138, z: -202, w: 26, d: 24, h: 58, stories: 15, mat: darkGlassMat14, name: 'Charles Center Plaza Tower' },
+      { x: 1262, z: -326, w: 26, d: 24, h: 64, stories: 17, mat: glassTowerMat16, name: '1 E Pratt / Midtown Tower' },
+      { x: 1136, z: -380, w: 24, d: 24, h: 46, stories: 13, mat: brickMidriseMat, name: 'Mercantile Trust Tower' },
     ]) {
       const podium = new THREE.Mesh(new THREE.BoxGeometry(tw.w + 2.4, 7.5, tw.d + 2.4), limestoneMat);
       podium.position.set(tw.x, 0.35 + 3.75, tw.z);
@@ -688,6 +707,7 @@ export function buildBaltimoreDistrict(ctx: BaltimoreBuilderContext): {
         minZ: tw.z - tw.d * 0.5 - 1.2,
         maxZ: tw.z + tw.d * 0.5 + 1.2,
         height: tw.h + 12,
+        stories: tw.stories,
         name: tw.name,
       });
     }
@@ -726,6 +746,7 @@ export function buildBaltimoreDistrict(ctx: BaltimoreBuilderContext): {
       minZ: mvZ - 7,
       maxZ: mvZ + 7,
       height: 48,
+      stories: 5,
       name: 'Washington Monument (Mount Vernon)',
     });
 
@@ -766,6 +787,7 @@ export function buildBaltimoreDistrict(ctx: BaltimoreBuilderContext): {
       minZ: basZ - 27,
       maxZ: basZ + 27,
       height: 32,
+      stories: 2,
       name: 'Baltimore Basilica',
     });
 
@@ -794,13 +816,14 @@ export function buildBaltimoreDistrict(ctx: BaltimoreBuilderContext): {
       minZ: pennZ - 12,
       maxZ: pennZ + 12,
       height: 18,
+      stories: 2,
       name: 'Baltimore Penn Station',
     });
 
     // D. Johns Hopkins Hospital Billings Administration Dome & Medical Campus
     const jhX = 1445;
     const jhZ = -345;
-    const jhMain = new THREE.Mesh(new THREE.BoxGeometry(64, 20, 44), boxWithRoofMat(brickMidriseMat, flatRoofMat));
+    const jhMain = new THREE.Mesh(new THREE.BoxGeometry(64, 20, 44), boxWithRoofMat(jhHospitalBrickMat, flatRoofMat));
     jhMain.position.set(jhX, 0.35 + 10, jhZ);
     sceneryGroup.add(jhMain);
     const jhDrum = new THREE.Mesh(new THREE.CylinderGeometry(8.5, 9.2, 10, 12), solidBrickMasonryMat);
@@ -824,6 +847,7 @@ export function buildBaltimoreDistrict(ctx: BaltimoreBuilderContext): {
       minZ: jhZ - 23,
       maxZ: jhZ + 23,
       height: 40,
+      stories: 6,
       name: 'Johns Hopkins Hospital',
     });
 
@@ -861,6 +885,7 @@ export function buildBaltimoreDistrict(ctx: BaltimoreBuilderContext): {
       minZ: ppZ - 7,
       maxZ: ppZ + 7,
       height: 20,
+      stories: 3,
       name: 'Patterson Park Observatory Pagoda',
     });
 
@@ -918,6 +943,7 @@ export function buildBaltimoreDistrict(ctx: BaltimoreBuilderContext): {
       minZ: twZ - 15,
       maxZ: twZ + 15,
       height: 22,
+      stories: 3,
       name: 'Towson Historic Courthouse',
     });
   }
@@ -981,6 +1007,7 @@ export function buildBaltimoreDistrict(ctx: BaltimoreBuilderContext): {
         minZ: strip.startZ - 9,
         maxZ: strip.startZ + (strip.count - 1) * strip.stepZ + 9,
         height: 15,
+        stories: 3,
         name: strip.label,
       });
     }
@@ -1113,6 +1140,7 @@ export function buildBaltimoreDistrict(ctx: BaltimoreBuilderContext): {
         minZ: isbCz - 24,
         maxZ: isbCz + 16,
         height: 34,
+        stories: 4,
         name: 'Islamic Society of Baltimore (Masjid Al-Rahmah)',
       },
       {
@@ -1121,6 +1149,7 @@ export function buildBaltimoreDistrict(ctx: BaltimoreBuilderContext): {
         minZ: isbCz - 28,
         maxZ: isbCz + 16,
         height: 12,
+        stories: 2,
         name: 'Al-Rahmah School (ISB)',
       }
     );
@@ -1144,6 +1173,7 @@ export function buildBaltimoreDistrict(ctx: BaltimoreBuilderContext): {
         minZ: bz - 12,
         maxZ: bz + 12,
         height: 16,
+        stories: 3,
         name: 'Greens at Rolling Rd Apartments',
       });
     }
@@ -1172,6 +1202,7 @@ export function buildBaltimoreDistrict(ctx: BaltimoreBuilderContext): {
       minZ: -525,
       maxZ: -491,
       height: 15,
+      stories: 2,
       name: 'Security Square Plaza',
     });
 

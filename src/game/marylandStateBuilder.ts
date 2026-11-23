@@ -84,6 +84,8 @@ export function buildMarylandStateDistrict(ctx: MarylandStateBuilderContext): vo
   const easternShoreSoilMat = makeCityMat({ color: 0x3b6e32, roughness: 0.9 });
   const brickRedMat = makeBrickFacadeMat('#8b2e24', '#e2e8f0', '#0f172a', 6, 3, false);
   const georgianBrickMat = makeBrickFacadeMat('#991b1b', '#f1f5f9', '#1e293b', 8, 4, true);
+  const georgianBrickMat3 = makeBrickFacadeMat('#991b1b', '#f1f5f9', '#1e293b', 8, 3, true);
+  const colMallBrickMat2 = makeBrickFacadeMat('#991b1b', '#f1f5f9', '#bae6fd', 8, 2, true);
   const stoneCladMat = makeCityMat({ color: 0xe5e0d5, roughness: 0.56, metalness: 0.06 });
   const whiteTrimMat = makeCityMat({ color: 0xf8fafc, roughness: 0.36 });
   const darkSlateRoofMat = makeCityMat({ color: 0x1e293b, roughness: 0.72 });
@@ -93,6 +95,9 @@ export function buildMarylandStateDistrict(ctx: MarylandStateBuilderContext): vo
   const rockCliffMat = makeCityMat({ color: 0x57534e, roughness: 0.94, metalness: 0.04 });
   const appalachianSlopeMat = makeCityMat({ color: 0x1f4b24, roughness: 0.92 });
   const glassTowerMat = makeBrickFacadeMat('#334155', '#64748b', '#93c5fd', 8, 16, false);
+  const mgmGlassMat10 = makeBrickFacadeMat('#e2e8f0', '#94a3b8', '#bae6fd', 10, 10, true);
+  const glassBandMat1 = makeBrickFacadeMat('#334155', '#64748b', '#93c5fd', 8, 1, false);
+  const bwiGlassMat3 = makeBrickFacadeMat('#334155', '#64748b', '#93c5fd', 10, 3, true);
   const flatRoofMat = makeCityMat({ color: 0x334155, roughness: 0.85, metalness: 0.1 });
   const solidBrickMat = makeCityMat({ color: 0x8b2e24, roughness: 0.78 });
 
@@ -282,6 +287,7 @@ export function buildMarylandStateDistrict(ctx: MarylandStateBuilderContext): vo
       minZ: wispZ + 33,
       maxZ: wispZ + 55,
       height: 16,
+      stories: 2,
       name: 'Wisp Mountain Resort Lodge',
     });
 
@@ -326,6 +332,7 @@ export function buildMarylandStateDistrict(ctx: MarylandStateBuilderContext): vo
       minZ: cumbZ - 11,
       maxZ: cumbZ + 11,
       height: 28,
+      stories: 3,
       name: 'Cumberland Queen City Station',
     });
 
@@ -372,6 +379,7 @@ export function buildMarylandStateDistrict(ctx: MarylandStateBuilderContext): vo
       minZ: hagZ - 15,
       maxZ: hagZ + 15,
       height: 27,
+      stories: 3,
       name: 'Hagerstown Courthouse Square',
     });
   }
@@ -417,6 +425,7 @@ export function buildMarylandStateDistrict(ctx: MarylandStateBuilderContext): vo
         minZ: sz - 12,
         maxZ: sz + 12,
         height: h,
+        stories: 3,
         name: 'Frederick Clustered Spires',
       });
     }
@@ -453,6 +462,7 @@ export function buildMarylandStateDistrict(ctx: MarylandStateBuilderContext): vo
       minZ: ecZ - 9,
       maxZ: ecZ + 9,
       height: 14,
+      stories: 2,
       name: 'Ellicott City B&O Railroad Station',
     });
 
@@ -462,7 +472,7 @@ export function buildMarylandStateDistrict(ctx: MarylandStateBuilderContext): vo
     const colPlaza = new THREE.Mesh(new THREE.BoxGeometry(56, 0.02, 42), stoneCladMat);
     colPlaza.position.set(colMallX, 0.232, colMallZ);
     sceneryGroup.add(colPlaza);
-    const colMall = new THREE.Mesh(new THREE.BoxGeometry(44, 12, 30), boxWithRoofMat(georgianBrickMat, flatRoofMat));
+    const colMall = new THREE.Mesh(new THREE.BoxGeometry(44, 12, 30), boxWithRoofMat(colMallBrickMat2, flatRoofMat));
     colMall.position.set(colMallX, 0.35 + 6, colMallZ);
     colMall.castShadow = isUltra;
     sceneryGroup.add(colMall);
@@ -484,6 +494,7 @@ export function buildMarylandStateDistrict(ctx: MarylandStateBuilderContext): vo
       minZ: colMallZ - 16,
       maxZ: colMallZ + 16,
       height: 14,
+      stories: 2,
       name: 'The Mall in Columbia',
     });
 
@@ -503,6 +514,7 @@ export function buildMarylandStateDistrict(ctx: MarylandStateBuilderContext): vo
       minZ: merriZ - 13,
       maxZ: merriZ + 13,
       height: 14,
+      stories: 1,
       name: 'Merriweather Post Pavilion',
     });
 
@@ -537,6 +549,7 @@ export function buildMarylandStateDistrict(ctx: MarylandStateBuilderContext): vo
       minZ: olZ - 13,
       maxZ: olZ + 13,
       height: 15,
+      stories: 2,
       name: 'Olney Theatre Center',
     });
   }
@@ -577,6 +590,7 @@ export function buildMarylandStateDistrict(ctx: MarylandStateBuilderContext): vo
         minZ: sgZ - 13,
         maxZ: sgZ + 13,
         height: 17,
+        stories: 4,
         name: 'Shady Grove WMATA Metro Garage',
       },
       {
@@ -585,6 +599,7 @@ export function buildMarylandStateDistrict(ctx: MarylandStateBuilderContext): vo
         minZ: sgZ - 20,
         maxZ: sgZ - 4,
         height: 12,
+        stories: 1,
         name: 'Shady Grove WMATA Metro Station',
       }
     );
@@ -595,10 +610,10 @@ export function buildMarylandStateDistrict(ctx: MarylandStateBuilderContext): vo
     const rkPlaza = new THREE.Mesh(new THREE.BoxGeometry(44, 0.02, 36), stoneCladMat);
     rkPlaza.position.set(rkX, 0.232, rkZ);
     sceneryGroup.add(rkPlaza);
-    const rkLib = new THREE.Mesh(new THREE.BoxGeometry(34, 13, 28), boxWithRoofMat(georgianBrickMat, flatRoofMat));
+    const rkLib = new THREE.Mesh(new THREE.BoxGeometry(34, 13, 28), boxWithRoofMat(georgianBrickMat3, flatRoofMat));
     rkLib.position.set(rkX, 0.35 + 6.5, rkZ);
     sceneryGroup.add(rkLib);
-    const rkUpper = new THREE.Mesh(new THREE.BoxGeometry(26, 4.2, 18), boxWithRoofMat(glassTowerMat, flatRoofMat));
+    const rkUpper = new THREE.Mesh(new THREE.BoxGeometry(26, 4.2, 18), boxWithRoofMat(glassBandMat1, flatRoofMat));
     rkUpper.position.set(rkX, 0.35 + 15.1, rkZ);
     sceneryGroup.add(rkUpper);
     const rkCanopy = new THREE.Mesh(new THREE.BoxGeometry(28, 0.7, 3.8), darkSlateRoofMat);
@@ -616,6 +631,7 @@ export function buildMarylandStateDistrict(ctx: MarylandStateBuilderContext): vo
       minZ: rkZ - 15,
       maxZ: rkZ + 15,
       height: 18,
+      stories: 4,
       name: 'Rockville Town Square',
     });
 
@@ -631,8 +647,8 @@ export function buildMarylandStateDistrict(ctx: MarylandStateBuilderContext): vo
 
     // C. Bethesda Downtown Skyline & NIH Clinical Center (East of MD-355)
     for (const bt of [
-      { x: -468, z: 1720, w: 28, d: 24, h: 48, mat: glassTowerMat, name: 'Bethesda Metro Center' },
-      { x: -468, z: 1605, w: 38, d: 28, h: 24, mat: georgianBrickMat, name: 'NIH Clinical Center' },
+      { x: -468, z: 1720, w: 28, d: 24, h: 48, stories: 17, mat: glassTowerMat, name: 'Bethesda Metro Center' },
+      { x: -468, z: 1605, w: 38, d: 28, h: 24, stories: 5, mat: georgianBrickMat, name: 'NIH Clinical Center' },
     ]) {
       const podium = new THREE.Mesh(new THREE.BoxGeometry(bt.w + 3, 6.5, bt.d + 3), stoneCladMat);
       podium.position.set(bt.x, 0.35 + 3.25, bt.z);
@@ -650,6 +666,7 @@ export function buildMarylandStateDistrict(ctx: MarylandStateBuilderContext): vo
         minZ: bt.z - bt.d * 0.5 - 1.5,
         maxZ: bt.z + bt.d * 0.5 + 1.5,
         height: bt.h + 7,
+        stories: bt.stories,
         name: bt.name,
       });
     }
@@ -688,6 +705,7 @@ export function buildMarylandStateDistrict(ctx: MarylandStateBuilderContext): vo
       minZ: ssZ - 13,
       maxZ: ssZ + 13,
       height: 25,
+      stories: 2,
       name: 'Downtown Silver Spring & AFI Theatre',
     });
 
@@ -735,6 +753,7 @@ export function buildMarylandStateDistrict(ctx: MarylandStateBuilderContext): vo
       minZ: umdZ - 18,
       maxZ: umdZ + 18,
       height: 22,
+      stories: 4,
       name: 'UMD McKeldin Library & Mall',
     });
 
@@ -769,7 +788,7 @@ export function buildMarylandStateDistrict(ctx: MarylandStateBuilderContext): vo
     const mgmBase = new THREE.Mesh(new THREE.BoxGeometry(50, 8, 30), stoneCladMat);
     mgmBase.position.set(-132, 0.35 + 4, 1912);
     sceneryGroup.add(mgmBase);
-    const mgm = new THREE.Mesh(new THREE.BoxGeometry(40, 26, 22), boxWithRoofMat(glassTowerMat, flatRoofMat));
+    const mgm = new THREE.Mesh(new THREE.BoxGeometry(40, 26, 22), boxWithRoofMat(mgmGlassMat10, flatRoofMat));
     mgm.position.set(-132, 0.35 + 8 + 13, 1912);
     sceneryGroup.add(mgm);
     const mgmCrown = new THREE.Mesh(new THREE.BoxGeometry(42, 2.2, 24), whiteTrimMat);
@@ -787,6 +806,7 @@ export function buildMarylandStateDistrict(ctx: MarylandStateBuilderContext): vo
       minZ: 1897,
       maxZ: 1927,
       height: 36,
+      stories: 11,
       name: 'National Harbor & MGM Resort',
     });
   }
@@ -821,7 +841,7 @@ export function buildMarylandStateDistrict(ctx: MarylandStateBuilderContext): vo
     }
 
     // Main Y-Concourse Glass Terminal & Air Traffic Control Tower
-    const term = new THREE.Mesh(new THREE.BoxGeometry(74, 12, 28), boxWithRoofMat(glassTowerMat, flatRoofMat));
+    const term = new THREE.Mesh(new THREE.BoxGeometry(74, 12, 28), boxWithRoofMat(bwiGlassMat3, flatRoofMat));
     term.position.set(bwiX, 0.35 + 6, bwiZ - 26);
     sceneryGroup.add(term);
     const termRoof = new THREE.Mesh(new THREE.BoxGeometry(77, 1.4, 31), whiteTrimMat);
@@ -836,7 +856,7 @@ export function buildMarylandStateDistrict(ctx: MarylandStateBuilderContext): vo
     const atcShaft = new THREE.Mesh(new THREE.CylinderGeometry(3.2, 4.4, 34, 8), stoneCladMat);
     atcShaft.position.set(bwiX - 52, 0.35 + 17, bwiZ - 26);
     sceneryGroup.add(atcShaft);
-    const atcCab = new THREE.Mesh(new THREE.CylinderGeometry(7.2, 4.8, 5.5, 8), [glassTowerMat, flatRoofMat, stoneCladMat]);
+    const atcCab = new THREE.Mesh(new THREE.CylinderGeometry(7.2, 4.8, 5.5, 8), [glassBandMat1, flatRoofMat, stoneCladMat]);
     atcCab.position.set(bwiX - 52, 0.35 + 36, bwiZ - 26);
     sceneryGroup.add(atcCab);
     const bwiSign = new THREE.Mesh(
@@ -863,6 +883,7 @@ export function buildMarylandStateDistrict(ctx: MarylandStateBuilderContext): vo
       minZ: bwiZ - 41,
       maxZ: bwiZ - 11,
       height: 38,
+      stories: 6,
       name: 'BWI Thurgood Marshall Terminal & ATC',
     });
 
@@ -870,11 +891,11 @@ export function buildMarylandStateDistrict(ctx: MarylandStateBuilderContext): vo
     const annX = 1408;
     const annZ = 660;
     // Maryland State House (1772 Georgian Brick + Iconic Tall White Wooden Dome + Acorn Spire)
-    const shBody = new THREE.Mesh(new THREE.BoxGeometry(34, 13, 24), boxWithRoofMat(georgianBrickMat, flatRoofMat));
+    const shBody = new THREE.Mesh(new THREE.BoxGeometry(34, 13, 24), boxWithRoofMat(georgianBrickMat3, flatRoofMat));
     shBody.position.set(annX, 0.35 + 6.5, annZ);
     shBody.castShadow = isUltra;
     sceneryGroup.add(shBody);
-    const shRoof = buildPitchedRoofGroup(34.5, 24.5, 4.2, georgianBrickMat, darkSlateRoofMat, 'x');
+    const shRoof = buildPitchedRoofGroup(34.5, 24.5, 4.2, georgianBrickMat3, darkSlateRoofMat, 'x');
     shRoof.position.set(annX, 0.35 + 13, annZ);
     sceneryGroup.add(shRoof);
     const shBase = new THREE.Mesh(new THREE.BoxGeometry(14.5, 3.5, 14.5), whiteTrimMat);
@@ -907,6 +928,7 @@ export function buildMarylandStateDistrict(ctx: MarylandStateBuilderContext): vo
       minZ: annZ - 13,
       maxZ: annZ + 13,
       height: 36,
+      stories: 3,
       name: 'Maryland State House (Annapolis)',
     });
 
@@ -931,6 +953,7 @@ export function buildMarylandStateDistrict(ctx: MarylandStateBuilderContext): vo
       minZ: usnaZ - 13,
       maxZ: usnaZ + 42,
       height: 22,
+      stories: 3,
       name: 'U.S. Naval Academy (Bancroft Hall & Chapel)',
     });
 
@@ -1013,10 +1036,10 @@ export function buildMarylandStateDistrict(ctx: MarylandStateBuilderContext): vo
     // A. Easton Talbot County Brick Courthouse (West of US-50 at 2212, 920)
     const eaX = 2212;
     const eaZ = 920;
-    const eaBody = new THREE.Mesh(new THREE.BoxGeometry(28, 13, 22), boxWithRoofMat(georgianBrickMat, flatRoofMat));
+    const eaBody = new THREE.Mesh(new THREE.BoxGeometry(28, 13, 22), boxWithRoofMat(georgianBrickMat3, flatRoofMat));
     eaBody.position.set(eaX, 0.35 + 6.5, eaZ);
     sceneryGroup.add(eaBody);
-    const eaRoof = buildPitchedRoofGroup(28.5, 22.5, 4.2, georgianBrickMat, darkSlateRoofMat, 'x');
+    const eaRoof = buildPitchedRoofGroup(28.5, 22.5, 4.2, georgianBrickMat3, darkSlateRoofMat, 'x');
     eaRoof.position.set(eaX, 0.35 + 13, eaZ);
     sceneryGroup.add(eaRoof);
     const eaPed = new THREE.Mesh(new THREE.BoxGeometry(6.4, 2.8, 6.4), whiteTrimMat);
@@ -1031,6 +1054,7 @@ export function buildMarylandStateDistrict(ctx: MarylandStateBuilderContext): vo
       minZ: eaZ - 12,
       maxZ: eaZ + 12,
       height: 24,
+      stories: 3,
       name: 'Easton Historic Courthouse (Eastern Shore)',
     });
 
@@ -1059,16 +1083,17 @@ export function buildMarylandStateDistrict(ctx: MarylandStateBuilderContext): vo
     }
 
     // Pastel High-Rise Oceanfront Condos & Boardwalk Hotels (East of Coastal Hwy X=2502)
-    const ocPalettes = [0xfef3c7, 0xe0f2fe, 0xfce7f3, 0xd1fae5];
+    const ocPaletteHexes = ['#fef3c7', '#e0f2fe', '#fce7f3', '#d1fae5'];
     const ocTowerZs = [955, 1030, 1105, 1235];
     for (let i = 0; i < ocTowerZs.length; i++) {
       const hz = ocTowerZs[i];
+      const stories = i % 2 === 0 ? 8 : 10;
       const th = 28 + (i % 2) * 10;
-      const hMat = makeCityMat({ color: ocPalettes[i], roughness: 0.45 });
+      const hMat = makeBrickFacadeMat(ocPaletteHexes[i], '#94a3b8', '#38bdf8', 5, stories, true);
       const podium = new THREE.Mesh(new THREE.BoxGeometry(14, 4.8, 26), whiteTrimMat);
       podium.position.set(2516, 0.35 + 2.4, hz);
       sceneryGroup.add(podium);
-      const tower = new THREE.Mesh(new THREE.BoxGeometry(12.5, th, 23), hMat);
+      const tower = new THREE.Mesh(new THREE.BoxGeometry(12.5, th, 23), boxWithRoofMat(hMat, flatRoofMat));
       tower.position.set(2516, 0.35 + th * 0.5, hz);
       sceneryGroup.add(tower);
       const roofCap = new THREE.Mesh(new THREE.BoxGeometry(13.6, 1.4, 24.2), darkSlateRoofMat);
@@ -1079,7 +1104,8 @@ export function buildMarylandStateDistrict(ctx: MarylandStateBuilderContext): vo
         maxX: 2524,
         minZ: hz - 13,
         maxZ: hz + 13,
-        height: 41,
+        height: th + 3,
+        stories,
         name: 'Ocean City Oceanfront Resort',
       });
     }

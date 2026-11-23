@@ -19,10 +19,57 @@
         "championshipPoints": { "type": "number" },
         "customTeamName": { "type": "string", "maxLength": 80 },
         "seasonStateJson": { "type": "string" },
+        "activeCareerSlotId": { "type": "string", "maxLength": 64 },
+        "activeMetroCitySlotId": { "type": "string", "maxLength": 64 },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["uid", "displayName", "cashBalance", "createdAt", "updatedAt"]
+    },
+    "MetroCitySave": {
+      "title": "Metro City Open-World Save Slot",
+      "description": "Multi-slot persistent Metro City save storing Street Cash, garage fleet, trims, paints, owned homes, and mission progress using native Firestore types.",
+      "type": "object",
+      "properties": {
+        "slotId": { "type": "string", "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "ownerUid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "slotName": { "type": "string", "maxLength": 64 },
+        "streetCash": { "type": "number" },
+        "ownedCarIds": { "type": "array", "items": { "type": "string", "maxLength": 64 } },
+        "selectedCarId": { "type": "string", "maxLength": 64 },
+        "customPaintByCar": { "type": "object" },
+        "unlockedTrimsByCar": { "type": "object" },
+        "activeTrimByCar": { "type": "object" },
+        "completedMissions": { "type": "number" },
+        "completedMissionIds": { "type": "array", "items": { "type": "string", "maxLength": 64 } },
+        "totalEarnedCash": { "type": "number" },
+        "streetRepLevel": { "type": "number" },
+        "pendingMissionId": { "type": "string", "maxLength": 64 },
+        "ownedHouseIds": { "type": "array", "items": { "type": "string", "maxLength": 64 } },
+        "activeHomeId": { "type": "string", "maxLength": 64 },
+        "houseFurnishings": { "type": "object" },
+        "unpaidCrashTicketsTab": { "type": "number" },
+        "totalJobsCompleted": { "type": "number" },
+        "totalHeistsCompleted": { "type": "number" },
+        "bankRobberyBustCount": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "slotId",
+        "ownerUid",
+        "slotName",
+        "streetCash",
+        "ownedCarIds",
+        "selectedCarId",
+        "completedMissions",
+        "completedMissionIds",
+        "totalEarnedCash",
+        "streetRepLevel",
+        "ownedHouseIds",
+        "createdAt",
+        "updatedAt"
+      ]
     },
     "LeaderboardRecord": {
       "title": "Circuit Lap Time Record",
@@ -63,6 +110,10 @@
     "/users/{userId}": {
       "schema": { "$ref": "#/entities/User" },
       "description": "Authenticated driver cloud profile and persistent career progression."
+    },
+    "/users/{userId}/metroCitySaves/{slotId}": {
+      "schema": { "$ref": "#/entities/MetroCitySave" },
+      "description": "User-owned Metro City multi-slot progression saves stored natively in Firestore."
     },
     "/leaderboards/{circuitId}/records/{recordId}": {
       "schema": { "$ref": "#/entities/LeaderboardRecord" },

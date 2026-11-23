@@ -30,10 +30,18 @@ import { MultiplayerModal } from './components/MultiplayerModal';
 import { ButtonMappingModal } from './components/ButtonMappingModal';
 import { FirebaseCloudModal } from './components/FirebaseCloudModal';
 import { CareerSlotsModal, CareerSaveSlot } from './components/CareerSlotsModal';
+import { MetroCitySlotsModal } from './components/MetroCitySlotsModal';
 import { TutorialModal, TutorialPracticeDrillConfig } from './components/TutorialModal';
 import { multiplayerService, RoomPublicState } from './services/multiplayerService';
 import { inputManager } from './services/inputManager';
-import { auth, signInWithGoogle, saveCareerToCloud, loadCareerFromCloud } from './services/firebase';
+import {
+  auth,
+  signInWithGoogle,
+  saveCareerToCloud,
+  loadCareerFromCloud,
+  saveMetroCitySlotsToCloud,
+  syncAndMergeMetroCitySlotsWithCloud,
+} from './services/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { Trophy, ArrowRight, DollarSign, Award, CheckCircle2, Shield, Flame, Gauge, Zap, Cloud, Timer, Palette, Sun, Moon, FolderKanban } from 'lucide-react';
 import {
@@ -256,6 +264,8 @@ export default function App() {
   const [showMultiplayerModal, setShowMultiplayerModal] = useState(false);
   const [showButtonMappingModal, setShowButtonMappingModal] = useState(false);
   const [showCloudModal, setShowCloudModal] = useState(false);
+  const [showMetroCitySlotsModal, setShowMetroCitySlotsModal] = useState(false);
+  const lastMcCloudPullTsRef = React.useRef<number>(0);
   const [showTutorial, setShowTutorial] = useState(() => {
     try {
       return !localStorage.getItem('apex26_tutorial_completed');
@@ -317,10 +327,14 @@ export default function App() {
     return onThemeChange((t) => setAppTheme(t));
   }, []);
 
-  // Seamless Firebase Firestore cloud profile synchronization (Cross-Device restoration)
+  // Seamless Firebase Firestore cloud profile synchronization (Cross-Device restoration + Metro City multi-slot merge)
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
+        try {
+          lastMcCloudPullTsRef.current = Date.now();
+          await syncAndMergeMetroCitySlotsWithCloud(true);
+        } catch {}
         try {
           const cloudData = await loadCareerFromCloud();
           if (cloudData) {
@@ -383,6 +397,24 @@ export default function App() {
       }
     });
     return () => unsubscribe();
+  }, []);
+
+  // Debounced auto-sync Metro City multi-slot saves to Firebase whenever signed in
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const onMetroUpdate = () => {
+      if (!auth.currentUser) return;
+      if (Date.now() - lastMcCloudPullTsRef.current < 1500) return;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        saveMetroCitySlotsToCloud(undefined, undefined, false).catch(() => {});
+      }, 2200);
+    };
+    window.addEventListener('metro-city-save-updated', onMetroUpdate);
+    return () => {
+      if (timer) clearTimeout(timer);
+      window.removeEventListener('metro-city-save-updated', onMetroUpdate);
+    };
   }, []);
 
   // Pre-career Google Sign-In action for new devices
@@ -2920,7 +2952,7 @@ export default function App() {
                 <div>
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-black uppercase text-purple-400">Legend</span>
-                    <span className="text-[10px] bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded font-mono">1.02x+ PACE</span>
+                    <span className="text-[10px] bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded font-mono">1.0x PACE</span>
                   </div>
                   <h4 className="font-bold text-white text-base mt-2">Elite Simulation</h4>
                   <p className="text-xs text-neutral-400 mt-1">
@@ -3300,6 +3332,10 @@ export default function App() {
           setShowCareerSlotsModal(true);
         }}
         careerSlotsCount={careerSlots.length}
+        onOpenMetroCitySlots={() => {
+          setShowCloudModal(false);
+          setShowMetroCitySlotsModal(true);
+        }}
       />
 
       {/* Multi-Career Save Slots Manager Modal (Multiple careers under one account without quitting) */}
@@ -3312,6 +3348,12 @@ export default function App() {
         onCreateNewSlot={handleCreateNewCareerSlot}
         onRenameSlot={handleRenameCareerSlot}
         onDeleteSlot={handleDeleteCareerSlot}
+      />
+
+      {/* Multi-Slot Metro City Save Manager Modal */}
+      <MetroCitySlotsModal
+        isOpen={showMetroCitySlotsModal}
+        onClose={() => setShowMetroCitySlotsModal(false)}
       />
 
       {/* Official FIA Qualifying Shootout Classification Modal */}

@@ -293,8 +293,8 @@ export const CareerSlotsModal: React.FC<CareerSlotsModalProps> = ({
                       {
                         id: 'legend',
                         title: 'Legend',
-                        pace: '1.02x+ PACE',
-                        desc: 'Elite simulation pace & 5.0s crash penalty.',
+                        pace: '1.0x PACE',
+                        desc: '1.0x true simulation pace & 5.0s crash penalty.',
                         color: 'purple',
                       },
                     ] as const

@@ -344,12 +344,28 @@ export class SuburbanBatchBuilder {
       name: fullAddress,
     };
 
+    let addrHash = 2166136261;
+    for (let i = 0; i < fullAddress.length; i++) {
+      addrHash ^= fullAddress.charCodeAt(i);
+      addrHash = Math.imul(addrHash, 16777619);
+    }
+    const roofHex = '#' + (opts.roofColor & 0xffffff).toString(16).padStart(6, '0');
+
     suburbanHouses.push({
       group: this.sharedPlaceholderGroup,
       collider,
       drivewayTarget: { x: opts.x + dLocal.x, z: opts.z + dLocal.z },
       drivewayCoord: { x: opts.x + dLocal.x, z: opts.z + dLocal.z },
       address: fullAddress,
+      exteriorProfile: {
+        wallColorHex: opts.sidingHex,
+        roofColorHex: roofHex,
+        style: opts.style === 'split' ? 'split' : 'colonial',
+        stories: opts.style === 'split' ? 1 : 2,
+        hasGarage: true,
+        hasPool: false,
+        hasBasement: opts.style === 'split' ? false : (addrHash >>> 0) % 2 === 0,
+      },
     });
     cityBuildings.push(collider);
     return true;

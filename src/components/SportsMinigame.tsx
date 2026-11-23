@@ -644,12 +644,112 @@ export const SportsMinigame: React.FC<SportsMinigameProps> = ({
       shotGreenWidth: 0.24,
       shotDifficultyLabel: 'OPEN',
       cpuShootTimer: 1.5,
+      inbound: null as null | {
+        team: 'player' | 'cpu';
+        passerId: string;
+        receiverId: string;
+        timer: number;
+      },
       statusText: isTourney
         ? `ROUND ${tourneyRound.round}/3 vs ${tourneyRound.opponent} · Cut Arrows Cross/Tween · [E] Pass · [SPACE] Shoot/Dunk!`
         : `ICM Gym ${teamN}v${teamN} · Cut Arrows Cross/Tween (or R-Click) · [E] Pass · [SPACE] Shoot/Dunk!`,
       bannerTimer: isTourney ? 1.8 : 0,
       bannerText: isTourney ? `RD ${tourneyRound.round}: ${tourneyRound.opponent}` : '',
       finished: false,
+    };
+
+    const startBballInbound = (receivingTeam: 'player' | 'cpu') => {
+      resetBballPositions(receivingTeam);
+      bb.possession = receivingTeam;
+      bb.shotCharging = false;
+      bb.ballFlight = null;
+      bb.shotClock = 24;
+      bbFrontcourtReached = false;
+      const passerIdx = teamN >= 2 ? 1 : 0;
+      const passerId = receivingTeam === 'player' ? `p_${passerIdx}` : `c_${passerIdx}`;
+      const receiverId = receivingTeam === 'player' ? 'p_0' : 'c_0';
+      const passer = bbPlayers.find((p) => p.id === passerId);
+      const receiver = bbPlayers.find((p) => p.id === receiverId);
+
+      if (passer && receiver) {
+        if (isHalfCourt) {
+          // Half-court check-up throw-in at top of the key
+          passer.x = courtMidX + 18;
+          passer.y = courtTop + 34;
+          passer.faceX = 0.7;
+          passer.faceY = 0.7;
+          receiver.x = courtMidX + 54;
+          receiver.y = courtMidY;
+        } else {
+          // True full-court baseline throw-in behind the endline where the opponent just scored!
+          const baselineX = receivingTeam === 'player' ? courtLeft - 6 : courtRight + 6;
+          passer.x = baselineX;
+          passer.y = courtMidY + 38;
+          passer.faceX = receivingTeam === 'player' ? 1 : -1;
+          passer.faceY = -0.25;
+          receiver.x = receivingTeam === 'player' ? courtLeft + 62 : courtRight - 62;
+          receiver.y = courtMidY - 12;
+        }
+        passer.vx = 0;
+        passer.vy = 0;
+        bb.carrierId = passer.id;
+        bb.ballX = passer.x + passer.faceX * 9;
+        bb.ballY = passer.y + 6;
+      }
+
+      bb.inbound = {
+        team: receivingTeam,
+        passerId,
+        receiverId,
+        timer: receivingTeam === 'player' ? 1.55 : 0.9,
+      };
+      bb.statusText =
+        receivingTeam === 'player'
+          ? isHalfCourt
+            ? 'CHECK-UP THROW-IN! Press [E] or [SPACE] to pass in!'
+            : 'BASELINE THROW-IN! Move to get open & press [E] / [SPACE] to inbound!'
+          : isHalfCourt
+          ? 'CPU CHECKING BALL UP — Pick up your man!'
+          : 'CPU THROWING IN FROM BASELINE — Set your full-court press!';
+    };
+
+    const executeBballInboundPass = () => {
+      const inb = bb.inbound;
+      if (!inb) return;
+      const passer = bbPlayers.find((p) => p.id === inb.passerId);
+      const receiver = bbPlayers.find((p) => p.id === inb.receiverId);
+      bb.inbound = null;
+      bb.shotClock = 24;
+      if (passer && receiver && passer.id !== receiver.id) {
+        bb.carrierId = null;
+        bb.ballFlight = {
+          startX: passer.x,
+          startY: passer.y,
+          targetX: receiver.x,
+          targetY: receiver.y,
+          reboundX: receiver.x,
+          reboundY: receiver.y,
+          elapsed: 0,
+          duration: 0.24,
+          isShot: false,
+          willMake: false,
+          points: 0,
+          passToId: receiver.id,
+          shooterTeam: inb.team,
+        };
+        // Step passer back inbounds after releasing the throw-in
+        passer.x = clamp(passer.x, courtLeft + 22, courtRight - 22);
+        passer.y = clamp(passer.y, courtTop + 22, courtBot - 22);
+        playRetroSportTone(540, 440, 0.08, 'sine', 0.06);
+      } else if (receiver) {
+        receiver.x = clamp(receiver.x, courtLeft + 24, courtRight - 24);
+        receiver.y = clamp(receiver.y, courtTop + 24, courtBot - 24);
+        bb.carrierId = receiver.id;
+      }
+      bb.statusText =
+        inb.team === 'player'
+          ? 'Inbound complete! Cut Arrows for Cross/Tween · [E] Pass · Hold [SPACE] Shoot!'
+          : 'CPU inbounds! Stay in front · [SPACE] Steal or Block!';
     };
 
     const computeBballShotWindow = (shooter: BballPlayerEntity, targetHoop: { x: number; y: number }) => {
@@ -1947,6 +2047,10 @@ export const SportsMinigame: React.FC<SportsMinigameProps> = ({
     const triggerPulseAction = () => {
       if (sport === 'basketball') {
         if (bb.finished) return;
+        if (bb.inbound && bb.inbound.team === 'player') {
+          executeBballInboundPass();
+          return;
+        }
         const user = bbPlayers[0];
         if (bb.carrierId === user.id && !bb.shotCharging) {
           const win = computeBballShotWindow(user, hoopRight);
@@ -2445,6 +2549,8 @@ export const SportsMinigame: React.FC<SportsMinigameProps> = ({
             bb.statusText = 'Pass to teammate! [SPACE] Shoot or [E] Call Back!';
             playRetroSportTone(540, 420, 0.07, 'sine', 0.06);
           }
+        } else if (bb.inbound && bb.inbound.team === 'player') {
+          executeBballInboundPass();
         } else if (bb.carrierId && bb.carrierId.startsWith('p_') && bb.carrierId !== user.id) {
           const mate = bbPlayers.find((p) => p.id === bb.carrierId);
           if (mate) {
@@ -2811,15 +2917,20 @@ export const SportsMinigame: React.FC<SportsMinigameProps> = ({
 
         if (!bb.finished) {
           bb.timeLeft = Math.max(0, bb.timeLeft - dt);
-          bb.shotClock = Math.max(0, bb.shotClock - dt);
-          if (bb.shotClock <= 0 && !bb.ballFlight) {
+          if (bb.inbound) {
+            bb.inbound.timer -= dt;
+            if (bb.inbound.timer <= 0) {
+              executeBballInboundPass();
+            }
+          } else {
+            bb.shotClock = Math.max(0, bb.shotClock - dt);
+          }
+          if (bb.shotClock <= 0 && !bb.ballFlight && !bb.inbound) {
             bb.shotClock = 24;
             const nextPoss: 'player' | 'cpu' = bb.possession === 'player' ? 'cpu' : 'player';
-            bb.possession = nextPoss;
-            bb.carrierId = nextPoss === 'player' ? 'p_0' : 'c_0';
             bb.bannerText = 'SHOT CLOCK VIOLATION!';
             bb.bannerTimer = 1.1;
-            resetBballPositions(nextPoss);
+            startBballInbound(nextPoss);
           }
           if (bb.timeLeft <= 0 || bb.scorePlayer >= bb.targetScore || bb.scoreCpu >= bb.targetScore) {
             bb.finished = true;
@@ -2881,15 +2992,8 @@ export const SportsMinigame: React.FC<SportsMinigameProps> = ({
                   bb.bannerText = 'CPU SLAM DUNK! +2';
                 }
                 bb.bannerTimer = 1.3;
-                bb.shotClock = 24;
                 const nextPoss: 'player' | 'cpu' = da.team === 'player' ? 'cpu' : 'player';
-                bb.possession = nextPoss;
-                bb.carrierId = nextPoss === 'player' ? 'p_0' : 'c_0';
-                resetBballPositions(nextPoss);
-                bb.statusText =
-                  nextPoss === 'player'
-                    ? 'Your ball! Cut Arrows for Cross/Tween · [E] Pass · Hold [SPACE] Shoot/Dunk!'
-                    : 'Defense! Stay tight · [SPACE] Jump Block Swat or Steal!';
+                startBballInbound(nextPoss);
               } else {
                 bb.looseBallVx = -hoopDir * 135;
                 bb.looseBallVy = (Math.random() - 0.5) * 165;
@@ -2902,7 +3006,10 @@ export const SportsMinigame: React.FC<SportsMinigameProps> = ({
             }
           }
 
-          if (!bb.dunkAnim || bb.dunkAnim.playerId !== user.id) {
+          if (bb.inbound?.passerId === user.id) {
+            user.vx = 0;
+            user.vy = 0;
+          } else if (!bb.dunkAnim || bb.dunkAnim.playerId !== user.id) {
             const stunned = user.stunTimer > 0;
             const speed = stunned ? 38 : bb.shotCharging ? 55 : bb.possession === 'cpu' ? 260 : 242;
             const mLen = Math.hypot(moveX, moveY) || 1;
@@ -2917,8 +3024,8 @@ export const SportsMinigame: React.FC<SportsMinigameProps> = ({
             }
           }
 
-          // Full-Court Backcourt Violation Check (both teams!)
-          if (!isHalfCourt && !bb.dunkAnim && !bb.ballFlight && bb.carrierId) {
+          // Full-Court Backcourt Violation Check (both teams, skipped during inbound!)
+          if (!isHalfCourt && !bb.inbound && !bb.dunkAnim && !bb.ballFlight && bb.carrierId) {
             const curCar = bbPlayers.find((c) => c.id === bb.carrierId);
             if (curCar) {
               if (bb.possession === 'player') {
@@ -3031,9 +3138,14 @@ export const SportsMinigame: React.FC<SportsMinigameProps> = ({
             }
           }
 
-          for (let i = 1; i < bbPlayers.length; i++) {
+            for (let i = 1; i < bbPlayers.length; i++) {
             const p = bbPlayers[i];
             if (bb.dunkAnim && bb.dunkAnim.playerId === p.id) continue;
+            if (bb.inbound?.passerId === p.id) {
+              p.vx = 0;
+              p.vy = 0;
+              continue;
+            }
             if (p.stealCooldown > 0) p.stealCooldown = Math.max(0, p.stealCooldown - dt);
             if (p.crossTimer > 0) p.crossTimer = Math.max(0, p.crossTimer - dt);
             if (p.tweenTimer > 0) p.tweenTimer = Math.max(0, p.tweenTimer - dt);
@@ -3389,17 +3501,10 @@ export const SportsMinigame: React.FC<SportsMinigameProps> = ({
                     bb.bannerText = `CPU SCORES +${fl.points}`;
                   }
                   bb.bannerTimer = 1.3;
-                  bb.shotClock = 24;
                   spawnParticles(fl.targetX, fl.targetY, '#fbbf24', 20, 145);
                   playRetroSportTone(660, 990, 0.18, 'square', 0.09);
                   const nextPoss: 'player' | 'cpu' = fl.shooterTeam === 'player' ? 'cpu' : 'player';
-                  bb.possession = nextPoss;
-                  bb.carrierId = nextPoss === 'player' ? 'p_0' : 'c_0';
-                  resetBballPositions(nextPoss);
-                  bb.statusText =
-                    nextPoss === 'player'
-                      ? 'Your ball! Cut Arrows for Cross/Tween · [E] Pass · Hold [SPACE] Shoot!'
-                      : 'Defense! Stay tight · [SPACE] Jump Block Swat or Steal!';
+                  startBballInbound(nextPoss);
                 } else {
                   const dxR = fl.reboundX - fl.targetX;
                   const dyR = fl.reboundY - fl.targetY;
@@ -3710,7 +3815,14 @@ export const SportsMinigame: React.FC<SportsMinigameProps> = ({
             dunkSwingProgress: dunkProg,
             blockPose: p.blockTimer > 0,
           });
-          if (p.moveLabelTimer > 0 && p.moveLabel) {
+          if (bb.inbound?.passerId === p.id) {
+            ctx.fillStyle = 'rgba(9,9,11,0.92)';
+            ctx.fillRect(p.x - 28, p.y - 44, 56, 13);
+            ctx.fillStyle = '#fde047';
+            ctx.font = 'bold 9px monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText('INBOUND', p.x, p.y - 34);
+          } else if (p.moveLabelTimer > 0 && p.moveLabel) {
             ctx.fillStyle = 'rgba(9,9,11,0.88)';
             ctx.fillRect(p.x - 24, p.y - p.jumpZ * 0.48 - 44, 48, 13);
             ctx.fillStyle = p.moveLabel.includes('TWEEN') || p.moveLabel.includes('SWAT') ? '#38bdf8' : '#fb923c';

@@ -29,7 +29,14 @@ import {
   FirebaseDiagnosticReport,
   resolvedFirebaseConfig,
   configSourceInfo,
+  saveMetroCitySlotsToCloud,
+  syncAndMergeMetroCitySlotsWithCloud,
 } from '../services/firebase';
+import {
+  loadMetroCitySlots,
+  getActiveMetroCitySlot,
+  MetroCitySaveSlot,
+} from '../game/cityTrafficBuilder';
 import { multiplayerService } from '../services/multiplayerService';
 import { SeasonState } from '../types/racing';
 import { CIRCUITS, TEAMS } from '../constants/f1Data';
@@ -42,6 +49,7 @@ interface FirebaseCloudModalProps {
   onLoadSeason: (season: SeasonState) => void;
   onOpenCareerSlots?: () => void;
   careerSlotsCount?: number;
+  onOpenMetroCitySlots?: () => void;
 }
 
 export const FirebaseCloudModal: React.FC<FirebaseCloudModalProps> = ({
@@ -51,12 +59,14 @@ export const FirebaseCloudModal: React.FC<FirebaseCloudModalProps> = ({
   onLoadSeason,
   onOpenCareerSlots,
   careerSlotsCount = 1,
+  onOpenMetroCitySlots,
 }) => {
   const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(auth.currentUser);
   const [activeTab, setActiveTab] = useState<'account' | 'leaderboards' | 'diagnostics'>('account');
   const [isSaving, setIsSaving] = useState(false);
   const [isLoadingCloud, setIsLoadingCloud] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
+  const [metroCitySlots, setMetroCitySlots] = useState<MetroCitySaveSlot[]>(() => loadMetroCitySlots());
 
   // Leaderboard state
   const [selectedCircuitId, setSelectedCircuitId] = useState<string>('monaco');
@@ -71,7 +81,12 @@ export const FirebaseCloudModal: React.FC<FirebaseCloudModalProps> = ({
     const unsub = onAuthStateChanged(auth, (user) => {
       setCurrentUser(user);
     });
-    return () => unsub();
+    const refreshMc = () => setMetroCitySlots(loadMetroCitySlots());
+    window.addEventListener('metro-city-save-updated', refreshMc);
+    return () => {
+      unsub();
+      window.removeEventListener('metro-city-save-updated', refreshMc);
+    };
   }, []);
 
   useEffect(() => {
@@ -154,12 +169,16 @@ export const FirebaseCloudModal: React.FC<FirebaseCloudModalProps> = ({
         customTeamName: season.career.customTeam?.name || '',
       });
 
+      const mcRes = await saveMetroCitySlotsToCloud(undefined, undefined, false);
+      setMetroCitySlots(loadMetroCitySlots());
+
       if (res.savedToFirestore || res.savedToRtdb) {
         const methods: string[] = [];
         if (res.savedToFirestore) methods.push('Cloud Firestore');
         if (res.savedToRtdb) methods.push('Realtime Database');
+        const mcNote = mcRes.success ? ` + ${mcRes.syncedCount} Metro City save(s)` : '';
         setStatusMessage({
-          text: `✓ Career progression saved to Firebase (${methods.join(' & ')})!`,
+          text: `✓ Career & Metro City progression saved to Firebase (${methods.join(' & ')}${mcNote})!`,
           type: 'success',
         });
       } else {
@@ -196,10 +215,19 @@ export const FirebaseCloudModal: React.FC<FirebaseCloudModalProps> = ({
           },
         };
         onLoadSeason(mergedSeason);
-        setStatusMessage({ text: '✓ Career progression loaded successfully from Cloud!', type: 'success' });
-      } else {
+        const mcPull = await syncAndMergeMetroCitySlotsWithCloud(true);
+        setMetroCitySlots(mcPull.slots);
         setStatusMessage({
-          text: 'No existing cloud save found. Click "Save to Cloud" to initialize your career save.',
+          text: `✓ Career + ${mcPull.slots.length} Metro City save slot(s) loaded from Cloud!`,
+          type: 'success',
+        });
+      } else {
+        const mcPull = await syncAndMergeMetroCitySlotsWithCloud(true);
+        setMetroCitySlots(mcPull.slots);
+        setStatusMessage({
+          text: mcPull.syncedCloud
+            ? `✓ Synced ${mcPull.slots.length} Metro City save(s) from Cloud! (No F1 career save found yet.)`
+            : 'No existing cloud save found. Click "Save to Cloud" to initialize your saves.',
           type: 'info',
         });
       }
@@ -415,6 +443,50 @@ export const FirebaseCloudModal: React.FC<FirebaseCloudModalProps> = ({
                     </button>
                   </div>
                 )}
+
+                {/* Metro City Multi-Save Cloud Snapshot */}
+                {(() => {
+                  const activeMc = getActiveMetroCitySlot();
+                  return (
+                    <div className="pt-3 border-t border-neutral-800 flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <span className="text-xs font-bold text-sky-300 block">
+                          Metro City Open World ({metroCitySlots.length} {metroCitySlots.length === 1 ? 'Save' : 'Saves'} · Active: {activeMc.slotName})
+                        </span>
+                        <span className="text-[11px] text-neutral-400 font-mono">
+                          Street Cash: ${activeMc.state.streetCash.toLocaleString()} · {activeMc.state.ownedCarIds.length} Cars · {activeMc.state.ownedHouseIds.length} Homes
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            const res = await saveMetroCitySlotsToCloud(undefined, undefined, true);
+                            setMetroCitySlots(loadMetroCitySlots());
+                            setStatusMessage({
+                              text: res.success
+                                ? `✓ Synced ${res.syncedCount} Metro City save(s) to Firebase!`
+                                : res.error || 'Could not sync Metro City saves.',
+                              type: res.success ? 'success' : 'error',
+                            });
+                          }}
+                          className="px-3 py-2 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 font-black text-xs uppercase cursor-pointer"
+                        >
+                          Sync City Saves
+                        </button>
+                        {onOpenMetroCitySlots && (
+                          <button
+                            type="button"
+                            onClick={onOpenMetroCitySlots}
+                            className="px-3 py-2 rounded-lg bg-sky-500/20 hover:bg-sky-500/30 border border-sky-500/40 text-sky-300 font-black text-xs uppercase cursor-pointer"
+                          >
+                            Manage City Saves ({metroCitySlots.length})
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             </div>
           ) : activeTab === 'leaderboards' ? (

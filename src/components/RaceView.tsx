@@ -751,27 +751,29 @@ export const RaceView: React.FC<RaceViewProps> = ({
       eGrad.addColorStop(0.0, `#${skyCol.clone().multiplyScalar(0.55).getHexString()}`);
       eGrad.addColorStop(0.38, `#${skyCol.clone().multiplyScalar(0.92).getHexString()}`);
       eGrad.addColorStop(0.488, `#${sunCol.clone().lerp(skyCol, 0.42).getHexString()}`);
-      eGrad.addColorStop(0.525, '#1b1f26');
-      eGrad.addColorStop(1.0, `#${gndCol.clone().multiplyScalar(0.32).getHexString()}`);
+      eGrad.addColorStop(0.525, glowAlpha <= 0.15 ? '#05070c' : '#1b1f26');
+      eGrad.addColorStop(1.0, `#${gndCol.clone().multiplyScalar(glowAlpha <= 0.15 ? 0.18 : 0.32).getHexString()}`);
       eCtx.fillStyle = eGrad;
       eCtx.fillRect(0, 0, 512, 256);
 
-      // Soft horizon atmospheric scattering band (zero artificial stripes!)
-      const horizonBand = eCtx.createLinearGradient(0, 102, 0, 142);
-      horizonBand.addColorStop(0, 'rgba(255, 255, 255, 0.0)');
-      horizonBand.addColorStop(0.46, `rgba(255, 248, 236, ${(glowAlpha * 0.65).toFixed(2)})`);
-      horizonBand.addColorStop(0.56, `rgba(${Math.round(skyCol.r * 255)}, ${Math.round(skyCol.g * 255)}, ${Math.round(skyCol.b * 255)}, ${(glowAlpha * 0.45).toFixed(2)})`);
-      horizonBand.addColorStop(1, 'rgba(255, 255, 255, 0.0)');
-      eCtx.fillStyle = horizonBand;
-      eCtx.fillRect(0, 102, 512, 40);
+      if (glowAlpha > 0.18) {
+        // Soft horizon atmospheric scattering band (zero artificial stripes!)
+        const horizonBand = eCtx.createLinearGradient(0, 102, 0, 142);
+        horizonBand.addColorStop(0, 'rgba(255, 255, 255, 0.0)');
+        horizonBand.addColorStop(0.46, `rgba(255, 248, 236, ${(glowAlpha * 0.65).toFixed(2)})`);
+        horizonBand.addColorStop(0.56, `rgba(${Math.round(skyCol.r * 255)}, ${Math.round(skyCol.g * 255)}, ${Math.round(skyCol.b * 255)}, ${(glowAlpha * 0.45).toFixed(2)})`);
+        horizonBand.addColorStop(1, 'rgba(255, 255, 255, 0.0)');
+        eCtx.fillStyle = horizonBand;
+        eCtx.fillRect(0, 102, 512, 40);
 
-      // Natural solar aureole glow on sky dome
-      const sunGlow = eCtx.createRadialGradient(256, 84, 4, 256, 84, 72);
-      sunGlow.addColorStop(0, `rgba(255, 252, 240, ${Math.min(0.85, glowAlpha * 1.15).toFixed(2)})`);
-      sunGlow.addColorStop(0.4, `rgba(255, 244, 220, ${(glowAlpha * 0.42).toFixed(2)})`);
-      sunGlow.addColorStop(1, 'rgba(255, 255, 255, 0.0)');
-      eCtx.fillStyle = sunGlow;
-      eCtx.fillRect(180, 12, 152, 144);
+        // Natural solar aureole glow on sky dome
+        const sunGlow = eCtx.createRadialGradient(256, 84, 4, 256, 84, 72);
+        sunGlow.addColorStop(0, `rgba(255, 252, 240, ${Math.min(0.85, glowAlpha * 1.15).toFixed(2)})`);
+        sunGlow.addColorStop(0.4, `rgba(255, 244, 220, ${(glowAlpha * 0.42).toFixed(2)})`);
+        sunGlow.addColorStop(1, 'rgba(255, 255, 255, 0.0)');
+        eCtx.fillStyle = sunGlow;
+        eCtx.fillRect(180, 12, 152, 144);
+      }
 
       const envDomeTex = new THREE.CanvasTexture(envCanvas);
       envDomeTex.colorSpace = THREE.SRGBColorSpace;
@@ -834,11 +836,12 @@ export const RaceView: React.FC<RaceViewProps> = ({
     scene.add(sunLight.target);
 
     // 3-Point Rim & Specular Fill Directional Light
+    const baseRimIntensity = gfxPreset.id === 'ultra' ? 0.52 : gfxPreset.id === 'high' ? 0.56 : 0.72;
     let rimLight: THREE.DirectionalLight | null = null;
     if (gfxPreset.enableRimAndFillLights) {
       rimLight = new THREE.DirectionalLight(
         circuit.id === 'abudhabi' ? 0x38bdf8 : 0xdbeafe,
-        gfxPreset.id === 'ultra' ? 0.52 : gfxPreset.id === 'high' ? 0.56 : 0.72
+        baseRimIntensity
       );
       rimLight.castShadow = false;
       scene.add(rimLight);
@@ -1594,19 +1597,30 @@ export const RaceView: React.FC<RaceViewProps> = ({
             : 0.0;
         currentRoadWetness += (targetWetness - currentRoadWetness) * Math.min(1, rawDelta * 0.8);
         track.setRoadWetness?.(currentRoadWetness);
-        if (planarReflectionRT) {
-          const baseDry = gfxPreset.id === 'ultra' ? 0.22 : 0.14;
-          const wetBoost = gfxPreset.id === 'ultra' ? 0.92 : 0.58;
-          track.setReflectionTexture(
-            planarReflectionRT.texture,
-            THREE.MathUtils.lerp(baseDry, wetBoost, currentRoadWetness)
-          );
-        }
         const curElevDeg =
           physics.currentWeather.sunElevationDeg ??
           (Math.asin(THREE.MathUtils.clamp(physics.currentWeather.sunAltitude, -1, 1)) * 180) / Math.PI;
-        const nightFactor = 1.0 - THREE.MathUtils.smoothstep(curElevDeg, -6.0, 4.5);
+        const nightFactor = 1.0 - THREE.MathUtils.smoothstep(curElevDeg, -6.0, 5.5);
+        const dayBlend = 1.0 - nightFactor;
         track.setNightIntensity?.(nightFactor);
+
+        if (planarReflectionRT) {
+          const baseDry = gfxPreset.id === 'ultra' ? 0.22 : 0.14;
+          const nightDry = gfxPreset.id === 'ultra' ? 0.07 : 0.05;
+          const dryReflect = THREE.MathUtils.lerp(nightDry, baseDry, dayBlend);
+          const wetBoost = gfxPreset.id === 'ultra' ? 0.92 : 0.58;
+          track.setReflectionTexture(
+            planarReflectionRT.texture,
+            THREE.MathUtils.lerp(dryReflect, wetBoost, currentRoadWetness)
+          );
+        }
+
+        // Attenuate PMREM IBL & rim fill at night so unlit roads/fields stay truly dark while headlights pop
+        scene.environmentIntensity = THREE.MathUtils.lerp(gfxPreset.id === 'ultra' ? 0.08 : 0.12, 1.0, dayBlend);
+        if (rimLight) {
+          rimLight.intensity = THREE.MathUtils.lerp(gfxPreset.id === 'ultra' ? 0.035 : 0.055, baseRimIntensity, dayBlend);
+        }
+        renderer.toneMappingExposure = THREE.MathUtils.lerp(0.88, gfxPreset.id === 'ultra' ? 1.03 : 1.0, dayBlend);
 
         // Keep 360° PMREM reflections synced with Gaithersburg time-of-day & weather (only re-bakes on major shifts)
         if (
@@ -1618,10 +1632,10 @@ export const RaceView: React.FC<RaceViewProps> = ({
           cityEnvLastCond = cond;
           cityEnvLastRebuildTime = time;
           const isTwi = curElevDeg > -5 && curElevDeg < 8;
-          const skyC = curElevDeg < -5 ? 0x0b1426 : isTwi ? 0x5c4b73 : physics.currentWeather.isRaining ? 0x3b495c : 0x5ca4e6;
-          const sunC = curElevDeg < -5 ? 0x60a5fa : isTwi ? 0xfb923c : physics.currentWeather.isRaining ? 0x94a3b8 : 0xfff3db;
-          const gndC = curElevDeg < -5 ? 0x080c14 : 0x262c28;
-          rebuildPmremEnvironment(skyC, sunC, gndC, curElevDeg < -5 ? 0.25 : isTwi ? 0.65 : 0.45);
+          const skyC = curElevDeg < -3 ? 0x050914 : isTwi ? 0x5c4b73 : physics.currentWeather.isRaining ? 0x3b495c : 0x5ca4e6;
+          const sunC = curElevDeg < -3 ? 0x334155 : isTwi ? 0xfb923c : physics.currentWeather.isRaining ? 0x94a3b8 : 0xfff3db;
+          const gndC = curElevDeg < -3 ? 0x020408 : 0x262c28;
+          rebuildPmremEnvironment(skyC, sunC, gndC, curElevDeg < -3 ? 0.06 : isTwi ? 0.62 : 0.45);
         }
 
         const sprayState = physics.getTireSprayState();
@@ -2172,7 +2186,10 @@ export const RaceView: React.FC<RaceViewProps> = ({
           }
         }
         if (e.key === 'r' || e.key === 'R' || e.code === 'KeyR') {
-          if (physicsRef.current?.cityPursuitStats.nearbyHeistPrompt) {
+          if (
+            physicsRef.current?.cityPursuitStats.nearbyHeistPrompt &&
+            !physicsRef.current.cityPursuitStats.isPoliceOnDuty
+          ) {
             e.preventDefault();
             physicsRef.current.triggerRobberyAtNearestTarget(
               physicsRef.current.cityPursuitStats.nearbyHeistPrompt.targetId
@@ -2191,6 +2208,41 @@ export const RaceView: React.FC<RaceViewProps> = ({
             );
             setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
             return;
+          }
+        }
+        if (e.key === 'v' || e.key === 'V' || e.code === 'KeyV') {
+          const stats = physicsRef.current?.cityPursuitStats;
+          if (physicsRef.current && stats) {
+            if (stats.nearbyHeistPrompt && stats.nearbyHeistPrompt.category !== 'HOUSE') {
+              e.preventDefault();
+              physicsRef.current.triggerExploreBuilding('heist_target', stats.nearbyHeistPrompt.targetId);
+              setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
+              return;
+            }
+            if (stats.nearbyHousePrompt?.isOwned) {
+              e.preventDefault();
+              physicsRef.current.triggerExploreBuilding('owned_house', stats.nearbyHousePrompt.houseId);
+              setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
+              return;
+            }
+            if (stats.nearbyServicePrompt) {
+              e.preventDefault();
+              physicsRef.current.triggerExploreBuilding('service', stats.nearbyServicePrompt.id);
+              setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
+              return;
+            }
+            if (stats.policePrecinctNear) {
+              e.preventDefault();
+              physicsRef.current.triggerExploreBuilding('police');
+              setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
+              return;
+            }
+            if (stats.nearbyCityBuildingPrompt && (!stats.nearbyHousePrompt || stats.nearbyHousePrompt.isOwned)) {
+              e.preventDefault();
+              physicsRef.current.triggerExploreBuilding('city_building', stats.nearbyCityBuildingPrompt.id);
+              setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
+              return;
+            }
           }
         }
         // Check custom mapped key actions first:
@@ -2785,60 +2837,115 @@ export const RaceView: React.FC<RaceViewProps> = ({
             </div>
           )}
 
-          {/* PROXIMITY BANK / JEWELRY STORE ROBBERY PROMPT & LIVE VAULT PROGRESS BAR */}
+          {/* PROXIMITY BUILDING EXPLORE / ROBBERY PROMPT */}
           {cityPursuitStats.nearbyHeistPrompt && (
-            <div className="absolute bottom-24 right-4 md:right-6 z-50 w-[92%] max-w-md pointer-events-auto">
-              <div className="bg-zinc-950/95 border-2 border-amber-400 rounded-2xl p-3.5 shadow-[0_0_32px_rgba(250,204,21,0.5)] backdrop-blur-md flex flex-col gap-2 font-mono">
+            <div className="absolute bottom-24 right-4 md:right-6 z-50 w-[94%] max-w-lg pointer-events-auto">
+              <div
+                className={`bg-zinc-950/95 border-2 rounded-2xl p-3.5 backdrop-blur-md flex flex-col gap-2 font-mono ${
+                  cityPursuitStats.nearbyHeistPrompt.robbable === false
+                    ? 'border-fuchsia-400 shadow-[0_0_32px_rgba(232,121,249,0.45)]'
+                    : 'border-amber-400 shadow-[0_0_32px_rgba(250,204,21,0.5)]'
+                }`}
+              >
                 <div className="flex items-center justify-between gap-2">
                   <div className="min-w-0">
                     <div className="flex items-center gap-1.5">
-                      <span className="px-2 py-0.5 rounded bg-amber-400 text-black font-black text-[10px] uppercase">
-                        {cityPursuitStats.nearbyHeistPrompt.icon} {cityPursuitStats.nearbyHeistPrompt.category} HEIST
+                      <span
+                        className={`px-2 py-0.5 rounded text-black font-black text-[10px] uppercase ${
+                          cityPursuitStats.nearbyHeistPrompt.robbable === false ? 'bg-fuchsia-400' : 'bg-amber-400'
+                        }`}
+                      >
+                        {cityPursuitStats.nearbyHeistPrompt.icon}{' '}
+                        {cityPursuitStats.nearbyHeistPrompt.robbable === false
+                          ? 'EXPLORE-ONLY VENUE'
+                          : `${cityPursuitStats.nearbyHeistPrompt.category} ${
+                              cityPursuitStats.nearbyHeistPrompt.category === 'HOUSE' ? 'HEIST' : 'BUILDING'
+                            }`}
                       </span>
                       <span className="text-xs font-black text-white truncate">
                         {cityPursuitStats.nearbyHeistPrompt.name}
                       </span>
                     </div>
                     <p className="text-[11px] text-zinc-300 mt-1">
-                      {cityPursuitStats.nearbyHeistPrompt.cooldownLeftSec > 0 ? (
+                      {cityPursuitStats.nearbyHeistPrompt.robbable === false ? (
+                        <>
+                          Public Family Arcade · Press <strong className="text-emerald-300">[V]</strong> to explore 3 floors, ride elevators &amp; play games!
+                        </>
+                      ) : cityPursuitStats.nearbyHeistPrompt.cooldownLeftSec > 0 ? (
                         <span className="text-rose-400 font-bold">
                           🔒 Vault in Lockdown ({cityPursuitStats.nearbyHeistPrompt.cooldownLeftSec}s left)
+                          {cityPursuitStats.nearbyHeistPrompt.category !== 'HOUSE' && (
+                            <span className="text-emerald-300"> · [V] Explore Lobby</span>
+                          )}
                         </span>
                       ) : cityPursuitStats.nearbyHeistPrompt.isRobbingNow ? (
                         <span className="text-amber-300 font-bold animate-pulse">
                           🚨 CRACKING VAULT / SMASHING CASES ({cityPursuitStats.nearbyHeistPrompt.robberyProgressPct}%)... STAY IN RING!
                         </span>
-                      ) : (
+                      ) : cityPursuitStats.nearbyHeistPrompt.category === 'HOUSE' ? (
                         <>
-                          Park inside ring or press <strong className="text-amber-300">[R]</strong> to launch the{' '}
-                          <strong className="text-cyan-300">Top-Down Heist Shooter</strong> for{' '}
+                          Private Residence · Press <strong className="text-amber-300">[R]</strong> to break in &amp; rob{' '}
                           <strong className="text-emerald-400">
                             +${cityPursuitStats.nearbyHeistPrompt.payoutCash.toLocaleString()}
                           </strong>{' '}
-                          (Destroy all security bots to unlock the vault!)
+                          (Clear floor bots to unlock floor vault!)
+                        </>
+                      ) : cityPursuitStats.isPoliceOnDuty ? (
+                        <>
+                          Press <strong className="text-emerald-300">[V]</strong> to explore inside, talk to staff &amp; play mini-games!
+                        </>
+                      ) : (
+                        <>
+                          Press <strong className="text-emerald-300">[V]</strong> to explore peacefully, or{' '}
+                          <strong className="text-amber-300">[R]</strong> to heist{' '}
+                          <strong className="text-emerald-400">
+                            +${cityPursuitStats.nearbyHeistPrompt.payoutCash.toLocaleString()}
+                          </strong>!
                         </>
                       )}
                     </p>
                   </div>
 
-                  {cityPursuitStats.nearbyHeistPrompt.cooldownLeftSec <= 0 && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        physicsRef.current?.triggerRobberyAtNearestTarget(
-                          cityPursuitStats.nearbyHeistPrompt?.targetId
-                        );
-                        if (physicsRef.current) {
-                          setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
-                        }
-                      }}
-                      className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-amber-400 to-rose-500 hover:from-amber-300 hover:to-rose-400 text-black font-black text-xs uppercase tracking-wider shadow-lg cursor-pointer shrink-0"
-                    >
-                      {cityPursuitStats.nearbyHeistPrompt.isRobbingNow
-                        ? '💰 [R] Grab Faster!'
-                        : '🎮 [R] Start Heist'}
-                    </button>
-                  )}
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {cityPursuitStats.nearbyHeistPrompt.category !== 'HOUSE' && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          physicsRef.current?.triggerExploreBuilding(
+                            'heist_target',
+                            cityPursuitStats.nearbyHeistPrompt?.targetId
+                          );
+                          if (physicsRef.current) {
+                            setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
+                          }
+                        }}
+                        className="px-3 py-2 rounded-xl bg-gradient-to-r from-emerald-400 to-cyan-400 hover:from-emerald-300 hover:to-cyan-300 text-black font-black text-xs uppercase tracking-wider shadow-lg cursor-pointer shrink-0"
+                      >
+                        🚪 [V] Explore
+                      </button>
+                    )}
+
+                    {cityPursuitStats.nearbyHeistPrompt.robbable !== false &&
+                      !cityPursuitStats.isPoliceOnDuty &&
+                      cityPursuitStats.nearbyHeistPrompt.cooldownLeftSec <= 0 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            physicsRef.current?.triggerRobberyAtNearestTarget(
+                              cityPursuitStats.nearbyHeistPrompt?.targetId
+                            );
+                            if (physicsRef.current) {
+                              setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
+                            }
+                          }}
+                          className="px-3 py-2 rounded-xl bg-gradient-to-r from-amber-400 to-rose-500 hover:from-amber-300 hover:to-rose-400 text-black font-black text-xs uppercase tracking-wider shadow-lg cursor-pointer shrink-0"
+                        >
+                          {cityPursuitStats.nearbyHeistPrompt.isRobbingNow
+                            ? '💰 [R] Grab!'
+                            : '🎮 [R] Heist'}
+                        </button>
+                      )}
+                  </div>
                 </div>
 
                 {cityPursuitStats.nearbyHeistPrompt.isRobbingNow && (
@@ -2855,7 +2962,7 @@ export const RaceView: React.FC<RaceViewProps> = ({
 
           {/* PROXIMITY TOP-DOWN RETRO SPORTS MINIGAME PROMPT (BASKETBALL / GOLF / BASEBALL) */}
           {cityPursuitStats.nearbySportsPrompt && !cityPursuitStats.nearbyHeistPrompt && (
-            <div className="absolute bottom-24 right-4 md:right-6 z-50 w-[92%] max-w-md pointer-events-auto">
+            <div className="absolute bottom-24 right-4 md:right-6 z-50 w-[92%] max-w-lg pointer-events-auto">
               <div className="bg-zinc-950/95 border-2 border-emerald-400 rounded-2xl p-3.5 shadow-[0_0_32px_rgba(16,185,129,0.48)] backdrop-blur-md flex items-center justify-between gap-3 font-mono">
                 <div className="min-w-0">
                   <div className="flex items-center gap-1.5">
@@ -2868,23 +2975,47 @@ export const RaceView: React.FC<RaceViewProps> = ({
                   </div>
                   <p className="text-[11px] text-zinc-300 mt-1">
                     {cityPursuitStats.nearbySportsPrompt.rewardDesc} · Press{' '}
-                    <strong className="text-emerald-300">[B]</strong> to play Top-Down Arcade!
+                    <strong className="text-emerald-300">[B]</strong> to play
+                    {cityPursuitStats.nearbyCityBuildingPrompt && (
+                      <>
+                        {' '}· <strong className="text-sky-300">[V]</strong> Explore Building
+                      </>
+                    )}
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    physicsRef.current?.triggerSportsMinigame(
-                      cityPursuitStats.nearbySportsPrompt?.venueId
-                    );
-                    if (physicsRef.current) {
-                      setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
-                    }
-                  }}
-                  className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-emerald-400 to-cyan-400 hover:from-emerald-300 hover:to-cyan-300 text-black font-black text-xs uppercase tracking-wider shadow-lg cursor-pointer shrink-0"
-                >
-                  {cityPursuitStats.nearbySportsPrompt.icon} [B] PLAY
-                </button>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {cityPursuitStats.nearbyCityBuildingPrompt && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        physicsRef.current?.triggerExploreBuilding(
+                          'city_building',
+                          cityPursuitStats.nearbyCityBuildingPrompt?.id
+                        );
+                        if (physicsRef.current) {
+                          setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
+                        }
+                      }}
+                      className="px-3 py-2 rounded-xl bg-sky-400 hover:bg-sky-300 text-black font-black text-xs uppercase tracking-wider shadow-lg cursor-pointer shrink-0"
+                    >
+                      🚪 [V] Explore
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      physicsRef.current?.triggerSportsMinigame(
+                        cityPursuitStats.nearbySportsPrompt?.venueId
+                      );
+                      if (physicsRef.current) {
+                        setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
+                      }
+                    }}
+                    className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-emerald-400 to-cyan-400 hover:from-emerald-300 hover:to-cyan-300 text-black font-black text-xs uppercase tracking-wider shadow-lg cursor-pointer shrink-0"
+                  >
+                    {cityPursuitStats.nearbySportsPrompt.icon} [B] PLAY
+                  </button>
+                </div>
               </div>
             </div>
           )}
@@ -2893,7 +3024,7 @@ export const RaceView: React.FC<RaceViewProps> = ({
           {cityPursuitStats.nearbyServicePrompt &&
             !cityPursuitStats.nearbyHeistPrompt &&
             !cityPursuitStats.nearbySportsPrompt && (
-              <div className="absolute bottom-24 right-4 md:right-6 z-50 w-[92%] max-w-md pointer-events-auto">
+              <div className="absolute bottom-24 right-4 md:right-6 z-50 w-[94%] max-w-lg pointer-events-auto">
                 <div className="bg-zinc-950/95 border-2 border-amber-400 rounded-2xl p-3.5 shadow-[0_0_28px_rgba(251,191,36,0.45)] backdrop-blur-md flex items-center justify-between gap-3 font-mono">
                   <div className="min-w-0">
                     <div className="flex items-center gap-1.5">
@@ -2905,28 +3036,44 @@ export const RaceView: React.FC<RaceViewProps> = ({
                       </span>
                     </div>
                     <p className="text-[11px] text-zinc-300 mt-1">
-                      100% Nitro + Fresh Tires + Wash · Press{' '}
-                      <strong className="text-amber-300">[F]</strong> (
+                      <strong className="text-amber-300">[F]</strong> Nitro + Wash (
                       {cityPursuitStats.nearbyServicePrompt.cost > 0
                         ? `$${cityPursuitStats.nearbyServicePrompt.cost}`
                         : 'Free'}
-                      )
+                      ) · <strong className="text-emerald-300">[V]</strong> Explore Lounge &amp; Arcade
                     </p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      physicsRef.current?.triggerServiceStationPitStop(
-                        cityPursuitStats.nearbyServicePrompt?.id
-                      );
-                      if (physicsRef.current) {
-                        setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
-                      }
-                    }}
-                    className="px-3.5 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-black font-black text-xs uppercase tracking-wider shadow-lg cursor-pointer shrink-0"
-                  >
-                    ⛽ [F] SERVICE
-                  </button>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        physicsRef.current?.triggerExploreBuilding(
+                          'service',
+                          cityPursuitStats.nearbyServicePrompt?.id
+                        );
+                        if (physicsRef.current) {
+                          setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
+                        }
+                      }}
+                      className="px-3 py-2 rounded-xl bg-gradient-to-r from-emerald-400 to-cyan-400 hover:from-emerald-300 hover:to-cyan-300 text-black font-black text-xs uppercase tracking-wider shadow-lg cursor-pointer shrink-0"
+                    >
+                      🚪 [V] Explore
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        physicsRef.current?.triggerServiceStationPitStop(
+                          cityPursuitStats.nearbyServicePrompt?.id
+                        );
+                        if (physicsRef.current) {
+                          setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
+                        }
+                      }}
+                      className="px-3 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-black font-black text-xs uppercase tracking-wider shadow-lg cursor-pointer shrink-0"
+                    >
+                      ⛽ [F] SERVICE
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
@@ -3005,7 +3152,8 @@ export const RaceView: React.FC<RaceViewProps> = ({
                   <p className="text-[11px] text-zinc-300 mt-1">
                     {cityPursuitStats.nearbyHousePrompt.isOwned ? (
                       <>
-                        Generating <strong className="text-emerald-400">+${Math.round(cityPursuitStats.nearbyHousePrompt.passiveIncomePerMin / 2).toLocaleString()} / 30s</strong> passive income!
+                        Generating <strong className="text-emerald-400">+${Math.round(cityPursuitStats.nearbyHousePrompt.passiveIncomePerMin / 2).toLocaleString()} / 30s</strong> ·{' '}
+                        <strong className="text-cyan-300">[V] Explore Inside</strong>
                       </>
                     ) : cityPursuitStats.nearbyHousePrompt.price > 0 ? (
                       <>
@@ -3026,11 +3174,11 @@ export const RaceView: React.FC<RaceViewProps> = ({
                       </>
                     ) : (
                       <>
-                        Suburban Residence ·{' '}
+                        Private Residence ·{' '}
                         {!cityPursuitStats.isPoliceOnDuty ? (
                           <strong className="text-rose-400">
                             {cityPursuitStats.nearbyHousePrompt.hideRobPayout
-                              ? '[R] Rob (Cash Unknown Until Inside)'
+                              ? '[R] Break In & Rob (Loot: ???)'
                               : `[R] Rob +$${(cityPursuitStats.nearbyHousePrompt.robPayoutCash / 1000).toFixed(1)}k`}
                           </strong>
                         ) : (
@@ -3042,6 +3190,26 @@ export const RaceView: React.FC<RaceViewProps> = ({
                 </div>
 
                 <div className="flex items-center gap-1.5 shrink-0">
+                  {cityPursuitStats.nearbyHousePrompt.isOwned && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (cityPursuitStats.nearbyHousePrompt) {
+                          physicsRef.current?.triggerExploreBuilding(
+                            'owned_house',
+                            cityPursuitStats.nearbyHousePrompt.houseId
+                          );
+                          if (physicsRef.current) {
+                            setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
+                          }
+                        }
+                      }}
+                      className="px-3 py-2 rounded-xl bg-gradient-to-r from-cyan-400 to-emerald-400 hover:from-cyan-300 hover:to-emerald-300 text-black font-black text-xs uppercase tracking-wider shadow-lg cursor-pointer shrink-0"
+                    >
+                      🚪 [V] Enter Home
+                    </button>
+                  )}
+
                   {!cityPursuitStats.nearbyHousePrompt.isOwned && !cityPursuitStats.isPoliceOnDuty && (
                     <button
                       type="button"
@@ -3090,6 +3258,51 @@ export const RaceView: React.FC<RaceViewProps> = ({
               </div>
             </div>
           )}
+
+          {/* PROXIMITY EXPLORABLE CITY BUILDING PROMPT (ANY PUBLIC / LANDMARK BUILDING) */}
+          {cityPursuitStats.nearbyCityBuildingPrompt &&
+            !cityPursuitStats.nearbyHeistPrompt &&
+            !cityPursuitStats.nearbySportsPrompt &&
+            !cityPursuitStats.nearbyServicePrompt &&
+            !cityPursuitStats.nearbyCarMeetPrompt &&
+            !cityPursuitStats.nearbyHousePrompt && (
+              <div className="absolute bottom-24 right-4 md:right-6 z-50 w-[92%] max-w-lg pointer-events-auto">
+                <div className="bg-zinc-950/95 border-2 border-sky-400 rounded-2xl p-3.5 shadow-[0_0_28px_rgba(56,189,248,0.45)] backdrop-blur-md flex items-center justify-between gap-3 font-mono">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="px-2 py-0.5 rounded bg-sky-400 text-black font-black text-[10px] uppercase">
+                        {cityPursuitStats.nearbyCityBuildingPrompt.icon}{' '}
+                        {cityPursuitStats.nearbyCityBuildingPrompt.categoryLabel}
+                      </span>
+                      <span className="text-xs font-black text-white truncate">
+                        {cityPursuitStats.nearbyCityBuildingPrompt.name}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-zinc-300 mt-1">
+                      {cityPursuitStats.nearbyCityBuildingPrompt.floorsLabel} · Explore-Only Building · Press{' '}
+                      <strong className="text-sky-300">[V]</strong> to step inside!
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (cityPursuitStats.nearbyCityBuildingPrompt) {
+                        physicsRef.current?.triggerExploreBuilding(
+                          'city_building',
+                          cityPursuitStats.nearbyCityBuildingPrompt.id
+                        );
+                        if (physicsRef.current) {
+                          setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
+                        }
+                      }
+                    }}
+                    className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-sky-400 to-emerald-400 hover:from-sky-300 hover:to-emerald-300 text-black font-black text-xs uppercase tracking-wider shadow-lg cursor-pointer shrink-0"
+                  >
+                    🚪 [V] Explore
+                  </button>
+                </div>
+              </div>
+            )}
 
           {/* 5-STAR HEIST SAFEHOUSE ESCAPE BANNER: FLEE BACK TO YOUR HOUSE WITHOUT POLICE SEEING YOU! */}
           {cityPursuitStats.pendingHeistLoot && (
@@ -3322,29 +3535,41 @@ export const RaceView: React.FC<RaceViewProps> = ({
                     : 'DRIVE INTO GLOWING BEACON TO BECOME POLICE OFFICER & EQUIP SIRENS!'}
                 </div>
               </div>
-              {!cityPursuitStats.isPoliceOnDuty ? (
+              <div className="flex items-center gap-1.5 shrink-0">
                 <button
                   type="button"
                   onClick={() => {
-                    physicsRef.current?.clockInPoliceDuty();
+                    physicsRef.current?.triggerExploreBuilding('police');
                     if (physicsRef.current) setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
                   }}
-                  className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-sky-400 to-blue-600 hover:from-sky-300 hover:to-blue-500 text-white font-mono font-black text-[10px] uppercase tracking-wider shadow-lg cursor-pointer"
+                  className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-400 to-cyan-400 hover:from-emerald-300 hover:to-cyan-300 text-black font-mono font-black text-[10px] uppercase tracking-wider shadow-lg cursor-pointer"
                 >
-                  Clock In [E]
+                  🚪 [V] Explore Precinct
                 </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => {
-                    physicsRef.current?.clockOutPoliceDuty();
-                    if (physicsRef.current) setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
-                  }}
-                  className="px-3.5 py-1.5 rounded-xl bg-zinc-900 hover:bg-rose-600 text-zinc-300 hover:text-white border border-white/20 font-mono font-black text-[10px] uppercase cursor-pointer"
-                >
-                  End Shift
-                </button>
-              )}
+                {!cityPursuitStats.isPoliceOnDuty ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      physicsRef.current?.clockInPoliceDuty();
+                      if (physicsRef.current) setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
+                    }}
+                    className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-sky-400 to-blue-600 hover:from-sky-300 hover:to-blue-500 text-white font-mono font-black text-[10px] uppercase tracking-wider shadow-lg cursor-pointer"
+                  >
+                    Clock In [E]
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      physicsRef.current?.clockOutPoliceDuty();
+                      if (physicsRef.current) setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
+                    }}
+                    className="px-3.5 py-1.5 rounded-xl bg-zinc-900 hover:bg-rose-600 text-zinc-300 hover:text-white border border-white/20 font-mono font-black text-[10px] uppercase cursor-pointer"
+                  >
+                    End Shift
+                  </button>
+                )}
+              </div>
             </div>
           )}
 
@@ -5610,6 +5835,7 @@ export const RaceView: React.FC<RaceViewProps> = ({
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                       {CITY_HEIST_TARGETS_CATALOG.map((target) => {
                         const cd = Math.ceil(cityPursuitStats.heistCooldowns[target.id] || 0);
+                        const canRob = target.robbable !== false;
                         return (
                           <div
                             key={target.id}
@@ -5620,15 +5846,29 @@ export const RaceView: React.FC<RaceViewProps> = ({
                                 <span className="text-sm font-black text-white">
                                   {target.icon} {target.name}
                                 </span>
-                                <span className="px-2 py-0.5 rounded bg-rose-500/20 border border-rose-400/40 text-rose-300 font-black text-[10px]">
-                                  +${target.payoutCash.toLocaleString()}
+                                <span
+                                  className={`px-2 py-0.5 rounded border font-black text-[10px] ${
+                                    canRob
+                                      ? 'bg-rose-500/20 border-rose-400/40 text-rose-300'
+                                      : 'bg-fuchsia-500/20 border-fuchsia-400/40 text-fuchsia-300'
+                                  }`}
+                                >
+                                  {canRob ? `+$${target.payoutCash.toLocaleString()}` : 'EXPLORE-ONLY'}
                                 </span>
                               </div>
                               <p className="text-xs text-zinc-400 mt-2 leading-relaxed">{target.description}</p>
                               <div className="flex items-center gap-2 mt-2 text-[10px] text-zinc-400">
-                                <span>Risk: {'★'.repeat(target.wantedStarsTriggered)}</span>
-                                <span>·</span>
-                                <span>{cd > 0 ? `🔒 Lockdown ${cd}s` : `Crack time: ${target.robDurationSec}s`}</span>
+                                {canRob ? (
+                                  <>
+                                    <span>Risk: {'★'.repeat(target.wantedStarsTriggered)}</span>
+                                    <span>·</span>
+                                    <span>{cd > 0 ? `🔒 Lockdown ${cd}s` : `Crack time: ${target.robDurationSec}s`}</span>
+                                  </>
+                                ) : (
+                                  <span className="text-fuchsia-300 font-bold">
+                                    3-Floor Family Arcade · Elevators · Not Robbable
+                                  </span>
+                                )}
                               </div>
                             </div>
 
@@ -5645,21 +5885,36 @@ export const RaceView: React.FC<RaceViewProps> = ({
                               >
                                 📍 Route GPS
                               </button>
-                              <button
-                                type="button"
-                                disabled={cd > 0}
-                                onClick={() => {
-                                  physicsRef.current?.triggerRobberyAtNearestTarget(target.id);
-                                  if (physicsRef.current) setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
-                                  setShowCityTabletModal(false);
-                                  setShowCityGarageModal(false);
-                                }}
-                                className={`py-1.5 px-3 rounded-xl font-black text-xs uppercase cursor-pointer ${
-                                  cd > 0 ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed' : 'bg-rose-500 hover:bg-rose-400 text-white'
-                                }`}
-                              >
-                                {cd > 0 ? `${cd}s` : 'Rob [R]'}
-                              </button>
+                              {canRob ? (
+                                <button
+                                  type="button"
+                                  disabled={cd > 0}
+                                  onClick={() => {
+                                    physicsRef.current?.triggerRobberyAtNearestTarget(target.id);
+                                    if (physicsRef.current) setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
+                                    setShowCityTabletModal(false);
+                                    setShowCityGarageModal(false);
+                                  }}
+                                  className={`py-1.5 px-3 rounded-xl font-black text-xs uppercase cursor-pointer ${
+                                    cd > 0 ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed' : 'bg-rose-500 hover:bg-rose-400 text-white'
+                                  }`}
+                                >
+                                  {cd > 0 ? `${cd}s` : 'Rob [R]'}
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    physicsRef.current?.triggerExploreBuilding('heist_target', target.id);
+                                    if (physicsRef.current) setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
+                                    setShowCityTabletModal(false);
+                                    setShowCityGarageModal(false);
+                                  }}
+                                  className="py-1.5 px-3 rounded-xl font-black text-xs uppercase cursor-pointer bg-fuchsia-500 hover:bg-fuchsia-400 text-white"
+                                >
+                                  Explore [V]
+                                </button>
+                              )}
                             </div>
                           </div>
                         );
@@ -6530,14 +6785,31 @@ export const RaceView: React.FC<RaceViewProps> = ({
         </div>
       )}
 
-      {/* TOP-DOWN RETRO BANK HEIST MINIGAME OVERLAY */}
+      {/* TOP-DOWN RETRO BANK HEIST & BUILDING INTERIOR EXPLORATION OVERLAY */}
       {isCityDrivingMode && cityPursuitStats?.activeBankMinigameTarget && (
         <BankHeistMinigame
           target={cityPursuitStats.activeBankMinigameTarget}
-          onSuccess={() => {
+          streetCash={cityPursuitStats.streetCash}
+          furnishings={
+            cityPursuitStats.houseFurnishings?.[cityPursuitStats.activeBankMinigameTarget.id] || []
+          }
+          onBuyHouseItem={(itemId) => {
+            const houseId = cityPursuitStats.activeBankMinigameTarget?.id;
+            if (houseId && physicsRef.current) {
+              physicsRef.current.buyHouseFurnishing(houseId, itemId);
+              setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
+            }
+          }}
+          onAwardExploreCash={(delta, label) => {
+            if (physicsRef.current) {
+              physicsRef.current.awardInteriorMinigameCash(delta, label);
+              setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
+            }
+          }}
+          onSuccess={(stolenCashOverride) => {
             const targetId = cityPursuitStats.activeBankMinigameTarget?.id;
             if (targetId && physicsRef.current) {
-              physicsRef.current.completeBankHeistMinigameWin(targetId);
+              physicsRef.current.completeBankHeistMinigameWin(targetId, stolenCashOverride);
               setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
             }
           }}
