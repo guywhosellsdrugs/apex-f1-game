@@ -3,6 +3,7 @@ import {
   buildBuildingFloorplan,
   BuildingFloorplan,
   ElevatorPortal,
+  EmptyGameSlot,
   FloorActivitySpec,
   FloorNpcSpec,
   HeistFloorData,
@@ -10,9 +11,16 @@ import {
   VaultSpec,
   WallRect,
 } from './heistFloorplans';
-import { InteriorMiniGameModal, InteriorMinigameKind } from './InteriorMiniGames';
+import {
+  InteriorMiniGameModal,
+  InteriorMinigameKind,
+  WorkplaceShiftKind,
+} from './InteriorMiniGames';
 import type { HouseExteriorProfile } from '../game/cityTrafficBuilder';
-import { HOME_FURNISHINGS_CATALOG } from '../game/homeFurnishings';
+import {
+  HOME_FURNISHINGS_CATALOG,
+  isWorkplaceShiftKind,
+} from '../game/homeFurnishings';
 
 export interface BankMinigameTargetInfo {
   id: string;
@@ -36,8 +44,9 @@ interface BankHeistMinigameProps {
   target: BankMinigameTargetInfo;
   streetCash?: number;
   furnishings?: string[];
-  onBuyHouseItem?: (itemId: string) => void;
+  onBuyHouseItem?: (itemId: string, slotId?: string) => void;
   onAwardExploreCash?: (delta: number, label: string) => void;
+  onCompleteWorkShift?: (delta: number, label: string) => void;
   onSuccess: (stolenCashOverride?: number) => void;
   onCaptured: () => void;
   onAbort: () => void;
@@ -311,22 +320,37 @@ export const BankHeistMinigame: React.FC<BankHeistMinigameProps> = ({
   furnishings = [],
   onBuyHouseItem,
   onAwardExploreCash,
+  onCompleteWorkShift,
   onSuccess,
   onCaptured,
   onAbort,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const callbacksRef = useRef({ onSuccess, onCaptured, onAbort, onAwardExploreCash });
-  callbacksRef.current = { onSuccess, onCaptured, onAbort, onAwardExploreCash };
+  const callbacksRef = useRef({ onSuccess, onCaptured, onAbort, onAwardExploreCash, onCompleteWorkShift });
+  callbacksRef.current = { onSuccess, onCaptured, onAbort, onAwardExploreCash, onCompleteWorkShift };
 
   const isExploreMode = target.mode === 'explore';
-  const [activeMiniGame, setActiveMiniGame] = useState<InteriorMinigameKind | null>(null);
-  const activeMiniGameRef = useRef<InteriorMinigameKind | null>(null);
+  const [activeMiniGame, setActiveMiniGame] = useState<InteriorMinigameKind | WorkplaceShiftKind | null>(null);
+  const [activeStationLabel, setActiveStationLabel] = useState<string>('');
+  const activeMiniGameRef = useRef<InteriorMinigameKind | WorkplaceShiftKind | null>(null);
   activeMiniGameRef.current = activeMiniGame;
 
   const [showFurnishShop, setShowFurnishShop] = useState(false);
   const showFurnishShopRef = useRef(false);
   showFurnishShopRef.current = showFurnishShop;
+
+  const [activeShopSlot, setActiveShopSlot] = useState<EmptyGameSlot | null>(null);
+  const [slotPrompt, setSlotPrompt] = useState<{
+    slot: EmptyGameSlot;
+    screenXPct: number;
+    screenYPct: number;
+    source: 'hover' | 'stand';
+  } | null>(null);
+  const hoveredSlotIdRef = useRef<string | null>(null);
+  const standingSlotRef = useRef<EmptyGameSlot | null>(null);
+  const lastCamRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const lastDrawFloorRef = useRef<HeistFloorData | null>(null);
+  const lastSlotPromptKeyRef = useRef<string>('');
 
   const [elevatorMenu, setElevatorMenu] = useState<{
     label: string;
@@ -609,6 +633,7 @@ export const BankHeistMinigame: React.FC<BankHeistMinigameProps> = ({
           playRetroTone(523, 784, 0.22, 'triangle', 0.08);
           setExploreMessage('🛋️ RESTED & REFRESHED! Full stamina restored.');
         } else {
+          setActiveStationLabel(act.label);
           setActiveMiniGame(act.kind);
         }
         return;
@@ -630,6 +655,11 @@ export const BankHeistMinigame: React.FC<BankHeistMinigameProps> = ({
           }
         }
         setExploreMessage(`💬 ${npc.name} (${npc.roleLabel}): "${npc.dialogue}"`);
+        return;
+      }
+      if (target.isOwnedHouse && standingSlotRef.current && callbacksRef.current) {
+        setActiveShopSlot(standingSlotRef.current);
+        setShowFurnishShop(true);
       }
     };
 
@@ -779,6 +809,17 @@ export const BankHeistMinigame: React.FC<BankHeistMinigameProps> = ({
       }
       if (activeMiniGameRef.current || showFurnishShopRef.current) return;
       const k = e.code;
+      if (isExploreMode && target.isOwnedHouse && (k === 'KeyB' || k === 'KeyG')) {
+        e.preventDefault();
+        e.stopPropagation();
+        const curFloorSlots = lastDrawFloorRef.current?.emptySlots || [];
+        const hoveredSlot = hoveredSlotIdRef.current
+          ? curFloorSlots.find((s) => s.id === hoveredSlotIdRef.current) || null
+          : null;
+        setActiveShopSlot(hoveredSlot || standingSlotRef.current || null);
+        setShowFurnishShop(true);
+        return;
+      }
       if (isExploreMode && (k === 'KeyE' || k === 'Space')) {
         e.preventDefault();
         e.stopPropagation();
@@ -817,8 +858,38 @@ export const BankHeistMinigame: React.FC<BankHeistMinigameProps> = ({
         }
       }
     };
+    const onMouseMove = (e: MouseEvent) => {
+      if (!isExploreMode || !target.isOwnedHouse || activeMiniGameRef.current || showFurnishShopRef.current) {
+        hoveredSlotIdRef.current = null;
+        return;
+      }
+      const rect = canvas.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
+      const cam = lastCamRef.current;
+      const worldX = ((e.clientX - rect.left) / rect.width) * CANVAS_W + cam.x;
+      const worldY = ((e.clientY - rect.top) / rect.height) * CANVAS_H + cam.y;
+      const slots = lastDrawFloorRef.current?.emptySlots || [];
+      const hovered = slots.find(
+        (s) => worldX >= s.x - 6 && worldX <= s.x + s.w + 6 && worldY >= s.y - 6 && worldY <= s.y + s.h + 6
+      );
+      hoveredSlotIdRef.current = hovered ? hovered.id : null;
+    };
+    const onMouseLeave = () => {
+      hoveredSlotIdRef.current = null;
+    };
     const onMouseDown = (e: MouseEvent) => {
-      if (e.button === 0 && !activeMiniGameRef.current && !showFurnishShopRef.current) leftMouseDown = true;
+      if (e.button === 0 && !activeMiniGameRef.current && !showFurnishShopRef.current) {
+        if (isExploreMode && target.isOwnedHouse && hoveredSlotIdRef.current) {
+          const slots = lastDrawFloorRef.current?.emptySlots || [];
+          const clickedSlot = slots.find((s) => s.id === hoveredSlotIdRef.current) || null;
+          if (clickedSlot) {
+            setActiveShopSlot(clickedSlot);
+            setShowFurnishShop(true);
+            return;
+          }
+        }
+        leftMouseDown = true;
+      }
     };
     const onMouseUp = (e: MouseEvent) => {
       if (e.button === 0) leftMouseDown = false;
@@ -831,6 +902,8 @@ export const BankHeistMinigame: React.FC<BankHeistMinigameProps> = ({
 
     window.addEventListener('keydown', onKeyDown, true);
     window.addEventListener('keyup', onKeyUp, true);
+    canvas.addEventListener('mousemove', onMouseMove);
+    canvas.addEventListener('mouseleave', onMouseLeave);
     canvas.addEventListener('mousedown', onMouseDown);
     window.addEventListener('mouseup', onMouseUp);
     window.addEventListener('blur', onWindowBlur);
@@ -1637,6 +1710,22 @@ export const BankHeistMinigame: React.FC<BankHeistMinigameProps> = ({
           }
           nearbyActivityRef.current = nearAct;
 
+          // Empty Game Slot Standing Detection (Owned Houses)
+          if (target.isOwnedHouse && curFloorData.emptySlots && curFloorData.emptySlots.length > 0) {
+            const margin = 12;
+            const stood =
+              curFloorData.emptySlots.find(
+                (s) =>
+                  player.x >= s.x - margin &&
+                  player.x <= s.x + s.w + margin &&
+                  player.y >= s.y - margin &&
+                  player.y <= s.y + s.h + margin
+              ) || null;
+            standingSlotRef.current = stood;
+          } else {
+            standingSlotRef.current = null;
+          }
+
           // Walk onto bottom front door pad on 1F to step back outside cleanly
           const ed = floorplan.entryDoorRect;
           if (
@@ -2064,6 +2153,37 @@ export const BankHeistMinigame: React.FC<BankHeistMinigameProps> = ({
       const { theme } = floorplan;
       const camX = Math.max(0, Math.min(Math.max(0, worldW - CANVAS_W), player.x - CANVAS_W * 0.5));
       const camY = Math.max(0, Math.min(Math.max(0, worldH - CANVAS_H), player.y - CANVAS_H * 0.5));
+      lastCamRef.current = { x: camX, y: camY };
+      lastDrawFloorRef.current = renderFloorData;
+
+      if (isExploreMode && target.isOwnedHouse && !showFurnishShopRef.current && !activeMiniGameRef.current) {
+        const floorSlots = renderFloorData.emptySlots || [];
+        const hoveredSlot = hoveredSlotIdRef.current
+          ? floorSlots.find((s) => s.id === hoveredSlotIdRef.current) || null
+          : null;
+        const stoodSlot =
+          standingSlotRef.current && floorSlots.some((s) => s.id === standingSlotRef.current?.id)
+            ? standingSlotRef.current
+            : null;
+        const chosen = hoveredSlot || stoodSlot;
+        const source: 'hover' | 'stand' = hoveredSlot ? 'hover' : 'stand';
+        if (chosen) {
+          const sxPct = Math.max(9, Math.min(91, ((chosen.x + chosen.w * 0.5 - camX) / CANVAS_W) * 100));
+          const syPct = Math.max(9, Math.min(91, ((chosen.y + chosen.h * 0.5 - camY) / CANVAS_H) * 100));
+          const key = `${chosen.id}:${source}:${Math.round(sxPct * 2)}:${Math.round(syPct * 2)}`;
+          if (key !== lastSlotPromptKeyRef.current) {
+            lastSlotPromptKeyRef.current = key;
+            setSlotPrompt({ slot: chosen, screenXPct: sxPct, screenYPct: syPct, source });
+          }
+        } else if (lastSlotPromptKeyRef.current !== '') {
+          lastSlotPromptKeyRef.current = '';
+          setSlotPrompt(null);
+        }
+      } else if (lastSlotPromptKeyRef.current !== '') {
+        lastSlotPromptKeyRef.current = '';
+        setSlotPrompt(null);
+      }
+
       ctx.save();
       if (screenShake > 0.2) {
         ctx.translate((Math.random() - 0.5) * screenShake, (Math.random() - 0.5) * screenShake);
@@ -2203,24 +2323,62 @@ export const BankHeistMinigame: React.FC<BankHeistMinigameProps> = ({
         }
       }
 
-      // Interactive Mini-Game / Activity Stations (in Explore Mode!)
+      // Interactive Mini-Game / Work Shift / Activity Stations (in Explore Mode!)
       if (isExploreMode) {
         for (const act of renderFloorData.activities) {
           const isNear = nearbyActivityRef.current?.id === act.id;
+          const isWork = isWorkplaceShiftKind(act.kind);
           const pulse = 0.55 + Math.sin(animTime * 6) * 0.35;
-          ctx.fillStyle = isNear ? `rgba(34, 211, 238, ${0.28 + pulse * 0.18})` : 'rgba(16, 185, 129, 0.14)';
+          ctx.fillStyle = isNear
+            ? isWork
+              ? `rgba(250, 204, 21, ${0.26 + pulse * 0.18})`
+              : `rgba(34, 211, 238, ${0.28 + pulse * 0.18})`
+            : isWork
+            ? 'rgba(59, 130, 246, 0.18)'
+            : 'rgba(16, 185, 129, 0.14)';
           ctx.beginPath();
           ctx.arc(act.x, act.y, act.radius, 0, Math.PI * 2);
           ctx.fill();
-          ctx.strokeStyle = isNear ? '#22d3ee' : '#34d399';
+          ctx.strokeStyle = isNear ? (isWork ? '#facc15' : '#22d3ee') : isWork ? '#60a5fa' : '#34d399';
           ctx.lineWidth = isNear ? 2.5 : 1.5;
           ctx.setLineDash([4, 3]);
           ctx.stroke();
           ctx.setLineDash([]);
-          ctx.fillStyle = isNear ? '#fde047' : '#a7f3d0';
+          ctx.fillStyle = isNear ? '#fde047' : isWork ? '#bfdbfe' : '#a7f3d0';
           ctx.font = 'bold 10px monospace';
           ctx.textAlign = 'center';
-          ctx.fillText(isNear ? '[E] PLAY / USE' : act.label.slice(0, 22), act.x, act.y + 4);
+          ctx.fillText(
+            isNear ? (isWork ? '[E] WORK SHIFT' : '[E] PLAY / USE') : act.label.slice(0, 24),
+            act.x,
+            act.y + 4
+          );
+        }
+
+        // Empty Purchasable House Slots (Hover or Stand to press SHOP!)
+        if (target.isOwnedHouse && renderFloorData.emptySlots) {
+          for (const slot of renderFloorData.emptySlots) {
+            const isHovered = hoveredSlotIdRef.current === slot.id;
+            const isStood = standingSlotRef.current?.id === slot.id;
+            const highlighted = isHovered || isStood;
+            const pulse = 0.55 + Math.sin(animTime * 5) * 0.35;
+            ctx.fillStyle = highlighted
+              ? `rgba(251, 191, 36, ${0.24 + pulse * 0.14})`
+              : 'rgba(56, 189, 248, 0.11)';
+            ctx.fillRect(slot.x, slot.y, slot.w, slot.h);
+            ctx.strokeStyle = highlighted ? '#facc15' : 'rgba(56, 189, 248, 0.65)';
+            ctx.lineWidth = highlighted ? 2.5 : 1.5;
+            ctx.setLineDash([6, 4]);
+            ctx.strokeRect(slot.x, slot.y, slot.w, slot.h);
+            ctx.setLineDash([]);
+
+            ctx.fillStyle = highlighted ? '#fef08a' : '#7dd3fc';
+            ctx.font = 'bold 9px monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText(`+ ${slot.label.slice(0, 18)}`, slot.x + slot.w * 0.5, slot.y + slot.h * 0.5 - 3);
+            ctx.fillStyle = highlighted ? '#fde047' : 'rgba(186, 230, 253, 0.8)';
+            ctx.font = 'bold 8px monospace';
+            ctx.fillText(highlighted ? '[CLICK / B] SHOP' : 'EMPTY GAME SLOT', slot.x + slot.w * 0.5, slot.y + slot.h * 0.5 + 10);
+          }
         }
       }
 
@@ -2522,6 +2680,8 @@ export const BankHeistMinigame: React.FC<BankHeistMinigameProps> = ({
       cancelAnimationFrame(rafId);
       window.removeEventListener('keydown', onKeyDown, true);
       window.removeEventListener('keyup', onKeyUp, true);
+      canvas.removeEventListener('mousemove', onMouseMove);
+      canvas.removeEventListener('mouseleave', onMouseLeave);
       canvas.removeEventListener('mousedown', onMouseDown);
       window.removeEventListener('mouseup', onMouseUp);
       window.removeEventListener('blur', onWindowBlur);
@@ -2645,7 +2805,10 @@ export const BankHeistMinigame: React.FC<BankHeistMinigameProps> = ({
                 {target.isOwnedHouse && onBuyHouseItem && (
                   <button
                     type="button"
-                    onClick={() => setShowFurnishShop(true)}
+                    onClick={() => {
+                      setActiveShopSlot(null);
+                      setShowFurnishShop(true);
+                    }}
                     className="px-3 py-1 rounded-lg bg-amber-400 hover:bg-amber-300 text-black text-[10px] font-black cursor-pointer"
                   >
                     🛋️ BUY HOUSE ITEMS ({furnishings.length}/{HOME_FURNISHINGS_CATALOG.length})
@@ -2655,9 +2818,14 @@ export const BankHeistMinigame: React.FC<BankHeistMinigameProps> = ({
                   <button
                     type="button"
                     onClick={() => triggerInteractRef.current()}
-                    className="px-3 py-1 rounded-lg bg-cyan-400 hover:bg-cyan-300 text-black text-[10px] font-black cursor-pointer animate-pulse"
+                    className={`px-3 py-1 rounded-lg text-black text-[10px] font-black cursor-pointer animate-pulse ${
+                      isWorkplaceShiftKind(hudState.nearbyActivity.kind)
+                        ? 'bg-amber-400 hover:bg-amber-300'
+                        : 'bg-cyan-400 hover:bg-cyan-300'
+                    }`}
                   >
-                    🎮 [E] {hudState.nearbyActivity.label}
+                    {isWorkplaceShiftKind(hudState.nearbyActivity.kind) ? '💼 [E] WORK: ' : '🎮 [E] '}
+                    {hudState.nearbyActivity.label}
                   </button>
                 )}
                 {!hudState.nearbyActivity && hudState.nearbyNpc && (
@@ -2706,25 +2874,63 @@ export const BankHeistMinigame: React.FC<BankHeistMinigameProps> = ({
           style={{ containerType: 'size' }}
           className="flex-1 min-h-0 w-full bg-black flex items-center justify-center overflow-hidden relative"
         >
-          <canvas
-            ref={canvasRef}
-            width={CANVAS_W}
-            height={CANVAS_H}
+          <div
+            className="relative shrink-0"
             style={{
-              imageRendering: 'pixelated',
               width: 'min(100cqw, calc(100cqh * 800 / 520))',
               height: 'min(100cqh, calc(100cqw * 520 / 800))',
             }}
-            className="block cursor-pointer bg-zinc-950"
-          />
+          >
+            <canvas
+              ref={canvasRef}
+              width={CANVAS_W}
+              height={CANVAS_H}
+              style={{ imageRendering: 'pixelated' }}
+              className="w-full h-full block cursor-pointer bg-zinc-950"
+            />
+
+            {isExploreMode &&
+              target.isOwnedHouse &&
+              onBuyHouseItem &&
+              slotPrompt &&
+              !showFurnishShop &&
+              !activeMiniGame &&
+              !elevatorMenu && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveShopSlot(slotPrompt.slot);
+                    setShowFurnishShop(true);
+                  }}
+                  style={{
+                    left: `${slotPrompt.screenXPct}%`,
+                    top: `${slotPrompt.screenYPct}%`,
+                  }}
+                  className="absolute -translate-x-1/2 -translate-y-1/2 z-20 px-3 py-1.5 rounded-full bg-amber-400 hover:bg-amber-300 text-black border-2 border-white shadow-[0_0_20px_rgba(250,204,21,0.7)] font-black text-[11px] uppercase tracking-wide flex items-center gap-1.5 cursor-pointer animate-bounce"
+                >
+                  <span>🛒 SHOP</span>
+                  <span className="px-1.5 py-0.5 rounded bg-black/80 text-amber-300 text-[9px]">
+                    {slotPrompt.slot.label.slice(0, 14)} · [B]
+                  </span>
+                </button>
+              )}
+          </div>
 
           {activeMiniGame && (
             <InteriorMiniGameModal
               kind={activeMiniGame}
               venueName={target.name}
+              stationLabel={activeStationLabel}
               streetCash={streetCash}
               isHomeVenue={Boolean(target.isOwnedHouse)}
               onAwardCash={(delta, label) => callbacksRef.current.onAwardExploreCash?.(delta, label)}
+              onCompleteWorkShift={(delta, label) => {
+                if (callbacksRef.current.onCompleteWorkShift) {
+                  callbacksRef.current.onCompleteWorkShift(delta, label);
+                } else {
+                  callbacksRef.current.onAwardExploreCash?.(delta, label);
+                }
+              }}
               onClose={() => setActiveMiniGame(null)}
             />
           )}
@@ -2853,20 +3059,39 @@ export const BankHeistMinigame: React.FC<BankHeistMinigameProps> = ({
               <div className="w-full max-w-4xl max-h-full bg-zinc-900 border border-amber-400/60 rounded-2xl shadow-2xl flex flex-col overflow-hidden">
                 <div className="px-4 py-3 bg-zinc-950 border-b border-white/10 flex items-center justify-between gap-3">
                   <div>
-                    <div className="text-sm font-black text-amber-300">
-                      🛋️ HOME RECREATION & ARCADE SHOP — {target.name.toUpperCase()}
+                    <div className="text-sm font-black text-amber-300 flex flex-wrap items-center gap-2">
+                      <span>🛋️ HOME GAME TABLE SHOP — {target.name.toUpperCase()}</span>
+                      {activeShopSlot && (
+                        <span className="px-2 py-0.5 rounded bg-cyan-500/20 border border-cyan-400 text-cyan-200 text-[10px] font-black">
+                          📍 TARGET SLOT: {activeShopSlot.label.toUpperCase()}
+                        </span>
+                      )}
                     </div>
                     <div className="text-[11px] text-zinc-400">
-                      Buy tables, cabinets, & simulators! Items automatically appear inside your house for you to play anytime.
+                      {activeShopSlot
+                        ? `Installing directly into "${activeShopSlot.label}" on ${formatFloorTag(activeShopSlot.floor)}! Pick Billiards, Air Hockey, or Ping Pong.`
+                        : 'Buy Air Hockey, Billiards, or Ping Pong tables for your house! Hover or stand on an Empty Slot and press SHOP.'}
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
+                    {activeShopSlot && (
+                      <button
+                        type="button"
+                        onClick={() => setActiveShopSlot(null)}
+                        className="px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-cyan-300 text-[10px] font-black cursor-pointer border border-white/10"
+                      >
+                        Auto-Slot
+                      </button>
+                    )}
                     <span className="px-2.5 py-1 rounded-lg bg-emerald-500/20 border border-emerald-400/50 text-emerald-300 font-black text-xs tabular-nums">
                       CASH: ${streetCash.toLocaleString()}
                     </span>
                     <button
                       type="button"
-                      onClick={() => setShowFurnishShop(false)}
+                      onClick={() => {
+                        setShowFurnishShop(false);
+                        setActiveShopSlot(null);
+                      }}
                       className="px-3 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-black cursor-pointer"
                     >
                       ✕ CLOSE
@@ -2876,7 +3101,7 @@ export const BankHeistMinigame: React.FC<BankHeistMinigameProps> = ({
 
                 <div className="p-4 overflow-y-auto grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                   {HOME_FURNISHINGS_CATALOG.map((item) => {
-                    const isInstalled = furnishings.includes(item.id);
+                    const isInstalled = furnishings.some((f) => f.split('@')[0] === item.id);
                     const canAfford = streetCash >= item.price;
                     return (
                       <div
@@ -2903,7 +3128,10 @@ export const BankHeistMinigame: React.FC<BankHeistMinigameProps> = ({
                         <button
                           type="button"
                           disabled={isInstalled || !canAfford}
-                          onClick={() => onBuyHouseItem(item.id)}
+                          onClick={() => {
+                            onBuyHouseItem(item.id, activeShopSlot?.id);
+                            setActiveShopSlot(null);
+                          }}
                           className={`w-full py-1.5 rounded-lg text-[11px] font-black uppercase cursor-pointer ${
                             isInstalled
                               ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/40 cursor-default'
@@ -2915,7 +3143,9 @@ export const BankHeistMinigame: React.FC<BankHeistMinigameProps> = ({
                           {isInstalled
                             ? '✓ INSTALLED IN HOUSE'
                             : canAfford
-                            ? `BUY & PLACE ($${item.price.toLocaleString()})`
+                            ? activeShopSlot
+                              ? `BUY -> ${activeShopSlot.label.slice(0, 12)} ($${item.price.toLocaleString()})`
+                              : `BUY & PLACE ($${item.price.toLocaleString()})`
                             : `NEED $${(item.price - streetCash).toLocaleString()} MORE`}
                         </button>
                       </div>

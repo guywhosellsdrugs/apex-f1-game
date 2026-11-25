@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Team, Driver } from '../types/racing';
 import { GraphicsQuality, getGraphicsPresetConfig } from '../utils/graphicsSettings';
+import type { StreetCarWheelRig } from './carSculptBuilder';
 
 let cachedCarbonTexture: THREE.CanvasTexture | null = null;
 
@@ -144,6 +145,28 @@ function getUnderCarContactShadowTexture(): THREE.CanvasTexture | null {
   return tex;
 }
 
+let cachedTireSmokeTex: THREE.CanvasTexture | null = null;
+function getTireSmokeSpriteTexture(): THREE.CanvasTexture | null {
+  if (typeof document === 'undefined') return null;
+  if (cachedTireSmokeTex) return cachedTireSmokeTex;
+  const canvas = document.createElement('canvas');
+  canvas.width = 64;
+  canvas.height = 64;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+  ctx.clearRect(0, 0, 64, 64);
+  const grad = ctx.createRadialGradient(32, 32, 3, 32, 32, 31);
+  grad.addColorStop(0.0, 'rgba(244, 247, 250, 0.85)');
+  grad.addColorStop(0.38, 'rgba(226, 232, 240, 0.56)');
+  grad.addColorStop(0.72, 'rgba(203, 213, 225, 0.22)');
+  grad.addColorStop(1.0, 'rgba(203, 213, 225, 0.0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 64, 64);
+  const tex = new THREE.CanvasTexture(canvas);
+  cachedTireSmokeTex = tex;
+  return tex;
+}
+
 export interface BuiltCar {
   root: THREE.Group;
   bodyMesh: THREE.Mesh;
@@ -157,8 +180,24 @@ export interface BuiltCar {
   brakeDiscs: THREE.Mesh[];
   steeringWheel: THREE.Group;
   sparksPoints: THREE.Points;
-  setWheelSpin: (speedKmh: number, delta: number) => void;
+  offroadSprayPoints?: THREE.Points;
+  tireSmokePoints?: THREE.Points;
+  setWheelSpin: (
+    speedKmh: number,
+    delta: number,
+    drivenExtraSpinKmh?: number,
+    drivetrain?: 'RWD' | 'FWD' | 'AWD'
+  ) => void;
   setSteerAngle: (steerRad: number) => void;
+  setWheelSuspension?: (flOffset: number, frOffset: number, rlOffset: number, rrOffset: number) => void;
+  updateOffroadSpray?: (intensity: number, speedKmh: number, delta: number, isGrass?: boolean) => void;
+  updateTireSmoke?: (
+    intensity: number,
+    speedKmh: number,
+    delta: number,
+    drivetrain?: 'RWD' | 'FWD' | 'AWD',
+    slideBias?: number
+  ) => void;
   setDrsActive: (active: boolean) => void;
   setBraking: (braking: boolean) => void;
   setTireCompound: (compound: 'SOFT' | 'MEDIUM' | 'HARD') => void;
@@ -327,14 +366,16 @@ export function buildF1Car(team: Team, driver?: Driver, quality?: GraphicsQualit
         envMapIntensity: 0.5,
       });
 
-  const brakeDiscMat = new THREE.MeshStandardMaterial({
-    color: 0x444650,
-    metalness: 0.45,
-    roughness: 0.34,
-    emissive: 0x000000,
-    emissiveIntensity: 0,
-    envMapIntensity: 0.4,
-  });
+  const brakeDiscMat: THREE.Material = isLow
+    ? new THREE.MeshLambertMaterial({ color: 0x444650 })
+    : new THREE.MeshStandardMaterial({
+        color: 0x444650,
+        metalness: 0.45,
+        roughness: 0.34,
+        emissive: 0x000000,
+        emissiveIntensity: 0,
+        envMapIntensity: 0.4,
+      });
 
   const haloMat: THREE.Material = isLow
     ? new THREE.MeshLambertMaterial({ color: 0x22242c })
@@ -1044,10 +1085,79 @@ export function buildF1Car(team: Team, driver?: Driver, quality?: GraphicsQualit
   const sparksPoints = new THREE.Points(sparkGeom, sparkMat);
   root.add(sparksPoints);
 
+  // Off-road grass/dirt/pebble wheel-spin spray particle buffer
+  const sprayCount = 72;
+  const sprayGeom = new THREE.BufferGeometry();
+  const sprayPositions = new Float32Array(sprayCount * 3);
+  const sprayColors = new Float32Array(sprayCount * 3);
+  const sprayVelocities: THREE.Vector3[] = [];
+  const sprayLifetimes = new Float32Array(sprayCount);
+  for (let i = 0; i < sprayCount; i++) {
+    sprayPositions[i * 3] = 0;
+    sprayPositions[i * 3 + 1] = -100;
+    sprayPositions[i * 3 + 2] = 0;
+    sprayColors[i * 3] = 0.42;
+    sprayColors[i * 3 + 1] = 0.56;
+    sprayColors[i * 3 + 2] = 0.24;
+    sprayVelocities.push(new THREE.Vector3());
+    sprayLifetimes[i] = 0;
+  }
+  sprayGeom.setAttribute('position', new THREE.BufferAttribute(sprayPositions, 3));
+  sprayGeom.setAttribute('color', new THREE.BufferAttribute(sprayColors, 3));
+  const sprayMat = new THREE.PointsMaterial({
+    size: 0.23,
+    transparent: true,
+    opacity: 0.78,
+    vertexColors: true,
+    depthWrite: false,
+  });
+  const offroadSprayPoints = new THREE.Points(sprayGeom, sprayMat);
+  offroadSprayPoints.frustumCulled = false;
+  root.add(offroadSprayPoints);
+
+  // Volumetric wheel-spin & drift tire smoke emitter
+  const smokeCount = 84;
+  const smokeGeom = new THREE.BufferGeometry();
+  const smokePositions = new Float32Array(smokeCount * 3);
+  const smokeColors = new Float32Array(smokeCount * 3);
+  const smokeVelocities: THREE.Vector3[] = [];
+  const smokeLifetimes = new Float32Array(smokeCount);
+  for (let i = 0; i < smokeCount; i++) {
+    smokePositions[i * 3] = 0;
+    smokePositions[i * 3 + 1] = -100;
+    smokePositions[i * 3 + 2] = 0;
+    smokeColors[i * 3] = 0.92;
+    smokeColors[i * 3 + 1] = 0.94;
+    smokeColors[i * 3 + 2] = 0.96;
+    smokeVelocities.push(new THREE.Vector3());
+    smokeLifetimes[i] = 0;
+  }
+  smokeGeom.setAttribute('position', new THREE.BufferAttribute(smokePositions, 3));
+  smokeGeom.setAttribute('color', new THREE.BufferAttribute(smokeColors, 3));
+  const smokeSpriteTex = getTireSmokeSpriteTexture();
+  const smokeMat = new THREE.PointsMaterial({
+    size: 1.08,
+    map: smokeSpriteTex ?? undefined,
+    transparent: true,
+    opacity: 0.56,
+    vertexColors: true,
+    depthWrite: false,
+  });
+  const tireSmokePoints = new THREE.Points(smokeGeom, smokeMat);
+  tireSmokePoints.frustumCulled = false;
+  root.add(tireSmokePoints);
+
   // Animation & Control Methods
   let wheelRotX = 0;
+  let streetFrontWheelRotX = 0;
+  let streetRearWheelRotX = 0;
 
-  const setWheelSpin = (speedKmh: number, delta: number) => {
+  const setWheelSpin = (
+    speedKmh: number,
+    delta: number,
+    drivenExtraSpinKmh = 0,
+    drivetrain: 'RWD' | 'FWD' | 'AWD' = 'RWD'
+  ) => {
     const speedMs = speedKmh / 3.6;
     const rotSpeed = speedMs / 0.36;
     wheelRotX += rotSpeed * delta;
@@ -1056,11 +1166,156 @@ export function buildF1Car(team: Team, driver?: Driver, quality?: GraphicsQualit
     frWheel.children[0].rotation.x = -wheelRotX;
     rlWheel.children[0].rotation.x = wheelRotX;
     rrWheel.children[0].rotation.x = -wheelRotX;
+
+    const rig = root.userData?.streetWheelRig as StreetCarWheelRig | undefined;
+    if (rig) {
+      const frontExtra =
+        drivetrain === 'FWD' ? drivenExtraSpinKmh : drivetrain === 'AWD' ? drivenExtraSpinKmh * 0.72 : 0;
+      const rearExtra =
+        drivetrain === 'RWD' ? drivenExtraSpinKmh : drivetrain === 'AWD' ? drivenExtraSpinKmh : 0;
+      const frontSpeedMs = (speedKmh + frontExtra) / 3.6;
+      const rearSpeedMs = (speedKmh + rearExtra) / 3.6;
+      const rF = Math.max(0.24, rig.fl.radius);
+      const rR = Math.max(0.24, rig.rl.radius);
+      streetFrontWheelRotX += (frontSpeedMs / rF) * delta;
+      streetRearWheelRotX += (rearSpeedMs / rR) * delta;
+
+      rig.fl.spinGroup.rotation.x = -streetFrontWheelRotX;
+      rig.fr.spinGroup.rotation.x = -streetFrontWheelRotX;
+      rig.rl.spinGroup.rotation.x = -streetRearWheelRotX;
+      rig.rr.spinGroup.rotation.x = -streetRearWheelRotX;
+    }
   };
 
   const setSteerAngle = (steerRad: number) => {
     frontWheelsPivot.rotation.y = steerRad;
     steeringWheel.rotation.z = -steerRad * 2.5;
+    const rig = root.userData?.streetWheelRig as StreetCarWheelRig | undefined;
+    if (rig) {
+      rig.fl.steerGroup.rotation.y = steerRad;
+      rig.fr.steerGroup.rotation.y = steerRad;
+    }
+  };
+
+  const setWheelSuspension = (flOffset: number, frOffset: number, rlOffset: number, rrOffset: number) => {
+    const rig = root.userData?.streetWheelRig as StreetCarWheelRig | undefined;
+    if (!rig) return;
+    rig.fl.suspGroup.position.y = rig.fl.baseY + flOffset;
+    rig.fr.suspGroup.position.y = rig.fr.baseY + frOffset;
+    rig.rl.suspGroup.position.y = rig.rl.baseY + rlOffset;
+    rig.rr.suspGroup.position.y = rig.rr.baseY + rrOffset;
+  };
+
+  const updateOffroadSpray = (intensity: number, speedKmh: number, delta: number, isGrass = true) => {
+    const pos = sprayGeom.attributes.position.array as Float32Array;
+    const col = sprayGeom.attributes.color.array as Float32Array;
+    const spawnChance = Math.max(0, Math.min(0.92, intensity * 0.85));
+    const rig = root.userData?.streetWheelRig as StreetCarWheelRig | undefined;
+    const rx = rig ? Math.abs(rig.rl.suspGroup.position.x) : 0.88;
+    const rz = rig ? rig.rl.suspGroup.position.z : 1.38;
+
+    for (let i = 0; i < sprayCount; i++) {
+      if (sprayLifetimes[i] > 0) {
+        sprayLifetimes[i] -= delta;
+        sprayVelocities[i].y -= 7.8 * delta;
+        pos[i * 3] += sprayVelocities[i].x * delta;
+        pos[i * 3 + 1] += sprayVelocities[i].y * delta;
+        pos[i * 3 + 2] += sprayVelocities[i].z * delta;
+        if (sprayLifetimes[i] <= 0 || pos[i * 3 + 1] < 0) {
+          pos[i * 3 + 1] = -100;
+          sprayLifetimes[i] = 0;
+        }
+      } else if (spawnChance > 0.04 && Math.random() < spawnChance) {
+        sprayLifetimes[i] = 0.24 + Math.random() * 0.26;
+        const side = Math.random() < 0.5 ? -1 : 1;
+        const isRear = Math.random() < 0.72;
+        const wheelZ = isRear ? rz : (rig ? rig.fl.suspGroup.position.z : -1.38);
+        pos[i * 3] = side * (rx + (Math.random() - 0.5) * 0.22);
+        pos[i * 3 + 1] = 0.14 + Math.random() * 0.14;
+        pos[i * 3 + 2] = wheelZ + 0.18 + Math.random() * 0.16;
+
+        const kick = Math.max(2.4, Math.min(9.5, (speedKmh / 35) * 2.8 + intensity * 4.5));
+        sprayVelocities[i].set(
+          side * (0.4 + Math.random() * 1.1) + (Math.random() - 0.5) * 0.8,
+          1.4 + Math.random() * 2.4 * Math.max(0.5, intensity),
+          kick * (0.65 + Math.random() * 0.6)
+        );
+
+        const isDirtClod = !isGrass || Math.random() < 0.38;
+        if (isDirtClod) {
+          // Loamy soil & pebble speck tint
+          const shade = 0.34 + Math.random() * 0.2;
+          col[i * 3] = shade * 1.15;
+          col[i * 3 + 1] = shade * 0.92;
+          col[i * 3 + 2] = shade * 0.65;
+        } else {
+          // Torn grass blade tint
+          col[i * 3] = 0.34 + Math.random() * 0.18;
+          col[i * 3 + 1] = 0.56 + Math.random() * 0.22;
+          col[i * 3 + 2] = 0.18 + Math.random() * 0.12;
+        }
+      }
+    }
+    sprayGeom.attributes.position.needsUpdate = true;
+    sprayGeom.attributes.color.needsUpdate = true;
+  };
+
+  const updateTireSmoke = (
+    intensity: number,
+    speedKmh: number,
+    delta: number,
+    drivetrain: 'RWD' | 'FWD' | 'AWD' = 'RWD',
+    slideBias = 0
+  ) => {
+    const pos = smokeGeom.attributes.position.array as Float32Array;
+    const col = smokeGeom.attributes.color.array as Float32Array;
+    const clampedIntensity = Math.max(0, Math.min(1, intensity));
+    const spawnChance = clampedIntensity * 0.95;
+    const rig = root.userData?.streetWheelRig as StreetCarWheelRig | undefined;
+    const rearX = rig ? Math.abs(rig.rl.suspGroup.position.x) : 0.88;
+    const frontX = rig ? Math.abs(rig.fl.suspGroup.position.x) : 0.88;
+    const rearZ = rig ? rig.rl.suspGroup.position.z : 1.38;
+    const frontZ = rig ? rig.fl.suspGroup.position.z : -1.38;
+
+    for (let i = 0; i < smokeCount; i++) {
+      if (smokeLifetimes[i] > 0) {
+        smokeLifetimes[i] -= delta;
+        smokeVelocities[i].y += 0.85 * delta;
+        smokeVelocities[i].x *= Math.max(0.7, 1 - delta * 1.4);
+        pos[i * 3] += smokeVelocities[i].x * delta;
+        pos[i * 3 + 1] += smokeVelocities[i].y * delta;
+        pos[i * 3 + 2] += smokeVelocities[i].z * delta;
+        if (smokeLifetimes[i] <= 0) {
+          pos[i * 3 + 1] = -100;
+          smokeLifetimes[i] = 0;
+        }
+      } else if (spawnChance > 0.05 && Math.random() < spawnChance) {
+        smokeLifetimes[i] = 0.36 + Math.random() * 0.34;
+        const side = Math.random() < 0.5 ? -1 : 1;
+        const useFront =
+          drivetrain === 'FWD' ? Math.random() < 0.85 : drivetrain === 'AWD' ? Math.random() < 0.38 : Math.random() < 0.08;
+        const wx = side * ((useFront ? frontX : rearX) + (Math.random() - 0.5) * 0.16);
+        const wz = (useFront ? frontZ : rearZ) + 0.18 + (Math.random() - 0.5) * 0.22;
+
+        pos[i * 3] = wx;
+        pos[i * 3 + 1] = 0.14 + Math.random() * 0.14;
+        pos[i * 3 + 2] = wz;
+
+        const trailBack = Math.max(2.6, Math.min(11.5, 2.8 + (speedKmh / 35) * 2.2 + clampedIntensity * 3.8));
+        smokeVelocities[i].set(
+          side * (0.28 + Math.random() * 0.65) + slideBias * 2.4 + (Math.random() - 0.5) * 0.55,
+          0.75 + Math.random() * 1.15 * Math.max(0.5, clampedIntensity),
+          trailBack * (0.72 + Math.random() * 0.52)
+        );
+
+        const shade = 0.84 + Math.random() * 0.14;
+        col[i * 3] = shade;
+        col[i * 3 + 1] = shade;
+        col[i * 3 + 2] = Math.min(1, shade + 0.02);
+      }
+    }
+    smokeGeom.attributes.position.needsUpdate = true;
+    smokeGeom.attributes.color.needsUpdate = true;
   };
 
   const setDrsActive = (active: boolean) => {
@@ -1182,8 +1437,13 @@ export function buildF1Car(team: Team, driver?: Driver, quality?: GraphicsQualit
     brakeDiscs,
     steeringWheel,
     sparksPoints,
+    offroadSprayPoints,
+    tireSmokePoints,
     setWheelSpin,
     setSteerAngle,
+    setWheelSuspension,
+    updateOffroadSpray,
+    updateTireSmoke,
     setDrsActive,
     setBraking,
     setTireCompound,

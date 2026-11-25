@@ -15,6 +15,7 @@ import {
   getIntersectionSignalState,
   BuiltSuburbanHouse,
   registerSuburbanGpsEntries,
+  CITY_SERVICE_STATIONS,
 } from './cityTrafficBuilder';
 import { buildGaithersburgDistrict } from './gaithersburgBuilder';
 import { buildBaltimoreDistrict } from './baltimoreBuilder';
@@ -60,6 +61,7 @@ export interface GeneratedTrack {
   setStartLights: (lightsLitCount: number, lightsOut: boolean) => void;
   setReflectionTexture: (tex: THREE.Texture | null, intensity?: number) => void;
   setReflectionPassMode: (active: boolean) => void;
+  setDynamicReflectorsHidden?: (hidden: boolean) => void;
   setRoadWetness?: (wetness: number) => void;
   getTrackPointAtProgress: (t: number) => { position: THREE.Vector3; tangent: THREE.Vector3; normal: THREE.Vector3 };
   getTargetCornerSpeedKmh: (t: number) => number;
@@ -69,7 +71,7 @@ export interface GeneratedTrack {
   updateWorldChunks?: (
     camera: THREE.Camera,
     playerPos: THREE.Vector3,
-    opts: { isDynamicMode: boolean; qualityFactor: number; chunkLoadScale?: number }
+    opts: { isDynamicMode: boolean; qualityFactor: number; chunkLoadScale?: number; aggressiveDynamic?: boolean }
   ) => void;
   setReflectionChunkCull?: (active: boolean, playerPos?: THREE.Vector3) => void;
   setNightIntensity?: (nightFactor: number) => void;
@@ -1957,24 +1959,24 @@ function generateCityDrivingTrack(circuit: CircuitInfo, quality?: GraphicsQualit
   if (!isRetroPixel && (isUltra || preset.id === 'high')) {
     attachCityRoadReflectionShader(streetAsphaltMat, reflectionUniforms, isUltra);
   }
-  const yellowLineMat = new THREE.MeshStandardMaterial({
+  const yellowLineMat = makeCityMat({
     color: 0xeab308,
     roughness: 0.62,
     metalness: 0.04,
-    side: THREE.DoubleSide,
   });
-  const whiteLineMat = new THREE.MeshStandardMaterial({
+  if ('side' in yellowLineMat) yellowLineMat.side = THREE.DoubleSide;
+  const whiteLineMat = makeCityMat({
     color: 0xe2e8f0,
     roughness: 0.58,
     metalness: 0.04,
-    side: THREE.DoubleSide,
   });
-  const stopBarMat = new THREE.MeshStandardMaterial({
+  if ('side' in whiteLineMat) whiteLineMat.side = THREE.DoubleSide;
+  const stopBarMat = makeCityMat({
     color: 0xf1f5f9,
     roughness: 0.55,
     metalness: 0.04,
-    side: THREE.DoubleSide,
   });
+  if ('side' in stopBarMat) stopBarMat.side = THREE.DoubleSide;
 
   const cityStreetRoadMeshes: THREE.Mesh[] = [];
   const cityBuildings: CityBuildingBox[] = [];
@@ -2035,6 +2037,11 @@ function generateCityDrivingTrack(circuit: CircuitInfo, quality?: GraphicsQualit
     if (isRetroPixel) {
       tex.minFilter = THREE.NearestFilter;
       tex.magFilter = THREE.NearestFilter;
+    }
+    if (isRetroPixel) {
+      return emissiveHex
+        ? new THREE.MeshBasicMaterial({ map: tex })
+        : new THREE.MeshLambertMaterial({ map: tex });
     }
     if (emissiveHex) {
       return new THREE.MeshStandardMaterial({
@@ -2610,6 +2617,12 @@ function generateCityDrivingTrack(circuit: CircuitInfo, quality?: GraphicsQualit
     ? 720
     : preset.id === 'medium'
     ? 540
+    : isRetroPixel
+    ? 290
+    : preset.id === 'low'
+    ? 350
+    : preset.id === 'retro'
+    ? 380
     : 420;
 
   // Dummy startGantry for interface compatibility
@@ -2623,10 +2636,17 @@ function generateCityDrivingTrack(circuit: CircuitInfo, quality?: GraphicsQualit
     startLights.push(m);
   }
 
-  // Updates intersection Red/Yellow/Green traffic signal bulbs within 300m of player & drives subtle grass/foliage wind sway
+  // Updates intersection Red/Yellow/Green traffic signal bulbs within 300m of player (~10Hz) & drives subtle grass/foliage wind sway
+  let lastSignalUpdateTick = -1;
   const updateCityTrafficLights = (timeSec: number, playerX: number, playerZ: number) => {
-    updateFoliageWindTime(timeSec);
-    const maxDistSq = 300 * 300;
+    if (!isRetroPixel && isUltra) {
+      updateFoliageWindTime(timeSec);
+    }
+    const tick = Math.floor(timeSec * 10);
+    if (tick === lastSignalUpdateTick) return;
+    lastSignalUpdateTick = tick;
+
+    const maxDistSq = isRetroPixel ? 210 * 210 : 300 * 300;
     for (let i = 0; i < trafficLightGantries.length; i++) {
       const g = trafficLightGantries[i];
       const dx = g.ix - playerX;
@@ -2647,13 +2667,14 @@ function generateCityDrivingTrack(circuit: CircuitInfo, quality?: GraphicsQualit
   const updateWorldChunks = (
     camera: THREE.Camera,
     playerPos: THREE.Vector3,
-    opts: { isDynamicMode: boolean; qualityFactor: number; chunkLoadScale?: number }
+    opts: { isDynamicMode: boolean; qualityFactor: number; chunkLoadScale?: number; aggressiveDynamic?: boolean }
   ) => {
     chunkManager.update(camera, playerPos, {
       isDynamicMode: opts.isDynamicMode,
       qualityFactor: opts.qualityFactor,
       baseMaxDistance: baseChunkMaxDistance,
       chunkLoadScale: opts.chunkLoadScale,
+      aggressiveDynamic: opts.aggressiveDynamic,
     });
   };
 
@@ -2685,20 +2706,53 @@ function generateCityDrivingTrack(circuit: CircuitInfo, quality?: GraphicsQualit
   };
   const getTargetCornerSpeedKmh = (_t: number): number => 320;
 
+  const _citySurfTrackPt = new THREE.Vector3();
+  const _citySurfTangent = new THREE.Vector3(0, 0, -1);
+  const _citySurfNormal = new THREE.Vector3(1, 0, 0);
+  const _citySurfWallNormal = new THREE.Vector3(0, 0, 1);
+
   const checkSurfaceType = (pos: THREE.Vector3): SurfaceInfo => {
     const onStreet = isOnMarylandPavedSurface(pos.x, pos.z);
+    let onDrivewayOrStation = false;
+
+    if (!onStreet) {
+      for (let i = 0; i < suburbanHouses.length; i++) {
+        const h = suburbanHouses[i];
+        const dc = h.drivewayCoord;
+        const dtPt = h.drivewayTarget;
+        if (
+          (dc && Math.abs(pos.x - dc.x) < 6.5 && Math.abs(pos.z - dc.z) < 6.5 && (pos.x - dc.x) ** 2 + (pos.z - dc.z) ** 2 <= 38.44) ||
+          (dtPt && Math.abs(pos.x - dtPt.x) < 6.5 && Math.abs(pos.z - dtPt.z) < 6.5 && (pos.x - dtPt.x) ** 2 + (pos.z - dtPt.z) ** 2 <= 38.44)
+        ) {
+          onDrivewayOrStation = true;
+          break;
+        }
+      }
+      if (!onDrivewayOrStation) {
+        for (let i = 0; i < CITY_SERVICE_STATIONS.length; i++) {
+          const st = CITY_SERVICE_STATIONS[i];
+          if (Math.abs(pos.x - st.x) < 16 && Math.abs(pos.z - st.z) < 16 && (pos.x - st.x) ** 2 + (pos.z - st.z) ** 2 <= 225.0) {
+            onDrivewayOrStation = true;
+            break;
+          }
+        }
+      }
+    }
+
+    const onPaved = onStreet || onDrivewayOrStation;
+    _citySurfTrackPt.set(pos.x, 0.25, pos.z);
 
     return {
-      offTrack: false,
-      onCurb: !onStreet,
+      offTrack: !onPaved,
+      onCurb: false,
       distanceToCenterline: 0,
       lateralOffset: 0,
       progress: 0,
-      trackPoint: new THREE.Vector3(pos.x, 0.25, pos.z),
-      tangent: new THREE.Vector3(0, 0, -1),
-      normal: new THREE.Vector3(1, 0, 0),
+      trackPoint: _citySurfTrackPt,
+      tangent: _citySurfTangent,
+      normal: _citySurfNormal,
       isCollidingWall: false,
-      wallNormal: new THREE.Vector3(0, 0, 1),
+      wallNormal: _citySurfWallNormal,
       penetration: 0,
       barrierLimit: 9999999,
     };
@@ -2727,13 +2781,21 @@ function generateCityDrivingTrack(circuit: CircuitInfo, quality?: GraphicsQualit
       nightWindowMats[i].emissiveIntensity = emInt;
     }
   };
+  let dynamicReflectorsHidden = false;
+  const setDynamicReflectorsHidden = (hidden: boolean) => {
+    if (dynamicReflectorsHidden === hidden) return;
+    dynamicReflectorsHidden = hidden;
+    for (let i = 0; i < reflectorToggleables.length; i++) {
+      reflectorToggleables[i].visible = !hidden;
+    }
+  };
   const setReflectionPassMode = (active: boolean) => {
     baseRoadMesh.visible = !active;
     for (let i = 0; i < cityStreetRoadMeshes.length; i++) {
       cityStreetRoadMeshes[i].visible = !active;
     }
     for (let i = 0; i < reflectorToggleables.length; i++) {
-      reflectorToggleables[i].visible = !active;
+      reflectorToggleables[i].visible = !active && !dynamicReflectorsHidden;
     }
   };
 
@@ -2754,6 +2816,7 @@ function generateCityDrivingTrack(circuit: CircuitInfo, quality?: GraphicsQualit
     setStartLights,
     setReflectionTexture,
     setReflectionPassMode,
+    setDynamicReflectorsHidden,
     setRoadWetness,
     setNightIntensity,
     getTrackPointAtProgress,

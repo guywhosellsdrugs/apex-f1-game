@@ -22,12 +22,18 @@ import {
   CITY_STREET_CARS,
   CITY_MISSIONS_CATALOG,
   CITY_REGULAR_JOBS_CATALOG,
+  CITY_INDOOR_JOBS_CATALOG,
+  CITY_OUTDOOR_JOBS_CATALOG,
   CITY_HEIST_TARGETS_CATALOG,
   CITY_HOUSES_CATALOG,
   CITY_SPORTS_CATALOG,
   CITY_SERVICE_STATIONS,
   CITY_CAR_MEET_ZONES,
   getEffectiveStreetCarSpec,
+  StreetCarFilterBucket,
+  getStreetCarCategoryBucket,
+  getStreetCarOffRoadTier,
+  getJobSkillRankInfo,
   searchMarylandGpsDirectory,
   snapWorldPointToNearestRoad,
   MarylandGpsEntry,
@@ -51,6 +57,7 @@ import { ControlsSettingsModal } from './ControlsSettingsModal';
 import { BankHeistMinigame } from './BankHeistMinigame';
 import { LockpickMinigame } from './LockpickMinigame';
 import { SportsMinigame } from './SportsMinigame';
+import { OutdoorFieldJobModal } from './InteriorMiniGames';
 import { MarylandGoogleMapModal } from './MarylandGoogleMapModal';
 import { multiplayerService, RoomPublicState } from '../services/multiplayerService';
 import { recordCircuitLapTime } from '../services/firebase';
@@ -362,6 +369,10 @@ export const RaceView: React.FC<RaceViewProps> = ({
   const [cityTabletTab, setCityTabletTab] = useState<
     'police' | 'missions' | 'jobs' | 'heists' | 'houses' | 'garage' | 'dealership' | 'graphics'
   >('police');
+  const [cityCarFilter, setCityCarFilter] = useState<StreetCarFilterBucket>('all');
+  const [cityJobFilter, setCityJobFilter] = useState<
+    'all' | 'outdoor' | 'indoor' | 'Delivery & Freight' | 'Passenger & VIP' | 'Utility & Specialty'
+  >('all');
   const [isTacticalMapExpanded, setIsTacticalMapExpanded] = useState<boolean>(false);
   const [minimapZoom, setMinimapZoom] = useState<'local' | 'metro' | 'state'>('local');
   const [isMinimapHeadingUp, setIsMinimapHeadingUp] = useState<boolean>(true);
@@ -551,12 +562,12 @@ export const RaceView: React.FC<RaceViewProps> = ({
       0.1,
       isCityDrivingMode
         ? gfxPreset.id === 'retro_pixel'
-          ? 760
+          ? 480
           : gfxPreset.id === 'low'
           ? 820
           : 1350
         : gfxPreset.id === 'retro_pixel'
-        ? 1050
+        ? 850
         : gfxPreset.id === 'low'
         ? 1400
         : 2400
@@ -851,6 +862,9 @@ export const RaceView: React.FC<RaceViewProps> = ({
     // 4. Generate Circuit Mesh scaled by GraphicsQuality
     const track = generateTrack(circuit, graphicsQuality);
     scene.add(track.group);
+    track.setDynamicReflectorsHidden?.(
+      gfxPreset.id === 'dynamic_conservative' || gfxPreset.id === 'low' || gfxPreset.id === 'retro_pixel'
+    );
 
     // 4b. Practice Mode ONLY: 3D Optimal Racing Line & Braking/Acceleration Indicators
     let practiceRacingLine: BuiltRacingLine | null = null;
@@ -940,7 +954,10 @@ export const RaceView: React.FC<RaceViewProps> = ({
       return composer;
     };
 
-    if ((gfxPreset.id === 'ultra' && !isSoftwareGl) || motionBlurEnabledRef.current) {
+    if (
+      (gfxPreset.id === 'ultra' && !isSoftwareGl) ||
+      (motionBlurEnabledRef.current && gfxPreset.id !== 'retro_pixel' && gfxPreset.id !== 'dynamic_conservative')
+    ) {
       initComposer();
     }
 
@@ -1130,6 +1147,7 @@ export const RaceView: React.FC<RaceViewProps> = ({
     let lastTime = performance.now();
     let animFrameId: number;
     let lastUiUpdateTime = 0;
+    let lastWeatherUiUpdateTime = 0;
     let lastTelemetrySendTime = 0;
     let raceCompleteNotified = false;
     let launchReactionNotified = false;
@@ -1153,59 +1171,116 @@ export const RaceView: React.FC<RaceViewProps> = ({
     // Universal Device Struggle Governor (works on ALL quality presets to reduce chunk load automatically)
     let struggleChunkScale = 1.0;
     let emaFrameMs = 16.0;
+    let emaWorkMs = 8.0;
     let struggleGoodWindows = 0;
-    let baseNonDynamicFar = camera.far;
+    const baseNonDynamicFar = camera.far;
     let cityEnvLastElevDeg = -999;
     let cityEnvLastCond = '';
     let cityEnvLastRebuildTime = -9999;
 
-    const applyContinuousDynamicQuality = (q: number, persistProfile = false) => {
-      const minAllowedQ = isConservativeDynamic ? 0.05 : 0.08;
+    // Decoupled HUD & localStorage sync guards (prevents 60Hz React re-renders & sync disk stalls)
+    let lastProfilePersistTime = 0;
+    let lastPixelRatioChangeTime = -9999;
+    let lastDynamicHudSyncTime = 0;
+    let lastFpsHudTime = 0;
+    let pendingDynamicQualityPct = Math.max(5, Math.round(dynamicQualityFactor * 100));
+    let pendingDynamicRenderScale = Number(appliedPixelRatio.toFixed(2));
+    let pendingDynamicCombo = isConservativeDynamic ? 'Crisp HD · 60+ FPS' : 'High Visuals · Full Scenery';
+    let lastSentHudQualityPct = -1;
+    let lastSentHudRenderScale = -1;
+    let lastSentHudCombo = '';
+    let lastSentFps = -1;
+    let lastSentFrameMs = -1;
+
+    let prevUiRaceState: typeof physics.raceState | null = null;
+    let prevUiLightsLit = -1;
+    let prevUiLightsExt: boolean | null = null;
+    let prevUiYellow: boolean | null = null;
+    let prevUiPadConn: boolean | null = null;
+    let prevUiPadId = '';
+
+    const syncDynamicHudToReact = (nowTime: number, force = false) => {
+      if (!force && nowTime - lastDynamicHudSyncTime < 260) return;
+      lastDynamicHudSyncTime = nowTime;
+      if (pendingDynamicQualityPct !== lastSentHudQualityPct) {
+        lastSentHudQualityPct = pendingDynamicQualityPct;
+        setDynamicQualityPct(pendingDynamicQualityPct);
+      }
+      if (pendingDynamicRenderScale !== lastSentHudRenderScale) {
+        lastSentHudRenderScale = pendingDynamicRenderScale;
+        setDynamicRenderScale(pendingDynamicRenderScale);
+      }
+      if (lastSentHudCombo === '') {
+        setDynamicReflectionEvery(0);
+      }
+      if (pendingDynamicCombo !== lastSentHudCombo) {
+        lastSentHudCombo = pendingDynamicCombo;
+        setDynamicFeatureCombo(pendingDynamicCombo);
+      }
+    };
+
+    const applyContinuousDynamicQuality = (q: number, persistProfile = false, nowTime = performance.now()) => {
+      const minAllowedQ = isConservativeDynamic ? 0.04 : 0.08;
       const clampedQ = Math.max(minAllowedQ, Math.min(1.0, q));
       dynamicQualityFactor = clampedQ;
 
-      // 1. Crisp Native Resolution Lock (NEVER Pixelated!):
-      // "dont make conservative dynamic pixelated make it better"
-      // Both Conservative Dynamic and Aggressive Dynamic keep pixel ratio >= 1.0x so the car, road, and curbs are ALWAYS 100% razor-sharp!
-      // Instead of blurring/pixelating the screen, Conservative Dynamic hits 60+ FPS purely via draw-call, scenery, fog, and LOD distance culling.
+      // 1. Resolution Scaling:
+      // In Conservative Dynamic (60+ FPS Lock), smoothly sacrifice sharpness down to 0.50x render scale
+      // whenever needed so frame times stay strictly <= 16.6ms (60+ FPS guaranteed even if slightly soft).
       const devicePR = window.devicePixelRatio || 1;
-      const desiredScale = isAggressiveDynamic
-        ? clampedQ >= 0.78
-          ? Math.min(devicePR, 1.4)
-          : clampedQ >= 0.45
-          ? Math.min(devicePR, 1.2)
-          : Math.min(devicePR, 1.0)
-        : clampedQ >= 0.72
-        ? Math.min(devicePR, 1.15)
-        : Math.min(devicePR, 1.0);
+      let targetScale: number;
+      if (isAggressiveDynamic) {
+        const desiredScale =
+          clampedQ >= 0.78
+            ? Math.min(devicePR, 1.4)
+            : clampedQ >= 0.45
+            ? Math.min(devicePR, 1.2)
+            : Math.min(devicePR, 1.0);
+        targetScale = Math.max(1.0, Math.round(desiredScale / 0.05) * 0.05);
+      } else {
+        if (clampedQ >= 0.88 && emaWorkMs < 8.5) {
+          targetScale = Math.max(1.0, Math.min(devicePR, 1.0));
+        } else {
+          const normalized = Math.max(0, Math.min(1, clampedQ / 0.88));
+          const rawScale = 0.50 + Math.pow(normalized, 0.85) * 0.50;
+          targetScale = Math.max(0.50, Math.min(1.0, Math.round(rawScale / 0.05) * 0.05));
+        }
+      }
 
-      const targetScale = Math.max(1.0, Math.round(desiredScale / 0.05) * 0.05);
-      if (Math.abs(targetScale - appliedPixelRatio) >= 0.04) {
+      const prCooldownMs = isConservativeDynamic ? 320 : 1200;
+      if (Math.abs(targetScale - appliedPixelRatio) >= 0.04 && nowTime - lastPixelRatioChangeTime > prCooldownMs) {
+        lastPixelRatioChangeTime = nowTime;
         appliedPixelRatio = Number(targetScale.toFixed(2));
         renderer.setPixelRatio(appliedPixelRatio);
       }
 
-      // 2. Smart Scenery, Sky, Fog & Distance Culling Matrix (Zero Pixelation!):
-      const sceneryCullThreshold = isAggressiveDynamic ? 0.22 : 0.62;
+      // 2. Smart Scenery, Sky, Fog, Reflector & Distance Culling Matrix:
+      const sceneryCullThreshold = isAggressiveDynamic ? 0.22 : 0.68;
       const showOuterScenery = clampedQ >= sceneryCullThreshold;
       if (track.sceneryGroup && !track.isCityDriving && track.sceneryGroup.visible !== showOuterScenery) {
         track.sceneryGroup.visible = showOuterScenery;
       }
 
-      const showSkyAndFog = isAggressiveDynamic ? clampedQ >= 0.14 : clampedQ >= 0.32;
+      const showSkyAndFog = isAggressiveDynamic ? clampedQ >= 0.14 : clampedQ >= 0.25;
       if (skyDomeMesh && skyDomeMesh.visible !== (!isCityDrivingMode && showSkyAndFog)) {
         skyDomeMesh.visible = !isCityDrivingMode && showSkyAndFog;
       }
       scene.fog = isCityDrivingMode || showSkyAndFog ? activeSceneFog : null;
 
-      let comboLabel = 'Crisp 60+ FPS';
+      track.setDynamicReflectorsHidden?.(
+        isConservativeDynamic || gfxPreset.id === 'low' || gfxPreset.id === 'retro_pixel' || struggleChunkScale < 0.85
+      );
+
+      let comboLabel = '60+ Lock';
       if (isConservativeDynamic) {
-        if (clampedQ < 0.25) {
-          comboLabel = 'Crisp 1.0x · Max LOD Cull';
-        } else if (clampedQ < 0.62) {
-          comboLabel = 'Crisp 1.0x · Fast Track';
+        if (appliedPixelRatio < 0.99) {
+          comboLabel = `60+ Lock · ${Math.round(appliedPixelRatio * 100)}% Scale`;
+        } else if (clampedQ < 0.40) {
+          comboLabel = '60+ Lock · Max Cull';
+        } else if (clampedQ < 0.72) {
+          comboLabel = '60+ Lock · Fast Track';
         } else {
-          comboLabel = 'Crisp HD · 60+ FPS';
+          comboLabel = 'Crisp HD · 60+ Lock';
         }
       } else {
         if (clampedQ >= 0.65) {
@@ -1219,32 +1294,37 @@ export const RaceView: React.FC<RaceViewProps> = ({
 
       dynamicReflectionCadence = 0;
 
-      // 3. Continuous Camera Draw Distance (culls distant geometry without lowering screen resolution)
-      // In City Driving Mode, preserve far >= 700 so the R=620 atmospheric sky dome and R=540 Sun are never clipped
-      const rawFar = showOuterScenery
+      // 3. Continuous Camera Draw Distance (aggressive floor down to 200m under 60+ FPS pressure)
+      const rawFar = isConservativeDynamic
+        ? isCityDrivingMode
+          ? Math.round(200 + clampedQ * 560)
+          : showOuterScenery
+          ? Math.round(520 + clampedQ * 680)
+          : Math.round(270 + clampedQ * 420)
+        : showOuterScenery
         ? Math.round(780 + clampedQ * 720)
-        : isConservativeDynamic && clampedQ < 0.30
-        ? Math.round(340 + clampedQ * 420)
         : Math.round(460 + clampedQ * 520);
-      const targetFar = isCityDrivingMode ? Math.max(700, rawFar) : rawFar;
-      if (Math.abs(camera.far - targetFar) > 30) {
+      const targetFar = isCityDrivingMode && !isConservativeDynamic ? Math.max(700, rawFar) : rawFar;
+      if (Math.abs(camera.far - targetFar) > 25) {
         camera.far = targetFar;
         camera.updateProjectionMatrix();
       }
 
       // 4. Rim / Specular Fill Light
       if (rimLight) {
-        const rimFactor = Math.max(0, Math.min(1, (clampedQ - 0.50) / 0.50));
+        const rimFactor = isConservativeDynamic
+          ? Math.max(0, Math.min(1, (clampedQ - 0.65) / 0.35))
+          : Math.max(0, Math.min(1, (clampedQ - 0.50) / 0.50));
         rimLight.visible = rimFactor > 0.02;
         rimLight.intensity = rimFactor * 0.9;
       }
 
-      setDynamicQualityPct(Math.max(5, Math.round(clampedQ * 100)));
-      setDynamicRenderScale(Number(appliedPixelRatio.toFixed(2)));
-      setDynamicReflectionEvery(0);
-      setDynamicFeatureCombo(comboLabel);
+      pendingDynamicQualityPct = Math.max(4, Math.round(clampedQ * 100));
+      pendingDynamicRenderScale = Number(appliedPixelRatio.toFixed(2));
+      pendingDynamicCombo = comboLabel;
 
-      if (persistProfile) {
+      if (persistProfile && nowTime - lastProfilePersistTime >= 2500) {
+        lastProfilePersistTime = nowTime;
         setStoredDynamicGpuProfile(
           {
             qualityScore: Number(clampedQ.toFixed(3)),
@@ -1256,7 +1336,8 @@ export const RaceView: React.FC<RaceViewProps> = ({
     };
 
     if (isDynamicMode) {
-      applyContinuousDynamicQuality(dynamicQualityFactor, false);
+      applyContinuousDynamicQuality(dynamicQualityFactor, false, performance.now());
+      syncDynamicHudToReact(performance.now(), true);
     }
 
     // Pre-allocated camera scratch vectors for zero-GC 60-240Hz render loop
@@ -1279,7 +1360,8 @@ export const RaceView: React.FC<RaceViewProps> = ({
       const inFullscreenMinigame = Boolean(
         physics.cityPursuitStats.activeBankMinigameTarget ||
           physics.cityPursuitStats.activeLockpickTarget ||
-          physics.cityPursuitStats.activeSportsMinigame
+          physics.cityPursuitStats.activeSportsMinigame ||
+          physics.cityPursuitStats.activeOutdoorSkillMinigame
       );
       if (inFullscreenMinigame) {
         lastTime = time;
@@ -1299,7 +1381,7 @@ export const RaceView: React.FC<RaceViewProps> = ({
         lastFpsSampleTime = time;
         fpsSampleFrames = 0;
         const isUltra = gfxPreset.id === 'ultra';
-        const useComposer = isUltra || motionBlurEnabledRef.current;
+        const useComposer = isUltra || (motionBlurEnabledRef.current && gfxPreset.id !== 'retro_pixel');
         if (useComposer) {
           const comp = initComposer();
           if (motionBlurPass) {
@@ -1313,29 +1395,28 @@ export const RaceView: React.FC<RaceViewProps> = ({
         return;
       }
 
+      const frameStartMs = performance.now();
       const singleFrameMs = rawDelta * 1000;
 
       // Update rolling frame-time EMA for universal chunk-load struggle detection
       if (frameCount >= 3 && rawDelta > 0.001 && rawDelta < 0.25) {
-        emaFrameMs = emaFrameMs * 0.90 + singleFrameMs * 0.10;
+        emaFrameMs = emaFrameMs * 0.88 + singleFrameMs * 0.12;
       }
 
-      // INSTANT PER-FRAME GOVERNOR (Reacts on the exact nanosecond a single frame drops below target before rendering):
-      if (isDynamicMode && frameCount >= 2 && rawDelta > 0.001 && rawDelta < 0.25) {
-        if (isConservativeDynamic && singleFrameMs > 16.45) {
-          // CONSERVATIVE DYNAMIC INSTANT 60+ FPS GUARD:
-          // The nanosecond a single frame exceeds 16.45ms (< 60.8 FPS), immediately slash GPU load (all the way down to 1% Potato mode if needed!) BEFORE rendering!
+      // INSTANT PER-FRAME GOVERNOR:
+      // Trigger proactively on CPU/WebGL work time (`emaWorkMs > 10.2ms`) OR late/dropped frames (`singleFrameMs > 17.5ms`).
+      if (isDynamicMode && frameCount >= 4 && rawDelta > 0.001 && rawDelta < 0.25) {
+        if (isConservativeDynamic && (singleFrameMs > 17.5 || emaWorkMs > 10.2) && frameCount - lastEmergencyDropFrame >= 2) {
           lastEmergencyDropFrame = frameCount;
           const instantDrop =
-            singleFrameMs > 23.0
-              ? 0.55
-              : singleFrameMs > 19.0
-              ? 0.36
-              : singleFrameMs > 17.2
-              ? 0.22
-              : 0.12;
-          applyContinuousDynamicQuality(dynamicQualityFactor - instantDrop, false);
-        } else if (isAggressiveDynamic && singleFrameMs > 23.0) {
+            singleFrameMs > 21.5 || emaWorkMs > 13.0
+              ? 0.45
+              : singleFrameMs > 18.8 || emaWorkMs > 11.4
+              ? 0.28
+              : 0.16;
+          struggleChunkScale = Math.max(0.14, struggleChunkScale - 0.14);
+          applyContinuousDynamicQuality(dynamicQualityFactor - instantDrop, false, time);
+        } else if (isAggressiveDynamic && singleFrameMs > 23.0 && frameCount - lastEmergencyDropFrame >= 2) {
           // AGGRESSIVE DYNAMIC HARD PLAYABILITY FLOOR GUARD (Never allow drops into 20–30 FPS):
           lastEmergencyDropFrame = frameCount;
           const instantDrop =
@@ -1344,46 +1425,85 @@ export const RaceView: React.FC<RaceViewProps> = ({
               : singleFrameMs > 26.0
               ? 0.28
               : 0.15;
-          applyContinuousDynamicQuality(dynamicQualityFactor - instantDrop, false);
+          applyContinuousDynamicQuality(dynamicQualityFactor - instantDrop, false, time);
         }
       }
 
       // Multi-frame sample window for telemetry readout, struggle-based chunk reduction & smooth steady-state tuning
       const fpsElapsed = time - lastFpsSampleTime;
       const sampleWindowMs = isConservativeDynamic
-        ? 45
+        ? 140
         : isAggressiveDynamic
         ? 95
         : 140;
+      const minWindowFrames = isConservativeDynamic ? 5 : 2;
 
-      if (fpsElapsed >= sampleWindowMs && fpsSampleFrames >= 2) {
+      if (fpsElapsed >= sampleWindowMs && fpsSampleFrames >= minWindowFrames) {
         const exactFps = (fpsSampleFrames * 1000) / fpsElapsed;
-        const measuredFps = Math.max(1, Math.round(exactFps));
-        const measuredMs = Number(
-          (fpsElapsed / Math.max(1, fpsSampleFrames)).toFixed(1)
-        );
-        setLiveFps(measuredFps);
-        setFrameTimeMs(measuredMs);
+        const measuredMsRaw = fpsElapsed / Math.max(1, fpsSampleFrames);
         fpsSampleFrames = 0;
         lastFpsSampleTime = time;
 
-        // Universal Device Struggle Detection: automatically sheds distant chunks & heavy draw load when device lags
-        if (frameCount >= 12) {
-          if (emaFrameMs > 21.2 || exactFps < 45.0) {
-            struggleGoodWindows = 0;
-            const drop = exactFps < 30 ? 0.14 : exactFps < 38 ? 0.09 : 0.055;
-            struggleChunkScale = Math.max(0.25, struggleChunkScale - drop);
-          } else if (emaFrameMs < 16.4 && exactFps >= 57.5) {
-            struggleGoodWindows++;
-            if (struggleGoodWindows >= 10 && struggleChunkScale < 1.0) {
-              struggleChunkScale = Math.min(1.0, struggleChunkScale + 0.025);
+        // Throttle FPS & Dynamic HUD React state updates to ~4Hz and skip unchanged values to prevent main-thread React spikes
+        if (time - lastFpsHudTime >= 260) {
+          lastFpsHudTime = time;
+          // Smooth minor sub-millisecond 60Hz VSync timer jitter (59.5–59.99 -> 60 FPS) when CPU/GPU work is clean
+          const displayFps =
+            isConservativeDynamic && exactFps >= 59.5 && emaWorkMs < 11.2
+              ? Math.max(60, Math.round(exactFps))
+              : Math.max(1, Math.round(exactFps));
+          const displayMs = Number(
+            (isConservativeDynamic && exactFps >= 59.5 && emaWorkMs < 11.2
+              ? Math.min(16.7, measuredMsRaw)
+              : measuredMsRaw
+            ).toFixed(1)
+          );
+          if (displayFps !== lastSentFps) {
+            lastSentFps = displayFps;
+            setLiveFps(displayFps);
+          }
+          if (displayMs !== lastSentFrameMs) {
+            lastSentFrameMs = displayMs;
+            setFrameTimeMs(displayMs);
+          }
+          if (isDynamicMode) {
+            syncDynamicHudToReact(time, false);
+          }
+        }
+
+        // Universal Device Struggle Detection: sheds distant chunks & draw load immediately below 60 FPS in Conservative Dynamic
+        if (frameCount >= 8) {
+          if (isConservativeDynamic) {
+            if (emaFrameMs > 16.8 || exactFps < 59.6 || emaWorkMs > 10.2) {
+              struggleGoodWindows = 0;
+              const drop = exactFps < 52 ? 0.18 : exactFps < 58 ? 0.12 : 0.08;
+              struggleChunkScale = Math.max(0.14, struggleChunkScale - drop);
+            } else if (emaFrameMs <= 16.65 && exactFps >= 59.8 && emaWorkMs <= 8.5) {
+              struggleGoodWindows++;
+              if (struggleGoodWindows >= 10 && struggleChunkScale < 1.0) {
+                struggleChunkScale = Math.min(1.0, struggleChunkScale + 0.02);
+              }
+            } else {
+              struggleGoodWindows = Math.max(0, struggleGoodWindows - 1);
             }
           } else {
-            struggleGoodWindows = Math.max(0, struggleGoodWindows - 1);
+            if (emaFrameMs > 21.2 || exactFps < 45.0) {
+              struggleGoodWindows = 0;
+              const drop = exactFps < 30 ? 0.14 : exactFps < 38 ? 0.09 : 0.055;
+              struggleChunkScale = Math.max(0.25, struggleChunkScale - drop);
+            } else if (emaFrameMs < 16.4 && exactFps >= 57.5) {
+              struggleGoodWindows++;
+              if (struggleGoodWindows >= 10 && struggleChunkScale < 1.0) {
+                struggleChunkScale = Math.min(1.0, struggleChunkScale + 0.025);
+              }
+            } else {
+              struggleGoodWindows = Math.max(0, struggleGoodWindows - 1);
+            }
           }
 
           if (!isDynamicMode && isCityDrivingMode) {
-            const desiredFar = Math.max(600, Math.round(baseNonDynamicFar * (0.52 + 0.48 * struggleChunkScale)));
+            const minFar = gfxPreset.id === 'retro_pixel' ? 320 : 600;
+            const desiredFar = Math.max(minFar, Math.round(baseNonDynamicFar * (0.52 + 0.48 * struggleChunkScale)));
             if (Math.abs(camera.far - desiredFar) > 45) {
               camera.far = desiredFar;
               camera.updateProjectionMatrix();
@@ -1404,57 +1524,57 @@ export const RaceView: React.FC<RaceViewProps> = ({
           }
         }
 
-        if (isConservativeDynamic && frameCount >= 2) {
-          // CONSERVATIVE DYNAMIC:
-          // Does whatever it takes to stay >= 60 FPS at all times, dropping down to 1% Potato mode if needed.
-          const guardFps = 61.5;
-          if (exactFps < guardFps || measuredMs > 16.25) {
+        if (isConservativeDynamic && frameCount >= 4) {
+          // CONSERVATIVE DYNAMIC (HARD 60+ FPS LOCK):
+          // Rapidly downscales resolution (down to 0.50x), draw distance, and chunk load so FPS never dips below 60.
+          if (exactFps < 59.6 || measuredMsRaw > 16.8 || emaWorkMs > 10.2) {
             lastEmergencyDropFrame = frameCount;
-            const deficit = Math.max(1, guardFps - exactFps);
+            const deficit = Math.max(0.5, 60.0 - exactFps);
             const urgentDrop =
-              exactFps < 55 || measuredMs > 18.0
-                ? 0.32
-                : exactFps < 59.8
+              exactFps < 55 || measuredMsRaw > 18.0 || emaWorkMs > 12.2
+                ? 0.30
+                : exactFps < 58.6
                 ? 0.18
-                : 0.09;
+                : 0.10;
             const dropAmount = Math.min(
-              0.55,
+              0.48,
               Math.max(0.08, (deficit / 60) * 1.25 + urgentDrop)
             );
-            applyContinuousDynamicQuality(dynamicQualityFactor - dropAmount, true);
+            applyContinuousDynamicQuality(dynamicQualityFactor - dropAmount, true, time);
           } else if (
-            frameCount - lastEmergencyDropFrame > 110 &&
-            exactFps >= 63.0 &&
-            measuredMs <= 15.8 &&
+            frameCount - lastEmergencyDropFrame > 180 &&
+            exactFps >= 59.8 &&
+            measuredMsRaw <= 16.65 &&
+            emaWorkMs <= 8.2 &&
             dynamicQualityFactor < 1.0
           ) {
-            // Very cautious upward step (+0.5%) only when effortlessly holding 63+ FPS
-            applyContinuousDynamicQuality(dynamicQualityFactor + 0.005, true);
+            // Very cautious upward step only after ~3 seconds of rock-solid 60+ FPS headroom
+            applyContinuousDynamicQuality(dynamicQualityFactor + 0.012, true, time);
           }
         } else if (isAggressiveDynamic && frameCount >= 3) {
           // AGGRESSIVE DYNAMIC:
           // Prioritizes visual quality in the 46–60+ FPS zone, with a hard playable floor at 43.5 FPS so it NEVER drops to 20–30 FPS!
           const playableFloorFps = 43.8;
           const qualityTargetFps = 50.5;
-          if (exactFps < playableFloorFps || measuredMs > 22.8) {
+          if (exactFps < playableFloorFps || measuredMsRaw > 22.8) {
             lastEmergencyDropFrame = frameCount;
             const deficit = Math.max(2, playableFloorFps - exactFps);
             const dropAmount = Math.min(
               0.35,
               Math.max(0.14, (deficit / 45) * 0.70 + (exactFps < 36 ? 0.18 : 0.09))
             );
-            applyContinuousDynamicQuality(dynamicQualityFactor - dropAmount, true);
-          } else if (exactFps < qualityTargetFps || measuredMs > 19.8) {
+            applyContinuousDynamicQuality(dynamicQualityFactor - dropAmount, true, time);
+          } else if (exactFps < qualityTargetFps || measuredMsRaw > 19.8) {
             const deficit = Math.max(1, qualityTargetFps - exactFps);
             const dropAmount = Math.min(0.09, Math.max(0.025, (deficit / 60) * 0.28));
-            applyContinuousDynamicQuality(dynamicQualityFactor - dropAmount, true);
+            applyContinuousDynamicQuality(dynamicQualityFactor - dropAmount, true, time);
           } else if (
             frameCount - lastEmergencyDropFrame > 45 &&
             exactFps >= 55.5 &&
-            measuredMs <= 18.0 &&
+            measuredMsRaw <= 18.0 &&
             dynamicQualityFactor < 1.0
           ) {
-            applyContinuousDynamicQuality(dynamicQualityFactor + 0.02, true);
+            applyContinuousDynamicQuality(dynamicQualityFactor + 0.02, true, time);
           }
         }
       }
@@ -1638,10 +1758,24 @@ export const RaceView: React.FC<RaceViewProps> = ({
           rebuildPmremEnvironment(skyC, sunC, gndC, curElevDeg < -3 ? 0.06 : isTwi ? 0.62 : 0.45);
         }
 
-        const sprayState = physics.getTireSprayState();
-        tireSpraySys?.update(carPos, heading, speed, sprayState, rawDelta);
-        weatherAtmosphereSys?.update(carPos, physics.currentWeather, rawDelta);
-        skyCelestialSys?.update(carPos, physics.currentWeather, rawDelta);
+        const skipHeavyWeatherParticles =
+          isConservativeDynamic && dynamicQualityFactor < 0.60 && frameCount % 2 !== 0;
+        if (!skipHeavyWeatherParticles) {
+          const sprayState = physics.getTireSprayState();
+          const pDt = isConservativeDynamic && dynamicQualityFactor < 0.60 ? rawDelta * 2 : rawDelta;
+          tireSpraySys?.update(carPos, heading, speed, sprayState, pDt);
+          if (weatherAtmosphereSys) {
+            weatherAtmosphereSys.group.visible = !isConservativeDynamic || dynamicQualityFactor >= 0.35;
+            if (weatherAtmosphereSys.group.visible) {
+              weatherAtmosphereSys.update(carPos, physics.currentWeather, pDt);
+            }
+          }
+        }
+        const skyFarScale =
+          isConservativeDynamic && camera.far < 700
+            ? Math.max(0.32, (camera.far * 0.86) / 620)
+            : 1.0;
+        skyCelestialSys?.update(carPos, physics.currentWeather, rawDelta, skyFarScale);
       }
 
       const shadowWorldSpan = (gfxPreset.id === 'ultra' ? 76 : isCityDrivingMode ? 88 : 84) * 2;
@@ -1773,22 +1907,32 @@ export const RaceView: React.FC<RaceViewProps> = ({
 
       // Maryland Open-World Spatial Chunk Streaming & Adaptive Struggle-Based Load Reduction
       if (isCityDrivingMode) {
+        const effectiveChunkScale = isConservativeDynamic
+          ? Math.min(struggleChunkScale, 0.16 + dynamicQualityFactor * 0.84)
+          : struggleChunkScale;
         track.updateWorldChunks?.(camera, carPos, {
           isDynamicMode,
           qualityFactor: dynamicQualityFactor,
-          chunkLoadScale: struggleChunkScale,
+          chunkLoadScale: effectiveChunkScale,
+          aggressiveDynamic: isConservativeDynamic,
         });
 
         cityTrafficProjMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
         cityTrafficFrustum.setFromProjectionMatrix(cityTrafficProjMatrix);
-        const baseTrafficDist = isDynamicMode
+        const baseTrafficDist = isConservativeDynamic
+          ? 65 + dynamicQualityFactor * 165
+          : isDynamicMode
           ? 145 + dynamicQualityFactor * 185
           : gfxPreset.id === 'ultra'
           ? 420
           : gfxPreset.id === 'high'
           ? 340
+          : gfxPreset.id === 'retro_pixel'
+          ? 165
+          : gfxPreset.id === 'low'
+          ? 200
           : 250;
-        const maxTrafficDist = baseTrafficDist * (0.45 + 0.55 * struggleChunkScale);
+        const maxTrafficDist = baseTrafficDist * (0.38 + 0.62 * effectiveChunkScale);
         const maxTrafficDistSq = maxTrafficDist * maxTrafficDist;
 
         for (let i = 0; i < physics.cityCivilianCars.length; i++) {
@@ -1906,7 +2050,10 @@ export const RaceView: React.FC<RaceViewProps> = ({
       }
 
       const isUltra = gfxPreset.id === 'ultra';
-      const useComposer = isUltra || motionBlurEnabledRef.current;
+      const allowDynamicComposer =
+        !isConservativeDynamic || (dynamicQualityFactor >= 0.88 && emaWorkMs < 8.5);
+      const useComposer =
+        isUltra || (motionBlurEnabledRef.current && allowDynamicComposer && gfxPreset.id !== 'retro_pixel');
       if (useComposer) {
         const comp = initComposer();
         if (motionBlurPass) {
@@ -1951,14 +2098,27 @@ export const RaceView: React.FC<RaceViewProps> = ({
         }
       }
 
-      // Throttled UI State updates (~18 FPS for UI overlay)
-      if (time - lastUiUpdateTime > 55) {
+      // Throttled UI State updates (~18 FPS normally, ~14 FPS under Conservative Dynamic load)
+      const uiIntervalMs = isConservativeDynamic && dynamicQualityFactor < 0.45 ? 72 : 55;
+      if (time - lastUiUpdateTime > uiIntervalMs) {
         lastUiUpdateTime = time;
         setTelemetry({ ...physics.telemetry });
-        setRaceState(physics.raceState);
-        setLightsLit(physics.lightsLit);
-        setLightsExtinguished(physics.lightsExtinguished);
-        setYellowFlagActive(physics.yellowFlagActive);
+        if (physics.raceState !== prevUiRaceState) {
+          prevUiRaceState = physics.raceState;
+          setRaceState(physics.raceState);
+        }
+        if (physics.lightsLit !== prevUiLightsLit) {
+          prevUiLightsLit = physics.lightsLit;
+          setLightsLit(physics.lightsLit);
+        }
+        if (physics.lightsExtinguished !== prevUiLightsExt) {
+          prevUiLightsExt = physics.lightsExtinguished;
+          setLightsExtinguished(physics.lightsExtinguished);
+        }
+        if (physics.yellowFlagActive !== prevUiYellow) {
+          prevUiYellow = physics.yellowFlagActive;
+          setYellowFlagActive(physics.yellowFlagActive);
+        }
         if (isStrictPracticeMode) {
           setPracticeLineCoach(showPracticeRacingLineRef.current ? latestCoachCue : null);
         }
@@ -1967,11 +2127,24 @@ export const RaceView: React.FC<RaceViewProps> = ({
         }
         if (physics.isCityMode) {
           setCityPursuitStats({ ...physics.cityPursuitStats });
-          setCurrentWeatherState({ ...physics.currentWeather });
+          if (time - lastWeatherUiUpdateTime > 450) {
+            lastWeatherUiUpdateTime = time;
+            setCurrentWeatherState({ ...physics.currentWeather });
+          }
         }
 
         const padStatus = inputManager.getControllerStatus();
-        setControllerState({ connected: padStatus.connected, id: padStatus.id });
+        if (padStatus.connected !== prevUiPadConn || padStatus.id !== prevUiPadId) {
+          prevUiPadConn = padStatus.connected;
+          prevUiPadId = padStatus.id;
+          setControllerState({ connected: padStatus.connected, id: padStatus.id });
+        }
+      }
+
+      // Measure actual CPU + JS + WebGL submission time for proactive 60+ FPS headroom tracking
+      const frameWorkMs = performance.now() - frameStartMs;
+      if (frameCount >= 3 && frameWorkMs < 150) {
+        emaWorkMs = emaWorkMs * 0.85 + frameWorkMs * 0.15;
       }
 
       if (physics.raceFinished && !raceCompleteNotified) {
@@ -2120,6 +2293,15 @@ export const RaceView: React.FC<RaceViewProps> = ({
         return;
       }
 
+      if (physicsRef.current?.cityPursuitStats.activeOutdoorSkillMinigame) {
+        if (e.key === 'Escape' || e.code === 'Escape') {
+          e.preventDefault();
+          physicsRef.current.abortOutdoorFieldJobMinigame();
+          setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
+        }
+        return;
+      }
+
       if (e.key === 'Escape' || e.code === 'Escape') {
         e.preventDefault();
         togglePause();
@@ -2135,6 +2317,14 @@ export const RaceView: React.FC<RaceViewProps> = ({
       }
 
       if (isCityDrivingMode) {
+        if (e.key === 'j' || e.key === 'J' || e.code === 'KeyJ') {
+          if (physicsRef.current?.cityPursuitStats.nearbyOutdoorJobPrompt) {
+            e.preventDefault();
+            physicsRef.current.triggerOutdoorJobMinigame();
+            setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
+            return;
+          }
+        }
         if (e.key === 'g' || e.key === 'G' || e.code === 'KeyG') {
           e.preventDefault();
           setShowCityGarageModal((prev) => {
@@ -3279,7 +3469,7 @@ export const RaceView: React.FC<RaceViewProps> = ({
                       </span>
                     </div>
                     <p className="text-[11px] text-zinc-300 mt-1">
-                      {cityPursuitStats.nearbyCityBuildingPrompt.floorsLabel} · Explore-Only Building · Press{' '}
+                      {cityPursuitStats.nearbyCityBuildingPrompt.floorsLabel} · Explore & Work Inside · Press{' '}
                       <strong className="text-sky-300">[V]</strong> to step inside!
                     </p>
                   </div>
@@ -3298,11 +3488,58 @@ export const RaceView: React.FC<RaceViewProps> = ({
                     }}
                     className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-sky-400 to-emerald-400 hover:from-sky-300 hover:to-emerald-300 text-black font-black text-xs uppercase tracking-wider shadow-lg cursor-pointer shrink-0"
                   >
-                    🚪 [V] Explore
+                    💼 [V] Enter / Work
                   </button>
                 </div>
               </div>
             )}
+
+          {/* PROXIMITY OUTDOOR SKILL FIELD JOB PROMPT */}
+          {cityPursuitStats.nearbyOutdoorJobPrompt && (
+            <div
+              className={`absolute ${
+                cityPursuitStats.nearbyCityBuildingPrompt ||
+                cityPursuitStats.nearbyHeistPrompt ||
+                cityPursuitStats.nearbySportsPrompt ||
+                cityPursuitStats.nearbyServicePrompt ||
+                cityPursuitStats.nearbyHousePrompt
+                  ? 'bottom-44'
+                  : 'bottom-24'
+              } right-4 md:right-6 z-50 w-[92%] max-w-lg pointer-events-auto`}
+            >
+              <div className="bg-zinc-950/95 border-2 border-emerald-400 rounded-2xl p-3.5 shadow-[0_0_28px_rgba(16,185,129,0.45)] backdrop-blur-md flex items-center justify-between gap-3 font-mono">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="px-2 py-0.5 rounded bg-emerald-400 text-black font-black text-[10px] uppercase">
+                      {cityPursuitStats.nearbyOutdoorJobPrompt.icon}{' '}
+                      {cityPursuitStats.nearbyOutdoorJobPrompt.mechanicLabel}
+                    </span>
+                    <span className="text-xs font-black text-white truncate">
+                      {cityPursuitStats.nearbyOutdoorJobPrompt.title}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-zinc-300 mt-1">
+                    📍 {cityPursuitStats.nearbyOutdoorJobPrompt.siteLabel} · Base $
+                    {cityPursuitStats.nearbyOutdoorJobPrompt.basePay.toLocaleString()} + up to $
+                    {cityPursuitStats.nearbyOutdoorJobPrompt.maxSkillBonus.toLocaleString()} Skill Bonus · Press{' '}
+                    <strong className="text-emerald-300">[J]</strong>
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    physicsRef.current?.triggerOutdoorJobMinigame();
+                    if (physicsRef.current) {
+                      setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
+                    }
+                  }}
+                  className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-emerald-400 to-teal-300 hover:from-emerald-300 hover:to-teal-200 text-black font-black text-xs uppercase tracking-wider shadow-lg cursor-pointer shrink-0"
+                >
+                  🛠️ [J] Start Field Work
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* 5-STAR HEIST SAFEHOUSE ESCAPE BANNER: FLEE BACK TO YOUR HOUSE WITHOUT POLICE SEEING YOU! */}
           {cityPursuitStats.pendingHeistLoot && (
@@ -3412,6 +3649,65 @@ export const RaceView: React.FC<RaceViewProps> = ({
               </div>
             </div>
           )}
+
+          {/* LIVE ACTIVE OUTDOOR FIELD JOB COMPASS BANNER */}
+          {cityPursuitStats.activeOutdoorJob &&
+            !cityPursuitStats.pendingHeistLoot &&
+            !cityPursuitStats.activeRegularJob &&
+            !cityPursuitStats.activeMission && (
+              <div className="absolute top-[112px] left-1/2 -translate-x-1/2 z-40 w-[92%] max-w-lg bg-zinc-950/92 border-2 border-emerald-400/80 rounded-2xl px-4 py-2.5 shadow-[0_0_25px_rgba(16,185,129,0.3)] backdrop-blur-md flex items-center justify-between gap-3 pointer-events-auto">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="px-2 py-0.5 rounded bg-emerald-400 text-black font-mono font-black text-[9px] uppercase">
+                      {cityPursuitStats.activeOutdoorJob.icon} {cityPursuitStats.activeOutdoorJob.roleLabel}
+                    </span>
+                    <span className="text-xs font-black text-white truncate">
+                      {cityPursuitStats.activeOutdoorJob.title}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 mt-1 font-mono text-[11px]">
+                    <span className="text-emerald-300 font-bold truncate">
+                      📍 {cityPursuitStats.activeOutdoorJob.siteLabel}
+                    </span>
+                    <span className="px-1.5 py-0.5 rounded bg-cyan-500/20 border border-cyan-400/40 text-cyan-300 text-[9px] font-black shrink-0">
+                      {cityPursuitStats.activeOutdoorJob.mechanicLabel}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2.5 shrink-0 font-mono">
+                  <div className="text-right">
+                    <div className="flex items-center justify-end gap-1 text-xs font-black text-emerald-300 tabular-nums">
+                      <span
+                        className="inline-block text-amber-400"
+                        style={{
+                          transform: `rotate(${-cityPursuitStats.activeOutdoorJob.directionDeg}deg)`,
+                        }}
+                      >
+                        ↑
+                      </span>
+                      <span>{cityPursuitStats.activeOutdoorJob.distMeters}m</span>
+                    </div>
+                    <span className="text-[10px] font-black text-amber-300 block">
+                      +${cityPursuitStats.activeOutdoorJob.basePay.toLocaleString()} + Bonus
+                    </span>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      physicsRef.current?.stopOutdoorFieldJob();
+                      if (physicsRef.current) {
+                        setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
+                      }
+                    }}
+                    className="px-2.5 py-1.5 rounded-lg bg-zinc-900 hover:bg-red-600 text-zinc-300 hover:text-white border border-white/15 font-mono font-bold text-[10px] cursor-pointer transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
 
           {/* Live Active Street Mission Waypoint Compass & Countdown Banner (Top-Center below alerts) */}
           {cityPursuitStats.activeMission && (
@@ -3574,7 +3870,7 @@ export const RaceView: React.FC<RaceViewProps> = ({
           )}
 
           {/* FLOATING POLICE RADAR SPEED GUN TARGET HUD (TOP-CENTER/RIGHT) */}
-          {cityPursuitStats.radarTarget && (
+          {cityPursuitStats.isPoliceOnDuty && cityPursuitStats.radarTarget && (
             <div className="absolute top-[74px] right-3.5 md:right-5 z-40 w-[320px] sm:w-[360px] bg-zinc-950/95 border-2 border-blue-500/60 rounded-2xl p-3 shadow-2xl backdrop-blur-md flex flex-col gap-2 font-mono text-left pointer-events-auto">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1.5">
@@ -3993,6 +4289,23 @@ export const RaceView: React.FC<RaceViewProps> = ({
                   <span className="text-[9px] text-zinc-400 block truncate max-w-[170px] font-bold">
                     {cityPursuitStats.currentZoneName || 'Downtown Financial District'}
                   </span>
+                  <div className="flex items-center gap-1.5 mt-0.5 text-[9px] font-black">
+                    <span className="px-1.5 py-0.5 rounded bg-zinc-900 border border-white/10 text-teal-300">
+                      {(cityPursuitStats.groundClearanceInches ?? cityPursuitStats.currentStreetCar?.groundClearanceInches ?? 5.3).toFixed(1)}&quot; · OFF-RD {cityPursuitStats.offRoadScore ?? cityPursuitStats.currentStreetCar?.offRoadScore ?? 38}
+                    </span>
+                    <span
+                      className={`px-1.5 py-0.5 rounded bg-zinc-900 border border-white/10 tabular-nums ${
+                        (cityPursuitStats.tireLife ?? 100) >= 60
+                          ? 'text-emerald-300'
+                          : (cityPursuitStats.tireLife ?? 100) >= 30
+                          ? 'text-amber-300'
+                          : 'text-rose-400 animate-pulse'
+                      }`}
+                      title="Tire condition (pit at any Service Station to replace)"
+                    >
+                      🛞 {Math.round(cityPursuitStats.tireLife ?? 100)}%
+                    </span>
+                  </div>
                 </div>
               </div>
 
@@ -4889,6 +5202,20 @@ export const RaceView: React.FC<RaceViewProps> = ({
                       );
                     })}
 
+                    {/* Tactical Police Roadblocks */}
+                    {mm.roadblocks?.map((rb, idx) => {
+                      const deg = (-rb.heading * 180) / Math.PI;
+                      const rbScale = Math.max(0.28, zs);
+                      return (
+                        <g key={`mm_rb_${idx}`} transform={`translate(${rb.x}, ${rb.z}) rotate(${deg}) scale(${rbScale})`}>
+                          <rect x={-52} y={-14} width={104} height={28} rx={4} fill="#dc2626" stroke="#facc15" strokeWidth={6} />
+                          <line x1={-40} y1={-8} x2={-18} y2={8} stroke="#ffffff" strokeWidth={7} />
+                          <line x1={-6} y1={-8} x2={16} y2={8} stroke="#ffffff" strokeWidth={7} />
+                          <line x1={26} y1={-8} x2={44} y2={8} stroke="#38bdf8" strokeWidth={7} />
+                        </g>
+                      );
+                    })}
+
                     {/* Google Maps Red Destination Pin */}
                     {mm.gpsTarget && (
                       <g
@@ -5739,68 +6066,273 @@ export const RaceView: React.FC<RaceViewProps> = ({
                   </div>
                 )}
 
-                {/* TAB 2: CITY JOBS (TAXI, COURIER, PIZZA DELIVERY) */}
-                {cityTabletTab === 'jobs' && (
-                  <div className="flex flex-col gap-3 overflow-y-auto pr-1">
-                    <div className="text-xs text-zinc-300 bg-zinc-900/60 p-3 rounded-xl border border-white/10">
-                      Earn honest money across Metro City! Clock into any job, follow the purple 3D sky-beam waypoint from customer pickup to destination, and collect Base Pay plus Clean Driving Tips!
-                    </div>
+                {/* TAB 2: CITY JOBS (OUTDOOR FIELD SKILLS + OFFICE & INDOOR WORKPLACES + DRIVING DISPATCH) */}
+                {cityTabletTab === 'jobs' && (() => {
+                  const skillRank = getJobSkillRankInfo(cityPursuitStats.jobSkillXp || 0);
+                  return (
+                    <div className="flex flex-col gap-3 overflow-y-auto pr-1">
+                      <div className="text-xs text-zinc-300 bg-zinc-900/80 p-3.5 rounded-xl border border-white/10 flex flex-wrap items-center justify-between gap-3">
+                        <div className="flex-1 min-w-[220px]">
+                          <span>
+                            Work interactive <strong>Outdoor Field Sites [J]</strong>, clock into <strong>Office &amp; Indoor Workplaces [V]</strong>, or take <strong>Skill Driving Routes</strong> to level up your career multiplier!
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2.5 flex-wrap">
+                          <div className="px-3 py-1.5 rounded-xl bg-amber-500/15 border border-amber-400/40 flex items-center gap-2.5">
+                            <div>
+                              <div className="text-[10px] font-black uppercase text-amber-300">
+                                ⭐ Lv.{skillRank.level} {skillRank.title} · x{skillRank.payoutMultiplier} Pay
+                              </div>
+                              <div className="w-32 h-1.5 bg-zinc-800 rounded-full overflow-hidden mt-1">
+                                <div
+                                  className="h-full bg-gradient-to-r from-amber-400 to-emerald-400"
+                                  style={{ width: `${skillRank.progressPct}%` }}
+                                />
+                              </div>
+                            </div>
+                            <span className="text-[10px] font-mono text-zinc-300 tabular-nums">
+                              {skillRank.xp} XP
+                            </span>
+                          </div>
+                          <span className="px-2.5 py-1.5 rounded-xl bg-emerald-500/15 border border-emerald-400/40 text-emerald-300 font-black text-[10px]">
+                            JOBS: {cityPursuitStats.totalJobsCompleted} · FIELD: {cityPursuitStats.outdoorJobsCompleted || 0}
+                          </span>
+                        </div>
+                      </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                      {CITY_REGULAR_JOBS_CATALOG.map((job) => {
-                        const isClockedIn = cityPursuitStats.activeRegularJob?.jobId === job.id;
-                        return (
-                          <div
-                            key={job.id}
-                            className={`p-4 rounded-2xl border flex flex-col justify-between gap-3 transition-all ${
-                              isClockedIn
-                                ? 'bg-yellow-950/50 border-yellow-400 shadow-lg'
-                                : 'bg-zinc-900 border-white/10 hover:border-white/20'
+                      {/* Category Filter Bar */}
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {(
+                          [
+                            {
+                              id: 'all',
+                              label: `All Jobs (${CITY_OUTDOOR_JOBS_CATALOG.length + CITY_INDOOR_JOBS_CATALOG.length + CITY_REGULAR_JOBS_CATALOG.length})`,
+                            },
+                            { id: 'outdoor', label: `🏕️ Outdoor & Field (${CITY_OUTDOOR_JOBS_CATALOG.length})` },
+                            { id: 'indoor', label: `🏢 Office & Indoor (${CITY_INDOOR_JOBS_CATALOG.length})` },
+                            { id: 'Delivery & Freight', label: '📦 Delivery & Freight' },
+                            { id: 'Passenger & VIP', label: '🚕 Passenger & VIP' },
+                            { id: 'Utility & Specialty', label: '🛡️ Utility & Specialty' },
+                          ] as const
+                        ).map((tab) => (
+                          <button
+                            key={tab.id}
+                            type="button"
+                            onClick={() => setCityJobFilter(tab.id)}
+                            className={`px-3 py-1.5 rounded-xl text-[11px] font-black uppercase cursor-pointer transition-all border ${
+                              cityJobFilter === tab.id
+                                ? 'bg-yellow-400 text-black border-yellow-300 shadow'
+                                : 'bg-zinc-900 text-zinc-300 border-white/10 hover:border-white/25'
                             }`}
                           >
-                            <div>
-                              <div className="flex items-center justify-between gap-2">
-                                <span className="text-sm font-black text-white">
-                                  {job.icon} {job.title}
-                                </span>
-                                <span className="px-2 py-0.5 rounded bg-yellow-400/20 border border-yellow-400/40 text-yellow-300 font-black text-[10px]">
-                                  +${job.basePay.toLocaleString()}
-                                </span>
-                              </div>
-                              <p className="text-xs text-zinc-400 mt-2 leading-relaxed">{job.description}</p>
-                            </div>
+                            {tab.label}
+                          </button>
+                        ))}
+                      </div>
 
-                            <div className="pt-2 border-t border-white/10 flex items-center justify-between gap-2">
-                              <span className="text-[10px] text-zinc-500">
-                                ⏱️ {job.timeLimitSec}s · +${job.tipBonusMax} Tip
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (isClockedIn) {
-                                    physicsRef.current?.stopCityRegularJob();
-                                  } else {
-                                    physicsRef.current?.startCityRegularJob(job.id);
-                                  }
-                                  if (physicsRef.current) setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
-                                  setShowCityTabletModal(false);
-                                  setShowCityGarageModal(false);
-                                }}
-                                className={`px-3.5 py-1.5 rounded-xl font-black text-xs uppercase cursor-pointer transition-colors ${
-                                  isClockedIn
-                                    ? 'bg-rose-500 hover:bg-rose-400 text-white'
-                                    : 'bg-yellow-400 hover:bg-yellow-300 text-black'
-                                }`}
-                              >
-                                {isClockedIn ? 'Clock Out' : 'Start Job →'}
-                              </button>
-                            </div>
+                      {/* Outdoor & Field Skill Contracts Section */}
+                      {(cityJobFilter === 'all' || cityJobFilter === 'outdoor') && (
+                        <div className="flex flex-col gap-2">
+                          <div className="text-[11px] font-black uppercase tracking-wider text-emerald-300 flex items-center gap-2">
+                            <span>🏕️ OUTDOOR FIELD SKILL JOBS (DRIVE TO SITE &amp; PRESS [J] FOR HANDS-ON WORK)</span>
                           </div>
-                        );
-                      })}
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                            {CITY_OUTDOOR_JOBS_CATALOG.map((job) => {
+                              const isDeployed = cityPursuitStats.activeOutdoorJob?.jobId === job.id;
+                              return (
+                                <div
+                                  key={job.id}
+                                  className={`p-4 rounded-2xl border flex flex-col justify-between gap-3 transition-all ${
+                                    isDeployed
+                                      ? 'bg-emerald-950/50 border-emerald-400 shadow-lg'
+                                      : 'bg-zinc-900/90 border-emerald-400/25 hover:border-emerald-400/60'
+                                  }`}
+                                >
+                                  <div>
+                                    <div className="flex items-center justify-between gap-2">
+                                      <span className="text-sm font-black text-white">
+                                        {job.icon} {job.title}
+                                      </span>
+                                      <span className="px-2 py-0.5 rounded bg-emerald-500/20 border border-emerald-400/40 text-emerald-300 font-black text-[10px] shrink-0">
+                                        +${job.basePay.toLocaleString()} + ${job.maxSkillBonus.toLocaleString()}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center gap-1.5 flex-wrap mt-1">
+                                      <span className="px-1.5 py-0.5 rounded bg-cyan-500/15 border border-cyan-400/30 text-cyan-300 font-black text-[9px] uppercase">
+                                        🎮 {job.mechanicLabel}
+                                      </span>
+                                      <span className="text-[10px] font-bold text-zinc-400">
+                                        · {job.sites.length} Sites
+                                      </span>
+                                    </div>
+                                    <p className="text-xs text-zinc-400 mt-1.5 leading-relaxed">{job.description}</p>
+                                  </div>
+
+                                  <div className="pt-2 border-t border-white/10 flex items-center justify-between gap-2">
+                                    <span className="text-[10px] text-amber-300 font-bold">
+                                      +{job.skillXpReward} Skill XP
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        if (isDeployed) {
+                                          physicsRef.current?.stopOutdoorFieldJob();
+                                        } else {
+                                          physicsRef.current?.startOutdoorFieldJob(job.id);
+                                        }
+                                        if (physicsRef.current) {
+                                          setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
+                                        }
+                                        setShowCityTabletModal(false);
+                                        setShowCityGarageModal(false);
+                                      }}
+                                      className={`px-3 py-1.5 rounded-xl font-black text-[11px] uppercase cursor-pointer transition-colors shrink-0 ${
+                                        isDeployed
+                                          ? 'bg-rose-500 hover:bg-rose-400 text-white'
+                                          : 'bg-emerald-400 hover:bg-emerald-300 text-black'
+                                      }`}
+                                    >
+                                      {isDeployed ? 'End Contract' : 'Deploy / Route →'}
+                                    </button>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Indoor & Office Building Jobs Section */}
+                      {(cityJobFilter === 'all' || cityJobFilter === 'indoor') && (
+                        <div className="flex flex-col gap-2">
+                          <div className="text-[11px] font-black uppercase tracking-wider text-sky-300 flex items-center gap-2">
+                            <span>🏢 OFFICE &amp; INDOOR WORKPLACE CAREERS (ENTER WITH [V])</span>
+                          </div>
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                            {CITY_INDOOR_JOBS_CATALOG.map((job) => (
+                              <div
+                                key={job.id}
+                                className="p-4 rounded-2xl border border-sky-400/25 bg-zinc-900/90 hover:border-sky-400/60 flex flex-col justify-between gap-3 transition-all"
+                              >
+                                <div>
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className="text-sm font-black text-white">
+                                      {job.icon} {job.title}
+                                    </span>
+                                    <span className="px-2 py-0.5 rounded bg-sky-500/20 border border-sky-400/40 text-sky-300 font-black text-[10px] shrink-0">
+                                      +${job.baseShiftPay.toLocaleString()}+
+                                    </span>
+                                  </div>
+                                  <div className="text-[10px] font-bold text-amber-300 mt-1">
+                                    📍 {job.workplaceTypeLabel}
+                                  </div>
+                                  {job.skillStyle && (
+                                    <div className="mt-1">
+                                      <span className="inline-block px-1.5 py-0.5 rounded bg-sky-500/15 border border-sky-400/30 text-sky-300 font-black text-[9px] uppercase">
+                                        ⚡ {job.skillStyle}
+                                      </span>
+                                    </div>
+                                  )}
+                                  <p className="text-xs text-zinc-400 mt-1.5 leading-relaxed">{job.description}</p>
+                                </div>
+
+                                <div className="pt-2 border-t border-white/10 flex items-center justify-between gap-2">
+                                  <span className="text-[10px] text-zinc-500 truncate">{job.tasksSummary}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      physicsRef.current?.routeToIndoorWorkplaceJob(job.id);
+                                      if (physicsRef.current) setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
+                                      setShowCityTabletModal(false);
+                                      setShowCityGarageModal(false);
+                                    }}
+                                    className="px-3 py-1.5 rounded-xl bg-sky-400 hover:bg-sky-300 text-black font-black text-[11px] uppercase cursor-pointer transition-colors shrink-0"
+                                  >
+                                    📍 Route Inside →
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Driving & Field Dispatch Jobs Section */}
+                      {cityJobFilter !== 'indoor' && cityJobFilter !== 'outdoor' && (
+                        <div className="flex flex-col gap-2">
+                          <div className="text-[11px] font-black uppercase tracking-wider text-yellow-300 flex items-center gap-2">
+                            <span>🚗 DRIVING, FREIGHT &amp; CHARTER DISPATCH</span>
+                          </div>
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                            {CITY_REGULAR_JOBS_CATALOG.filter(
+                              (job) => cityJobFilter === 'all' || job.jobCategory === cityJobFilter
+                            ).map((job) => {
+                              const isClockedIn = cityPursuitStats.activeRegularJob?.jobId === job.id;
+                              return (
+                                <div
+                                  key={job.id}
+                                  className={`p-4 rounded-2xl border flex flex-col justify-between gap-3 transition-all ${
+                                    isClockedIn
+                                      ? 'bg-yellow-950/50 border-yellow-400 shadow-lg'
+                                      : 'bg-zinc-900 border-white/10 hover:border-white/20'
+                                  }`}
+                                >
+                                  <div>
+                                    <div className="flex items-center justify-between gap-2">
+                                      <span className="text-sm font-black text-white">
+                                        {job.icon} {job.title}
+                                      </span>
+                                      <span className="px-2 py-0.5 rounded bg-yellow-400/20 border border-yellow-400/40 text-yellow-300 font-black text-[10px] shrink-0">
+                                        +${job.basePay.toLocaleString()}
+                                      </span>
+                                    </div>
+                                    <div className="text-[10px] font-bold text-zinc-400 mt-1">
+                                      {job.jobCategory} · {job.routes.length} Routes
+                                    </div>
+                                    {job.skillBadgeLabel && (
+                                      <div className="mt-1">
+                                        <span className="inline-block px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-400/30 text-amber-300 font-black text-[9px] uppercase">
+                                          {job.skillBadgeLabel}
+                                        </span>
+                                      </div>
+                                    )}
+                                    <p className="text-xs text-zinc-400 mt-1.5 leading-relaxed">{job.description}</p>
+                                  </div>
+
+                                  <div className="pt-2 border-t border-white/10 flex items-center justify-between gap-2">
+                                    <span className="text-[10px] text-zinc-500">
+                                      ⏱️ {job.timeLimitSec}s · +${job.tipBonusMax} Tip
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        if (isClockedIn) {
+                                          physicsRef.current?.stopCityRegularJob();
+                                        } else {
+                                          physicsRef.current?.startCityRegularJob(job.id);
+                                        }
+                                        if (physicsRef.current) setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
+                                        setShowCityTabletModal(false);
+                                        setShowCityGarageModal(false);
+                                      }}
+                                      className={`px-3.5 py-1.5 rounded-xl font-black text-xs uppercase cursor-pointer transition-colors ${
+                                        isClockedIn
+                                          ? 'bg-rose-500 hover:bg-rose-400 text-white'
+                                          : 'bg-yellow-400 hover:bg-yellow-300 text-black'
+                                      }`}
+                                    >
+                                      {isClockedIn ? 'Clock Out' : 'Start Job →'}
+                                    </button>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
 
                 {/* TAB 3: HEISTS & ROBBERIES (BANKS, JEWELRY, HOUSES & STORES) */}
                 {cityTabletTab === 'heists' && (
@@ -6027,11 +6559,42 @@ export const RaceView: React.FC<RaceViewProps> = ({
                       </div>
                     </div>
 
-                    {/* Owned Cars Grid */}
+                    {/* Category Filter Bar */}
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {([
+                        { id: 'all', label: 'ALL' },
+                        { id: 'pickups', label: 'PICKUPS & 4x4' },
+                        { id: 'suvs', label: 'SUVs' },
+                        { id: 'muscle_jdm', label: 'MUSCLE & JDM' },
+                        { id: 'exotics', label: 'EXOTICS' },
+                      ] as const).map((tab) => (
+                        <button
+                          key={tab.id}
+                          type="button"
+                          onClick={() => setCityCarFilter(tab.id)}
+                          className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase cursor-pointer border transition-all ${
+                            cityCarFilter === tab.id
+                              ? 'bg-purple-500 text-white border-purple-300'
+                              : 'bg-zinc-900 text-zinc-400 border-white/10 hover:text-white'
+                          }`}
+                        >
+                          {tab.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Owned Cars Grid (Sorted Least to Most Expensive) */}
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                      {CITY_STREET_CARS.filter((car) => cityPursuitStats.ownedCarIds.includes(car.id)).map((car) => {
+                      {CITY_STREET_CARS.filter(
+                        (car) =>
+                          cityPursuitStats.ownedCarIds.includes(car.id) &&
+                          (cityCarFilter === 'all' || getStreetCarCategoryBucket(car) === cityCarFilter)
+                      )
+                        .sort((a, b) => a.price - b.price)
+                        .map((car) => {
                         const activeTrimId = cityPursuitStats.activeTrimByCar?.[car.id] || car.trims[0]?.id;
                         const eff = getEffectiveStreetCarSpec(car, activeTrimId);
+                        const tier = getStreetCarOffRoadTier(eff.offRoadScore);
                         const isEquipped = cityPursuitStats.currentStreetCar.id === car.id;
                         return (
                           <div
@@ -6043,20 +6606,29 @@ export const RaceView: React.FC<RaceViewProps> = ({
                             <div>
                               <div className="flex items-center justify-between gap-2">
                                 <span className="text-sm font-black text-white">{eff.name}</span>
-                                <span className="text-[10px] text-purple-300 font-bold">{car.drivetrain}</span>
+                                <span className={`text-[9px] font-black px-1.5 py-0.5 rounded bg-black/60 border border-white/10 shrink-0 ${tier.colorClass}`}>
+                                  {tier.label}
+                                </span>
                               </div>
-                              <div className="grid grid-cols-3 gap-1.5 text-center mt-2 text-xs">
+                              <div className="text-[10px] text-purple-300 font-bold mt-0.5">
+                                {car.drivetrain} · {car.category} · {eff.groundClearanceInches}&quot; CLR
+                              </div>
+                              <div className="grid grid-cols-4 gap-1 text-center mt-2 text-xs">
                                 <div className="bg-black/60 p-1.5 rounded-lg border border-white/5">
                                   <span className="text-[8px] text-zinc-500 block">POWER</span>
-                                  <span className="text-rose-400 font-bold">{eff.horsepower} HP</span>
+                                  <span className="text-rose-400 font-bold">{eff.horsepower}</span>
                                 </div>
                                 <div className="bg-black/60 p-1.5 rounded-lg border border-white/5">
                                   <span className="text-[8px] text-zinc-500 block">0-60</span>
-                                  <span className="text-amber-300 font-bold">{eff.zeroToSixtySec.toFixed(2)}s</span>
+                                  <span className="text-amber-300 font-bold">{eff.zeroToSixtySec.toFixed(1)}s</span>
                                 </div>
                                 <div className="bg-black/60 p-1.5 rounded-lg border border-white/5">
                                   <span className="text-[8px] text-zinc-500 block">TOP</span>
-                                  <span className="text-sky-400 font-bold">{eff.topSpeedKmh} KM/H</span>
+                                  <span className="text-sky-400 font-bold">{eff.topSpeedKmh}</span>
+                                </div>
+                                <div className="bg-black/60 p-1.5 rounded-lg border border-white/5">
+                                  <span className="text-[8px] text-zinc-500 block">OFF-RD</span>
+                                  <span className={`font-bold ${tier.colorClass}`}>{eff.offRoadScore}</span>
                                 </div>
                               </div>
                             </div>
@@ -6085,12 +6657,41 @@ export const RaceView: React.FC<RaceViewProps> = ({
                 {/* TAB 6: AUTO DEALERSHIP SHOWROOM */}
                 {cityTabletTab === 'dealership' && (
                   <div className="flex flex-col gap-3 overflow-y-auto pr-1">
+                    {/* Category Filter Bar */}
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {([
+                        { id: 'all', label: 'ALL' },
+                        { id: 'pickups', label: 'PICKUPS & 4x4' },
+                        { id: 'suvs', label: 'SUVs' },
+                        { id: 'muscle_jdm', label: 'MUSCLE & JDM' },
+                        { id: 'exotics', label: 'EXOTICS' },
+                      ] as const).map((tab) => (
+                        <button
+                          key={tab.id}
+                          type="button"
+                          onClick={() => setCityCarFilter(tab.id)}
+                          className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase cursor-pointer border transition-all ${
+                            cityCarFilter === tab.id
+                              ? 'bg-amber-400 text-black border-amber-200'
+                              : 'bg-zinc-900 text-zinc-400 border-white/10 hover:text-white'
+                          }`}
+                        >
+                          {tab.label}
+                        </button>
+                      ))}
+                    </div>
+
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                      {CITY_STREET_CARS.map((car) => {
+                      {CITY_STREET_CARS.filter(
+                        (car) => cityCarFilter === 'all' || getStreetCarCategoryBucket(car) === cityCarFilter
+                      )
+                        .sort((a, b) => a.price - b.price)
+                        .map((car) => {
                         const isOwned = cityPursuitStats.ownedCarIds.includes(car.id);
                         const isEquipped = cityPursuitStats.currentStreetCar.id === car.id;
                         const activeTrimId = cityPursuitStats.activeTrimByCar?.[car.id] || car.trims[0]?.id;
                         const eff = getEffectiveStreetCarSpec(car, activeTrimId);
+                        const tier = getStreetCarOffRoadTier(eff.offRoadScore);
                         const canAfford = cityPursuitStats.streetCash >= car.price;
 
                         return (
@@ -6103,24 +6704,34 @@ export const RaceView: React.FC<RaceViewProps> = ({
                             <div>
                               <div className="flex items-center justify-between gap-2">
                                 <span className="text-sm font-black text-white">{eff.name}</span>
-                                <span className={`px-2 py-0.5 rounded font-black text-[10px] ${
+                                <span className={`px-2 py-0.5 rounded font-black text-[10px] shrink-0 ${
                                   isEquipped ? 'bg-amber-400 text-black' : isOwned ? 'bg-emerald-500/20 text-emerald-300' : 'bg-zinc-800 text-amber-300'
                                 }`}>
                                   {isEquipped ? 'DRIVING' : isOwned ? 'OWNED' : car.price === 0 ? 'FREE' : `$${car.price.toLocaleString()}`}
                                 </span>
                               </div>
-                              <div className="grid grid-cols-3 gap-1.5 text-center mt-2 text-xs">
+                              <div className="flex items-center justify-between gap-2 mt-1">
+                                <span className="text-[10px] text-zinc-400 font-bold truncate">{car.drivetrain} · {car.category} · {eff.groundClearanceInches}&quot;</span>
+                                <span className={`text-[9px] font-black px-1.5 py-0.5 rounded bg-black/60 border border-white/10 shrink-0 ${tier.colorClass}`}>
+                                  {tier.label}
+                                </span>
+                              </div>
+                              <div className="grid grid-cols-4 gap-1 text-center mt-2 text-xs">
                                 <div className="bg-black/60 p-1.5 rounded-lg border border-white/5">
                                   <span className="text-[8px] text-zinc-500 block">POWER</span>
-                                  <span className="text-rose-400 font-bold">{eff.horsepower} HP</span>
+                                  <span className="text-rose-400 font-bold">{eff.horsepower}</span>
                                 </div>
                                 <div className="bg-black/60 p-1.5 rounded-lg border border-white/5">
                                   <span className="text-[8px] text-zinc-500 block">0-60</span>
-                                  <span className="text-amber-300 font-bold">{eff.zeroToSixtySec.toFixed(2)}s</span>
+                                  <span className="text-amber-300 font-bold">{eff.zeroToSixtySec.toFixed(1)}s</span>
                                 </div>
                                 <div className="bg-black/60 p-1.5 rounded-lg border border-white/5">
                                   <span className="text-[8px] text-zinc-500 block">TOP</span>
-                                  <span className="text-sky-400 font-bold">{eff.topSpeedKmh} KM/H</span>
+                                  <span className="text-sky-400 font-bold">{eff.topSpeedKmh}</span>
+                                </div>
+                                <div className="bg-black/60 p-1.5 rounded-lg border border-white/5">
+                                  <span className="text-[8px] text-zinc-500 block">OFF-RD</span>
+                                  <span className={`font-bold ${tier.colorClass}`}>{eff.offRoadScore}</span>
                                 </div>
                               </div>
                             </div>
@@ -6793,16 +7404,22 @@ export const RaceView: React.FC<RaceViewProps> = ({
           furnishings={
             cityPursuitStats.houseFurnishings?.[cityPursuitStats.activeBankMinigameTarget.id] || []
           }
-          onBuyHouseItem={(itemId) => {
+          onBuyHouseItem={(itemId, slotId) => {
             const houseId = cityPursuitStats.activeBankMinigameTarget?.id;
             if (houseId && physicsRef.current) {
-              physicsRef.current.buyHouseFurnishing(houseId, itemId);
+              physicsRef.current.buyHouseFurnishing(houseId, itemId, slotId);
               setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
             }
           }}
           onAwardExploreCash={(delta, label) => {
             if (physicsRef.current) {
               physicsRef.current.awardInteriorMinigameCash(delta, label);
+              setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
+            }
+          }}
+          onCompleteWorkShift={(delta, label) => {
+            if (physicsRef.current) {
+              physicsRef.current.completeIndoorWorkShift(delta, label);
               setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
             }
           }}
@@ -6863,6 +7480,27 @@ export const RaceView: React.FC<RaceViewProps> = ({
           onAbort={handleSportsMinigameAbort}
         />
       )}
+
+      {/* OUTDOOR FIELD JOB INTERACTIVE SKILL MODAL */}
+      {isCityDrivingMode && cityPursuitStats?.activeOutdoorSkillMinigame && (() => {
+        const rank = getJobSkillRankInfo(cityPursuitStats.jobSkillXp || 0);
+        return (
+          <OutdoorFieldJobModal
+            job={cityPursuitStats.activeOutdoorSkillMinigame.job}
+            siteLabel={cityPursuitStats.activeOutdoorSkillMinigame.siteLabel}
+            skillRankTitle={`Lv.${rank.level} ${rank.title}`}
+            payoutMultiplier={rank.payoutMultiplier}
+            onComplete={(cash, tier, xp) => {
+              physicsRef.current?.completeOutdoorFieldJob(cash, tier, xp);
+              if (physicsRef.current) setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
+            }}
+            onAbort={() => {
+              physicsRef.current?.abortOutdoorFieldJobMinigame();
+              if (physicsRef.current) setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
+            }}
+          />
+        );
+      })()}
 
       {isCityDrivingMode && showGoogleMapsModal && (
         <MarylandGoogleMapModal

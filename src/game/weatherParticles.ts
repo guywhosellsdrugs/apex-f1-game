@@ -217,7 +217,7 @@ export function createAtmosphericWeatherSystem(
   const group = new THREE.Group();
   scene.add(group);
 
-  const COUNT = isRetroPixel ? 160 : 600;
+  const COUNT = isRetroPixel ? 96 : 600;
   const positions = new Float32Array(COUNT * 3);
   const pVelsY = new Float32Array(COUNT);
   const pDriftX = new Float32Array(COUNT);
@@ -317,7 +317,7 @@ export function createAtmosphericWeatherSystem(
 export interface SkyCelestialAndCloudsSystem {
   group: THREE.Group;
   sunDirection: THREE.Vector3;
-  update: (carPos: THREE.Vector3, weather: GaithersburgWeather, dt: number) => void;
+  update: (carPos: THREE.Vector3, weather: GaithersburgWeather, dt: number, farScale?: number) => void;
   dispose: () => void;
 }
 
@@ -586,23 +586,27 @@ export function createSkyCelestialAndCloudsSystem(
   const scratchNightMid = new THREE.Color(0x080f21);
   const scratchNightHor = new THREE.Color(0x131d33);
 
-  const update = (carPos: THREE.Vector3, weather: GaithersburgWeather, dt: number) => {
+  const update = (carPos: THREE.Vector3, weather: GaithersburgWeather, dt: number, farScale = 1.0) => {
+    const skyScale = THREE.MathUtils.clamp(farScale, 0.44, 1.0);
 
     // Anchor sky dome & starfield around player car (horizon stays seamlessly at Y=0)
     skyDomeMesh.position.set(carPos.x, 0, carPos.z);
+    skyDomeMesh.scale.setScalar(skyScale);
     starPoints.position.set(carPos.x, 0, carPos.z);
+    starPoints.scale.setScalar(skyScale);
 
     skyUniforms.uTime.value += dt;
 
     // 1. Update Sun & Moon Positions from Real Gaithersburg Time & Solar Altitude
     computeGaithersburgSunVector(weather, sunDirection);
     skyUniforms.uSunDir.value.copy(sunDirection);
-    const orbitR = 540;
+    const orbitR = 540 * skyScale;
     sunGroup.position.set(
       carPos.x + sunDirection.x * orbitR,
       sunDirection.y * orbitR,
       carPos.z + sunDirection.z * orbitR
     );
+    sunDiscMesh.scale.setScalar(skyScale);
 
     const elevDeg = weather.sunElevationDeg ?? (Math.asin(THREE.MathUtils.clamp(weather.sunAltitude, -1, 1)) * 180) / Math.PI;
     const cloudFrac = THREE.MathUtils.clamp(weather.cloudCover / 100, 0, 1);
@@ -631,7 +635,7 @@ export function createSkyCelestialAndCloudsSystem(
       sunDiscMat.opacity = Math.min(1, sunVisFactor * 1.15);
       sunHaloMat.color.setHex(0xfef3c7).lerp(scratchHiddenColor.setHex(0xf97316), goldenBlend * 0.88);
       sunHaloMat.opacity = sunVisFactor * 0.94;
-      const haloScale = 155 + goldenBlend * 75;
+      const haloScale = (155 + goldenBlend * 75) * skyScale;
       sunHaloSprite.scale.set(haloScale, haloScale, 1);
       skyUniforms.uSunGlowColor.value.copy(sunHaloMat.color);
       skyUniforms.uSunScatter.value = sunVisFactor;
@@ -651,9 +655,10 @@ export function createSkyCelestialAndCloudsSystem(
     if (moonGroup.visible) {
       moonGroup.position.set(
         carPos.x - sunDirection.x * orbitR * 0.86,
-        Math.max(80, -sunDirection.y * orbitR * 0.85 + 140),
+        Math.max(80 * skyScale, -sunDirection.y * orbitR * 0.85 + 140 * skyScale),
         carPos.z - sunDirection.z * orbitR * 0.86
       );
+      moonGroup.scale.setScalar(skyScale);
       moonMat.opacity = moonVis * 0.95;
       moonHaloMat.opacity = moonVis * 0.35;
     }
@@ -723,9 +728,10 @@ export function createSkyCelestialAndCloudsSystem(
           : weather.cloudCover >= 8
           ? 0.22
           : 0.1;
-      skyUniforms.uCirrusAmount.value = isRetroPixel
-        ? 0.0
-        : skyCloudDensity * (0.35 + 0.65 * dayWeight + twilightPeak * 0.25);
+      skyUniforms.uCirrusAmount.value =
+        isRetroPixel || skyScale < 0.72
+          ? 0.0
+          : skyCloudDensity * (0.35 + 0.65 * dayWeight + twilightPeak * 0.25);
     }
   };
 

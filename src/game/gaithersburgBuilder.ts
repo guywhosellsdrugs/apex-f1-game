@@ -12,6 +12,11 @@ import {
   isOnMarylandPavedSurface,
   buildPitchedRoofGroup,
   boxWithRoofMat,
+  sampleOffRoadTerrainAt,
+  createRioStyleWaterMaterial,
+  addWaterPerimeterBarriers,
+  buildRectWaterSegments,
+  buildCircleWaterSegments,
 } from './marylandRoadNetwork';
 import {
   CityBuildingBox,
@@ -84,7 +89,8 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
     addLandscapedTree,
   } = ctx;
 
-  const waterMat = makeCityMat({ color: 0x075985, roughness: 0.16, metalness: 0.68 });
+  const waterMat = createRioStyleWaterMaterial(isUltra, isRetroPixel);
+  disposables.push(waterMat);
   const flatRoofMat = makeCityMat({ color: 0x334155, roughness: 0.86, metalness: 0.08 });
 
   const addRotatedCollider = (
@@ -775,10 +781,17 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
     const clubRoof = buildPitchedRoofGroup(16.4, 10.4, 2.2, clubWallMat, clubRoofMat, 'x');
     clubRoof.position.set(gx(524), 5.05, gz(1565));
     sceneryGroup.add(clubRoof);
-    const poolWater = new THREE.Mesh(new THREE.PlaneGeometry(14, 10), makeCityMat({ color: 0x0ea5e9, roughness: 0.14, metalness: 0.45 }));
+    const poolWater = new THREE.Mesh(new THREE.PlaneGeometry(14, 10), waterMat);
     poolWater.rotation.x = -Math.PI / 2;
     poolWater.position.set(gx(524), 0.28, gz(1577));
     sceneryGroup.add(poolWater);
+    addWaterPerimeterBarriers({
+      sceneryGroup,
+      cityBuildings,
+      makeCityMat,
+      disposables,
+      segments: buildRectWaterSegments(gx(524), gz(1577), 14, 10, 'Hadley Farms Community Pool'),
+    });
     cityBuildings.push({ minX: gx(515), maxX: gx(533), minZ: gz(1559), maxZ: gz(1571), height: 7, stories: 1, name: 'Hadley Farms Community Pool & Clubhouse' });
 
     drawGaithParkingLot(gx(577), gz(1565), 22, 30, 0);
@@ -1040,6 +1053,13 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
     whetstoneLake.rotation.x = -Math.PI / 2;
     whetstoneLake.position.set(gx(-315), 0.232, gz(1695));
     sceneryGroup.add(whetstoneLake);
+    addWaterPerimeterBarriers({
+      sceneryGroup,
+      cityBuildings,
+      makeCityMat,
+      disposables,
+      segments: buildRectWaterSegments(gx(-315), gz(1695), 78, 56, 'Whetstone Lake'),
+    });
 
     drawGaithParkingLot(gx(-224), gz(1754), 56, 46, 0);
     const lfMall = new THREE.Mesh(new THREE.BoxGeometry(56, 11.5, 28), boxWithRoofMat(makeBrickFacadeMat('#57534e', '#e2e8f0', '#38bdf8', 8, 2, false), flatRoofMat));
@@ -1182,10 +1202,17 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
     ballast.position.set(gx(-220), 0.238, gz(1952));
     sceneryGroup.add(ballast);
 
-    const bohrerPool = new THREE.Mesh(new THREE.PlaneGeometry(46, 30), makeCityMat({ color: 0x0284c7, roughness: 0.15 }));
+    const bohrerPool = new THREE.Mesh(new THREE.PlaneGeometry(46, 30), waterMat);
     bohrerPool.rotation.x = -Math.PI / 2;
     bohrerPool.position.set(gx(-48), 0.236, gz(2138));
     sceneryGroup.add(bohrerPool);
+    addWaterPerimeterBarriers({
+      sceneryGroup,
+      cityBuildings,
+      makeCityMat,
+      disposables,
+      segments: buildRectWaterSegments(gx(-48), gz(2138), 46, 30, 'Bohrer Water Park'),
+    });
     const bohrerBrick = makeBrickFacadeMat('#9a3412', '#f1f5f9', '#38bdf8', 7, 2, false);
     const bohrerHall = new THREE.Mesh(new THREE.BoxGeometry(46, 10, 26), boxWithRoofMat(bohrerBrick, flatRoofMat));
     bohrerHall.position.set(gx(-48), 5.25, gz(2102));
@@ -1473,7 +1500,7 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
       const fairwayLightMat = makeCityMat({ color: 0x22c55e, roughness: 0.86 });
       const greenMat = makeCityMat({ color: 0x4ade80, roughness: 0.78 });
       const sandMat = makeCityMat({ color: 0xfde68a, roughness: 0.95 });
-      const golfWaterMat = makeCityMat({ color: 0x0284c7, roughness: 0.14, metalness: 0.4 });
+      const golfWaterMat = waterMat;
 
       const linksBase = new THREE.Mesh(new THREE.PlaneGeometry(116, 64), roughMat);
       linksBase.rotation.x = -Math.PI / 2;
@@ -1530,6 +1557,13 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
       golfPond.scale.set(14, 7.5, 1);
       golfPond.position.set(4, 0.018, 20);
       golfGroup.add(golfPond);
+      addWaterPerimeterBarriers({
+        sceneryGroup,
+        cityBuildings,
+        makeCityMat,
+        disposables,
+        segments: buildCircleWaterSegments(gx(515) + 4, gz(2275) + 20, 14, 7.5, 16, 'Gaithersburg Golf Pond'),
+      });
 
       // Tee box + Asphalt Cart Apron + Pro Shop Starter Kiosk at West Entrance (gx(468), gz(2275))
       const teePad = new THREE.Mesh(new THREE.PlaneGeometry(14, 10), fairwayLightMat);
@@ -1594,6 +1628,11 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
     const lakeW = 78;
     const lakeD = 48;
 
+    const rioBaseLake = new THREE.Mesh(new THREE.PlaneGeometry(lakeW, lakeD), waterMat);
+    rioBaseLake.rotation.x = -Math.PI / 2;
+    rioBaseLake.position.set(rioX, 0.232, rioLakeZ);
+    sceneryGroup.add(rioBaseLake);
+
     if (!isRetroPixel) {
       const lakeGeo = new THREE.PlaneGeometry(lakeW, lakeD);
       disposables.push(lakeGeo);
@@ -1622,11 +1661,7 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
       rioTintOverlay.rotation.x = -Math.PI / 2;
       rioTintOverlay.position.set(rioX, 0.244, rioLakeZ);
       sceneryGroup.add(rioTintOverlay);
-    } else {
-      const rioLake = new THREE.Mesh(new THREE.PlaneGeometry(lakeW, lakeD), waterMat);
-      rioLake.rotation.x = -Math.PI / 2;
-      rioLake.position.set(rioX, 0.236, rioLakeZ);
-      sceneryGroup.add(rioLake);
+      reflectorToggleables.push(rioTintOverlay);
     }
 
     // Small Visible Wrought-Iron & Stone Bollard Perimeter Barrier around all 4 sides of RIO Lake
@@ -2125,6 +2160,13 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
     kLake.rotation.x = -Math.PI / 2;
     kLake.position.set(gx(-610), 0.232, gz(2290));
     sceneryGroup.add(kLake);
+    addWaterPerimeterBarriers({
+      sceneryGroup,
+      cityBuildings,
+      makeCityMat,
+      disposables,
+      segments: buildRectWaterSegments(gx(-610), gz(2290), 82, 56, 'Kentlands Lake'),
+    });
     // Historic Kentlands Georgian Brick Mansion (paired chimneys, white roof widow's walk balustrade & columned portico)
     const kMansionBrick = makeBrickFacadeMat('#991b1b', '#f8fafc', '#1e293b', 5, 3, true);
     const kMansion = new THREE.Mesh(new THREE.BoxGeometry(40, 12.5, 22), boxWithRoofMat(kMansionBrick, flatRoofMat));
@@ -2281,18 +2323,31 @@ export function buildGaithersburgDistrict(ctx: GaithersburgBuilderContext): void
     }
     populateInstancedWoodlandTrees(sceneryGroup, treePlacements, { isUltra, isRetroPixel }, disposables);
 
-    // Scatter 3D crossed-blade grass clumps & shrubs across greenbelts, parks & RIO verges
-    for (let i = 0; i < 950; i++) {
+    // Scatter 3D crossed-blade grass clumps (short & tall meadow), rocks, pebbles & shrubs
+    for (let i = 0; i < 1650; i++) {
       const rx = ((i * 173 + 29) % 1480) - 720;
       const rz = 1080 + ((i * 211 + 53) % 1380);
       const px = gx(rx);
       const pz = gz(rz);
-      if (isBlockedGaithSpot(px, pz, 2.8, 2.2)) continue;
+      if (isBlockedGaithSpot(px, pz, 3.2, 2.5)) continue;
+      const terrain = sampleOffRoadTerrainAt(px, pz);
+      let kind: GrassPatchPlacement['kind'] = terrain.isTallGrass ? 'tall_grass' : 'grass';
+      let scale = terrain.isTallGrass ? 1.05 + (i % 5) * 0.14 : 0.8 + (i % 4) * 0.12;
+      if (i % 14 === 0) {
+        kind = 'shrub';
+        scale = 0.92 + (i % 4) * 0.15;
+      } else if (i % 13 === 0) {
+        kind = 'rock';
+        scale = 0.48 + (i % 5) * 0.11;
+      } else if (i % 7 === 0 || (terrain.pebbleFactor > 0.55 && i % 3 === 0)) {
+        kind = 'pebble';
+        scale = 0.9 + (i % 5) * 0.14;
+      }
       grassPatches.push({
         x: px,
         z: pz,
-        s: 0.95 + (i % 5) * 0.16,
-        kind: i % 9 === 0 ? 'shrub' : 'grass',
+        s: scale,
+        kind,
       });
     }
     populateChunkedGrassAndShrubs(sceneryGroup, grassPatches, { isUltra, isRetroPixel }, disposables);

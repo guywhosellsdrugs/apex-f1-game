@@ -98,6 +98,16 @@ export interface FloorActivitySpec {
   radius: number;
 }
 
+export interface EmptyGameSlot {
+  id: string;
+  floor: HeistFloorId;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  label: string;
+}
+
 export interface HeistFloorData {
   floorId: HeistFloorId;
   floorName: string;
@@ -110,6 +120,7 @@ export interface HeistFloorData {
   elevators?: ElevatorPortal[];
   npcs: FloorNpcSpec[];
   activities: FloorActivitySpec[];
+  emptySlots?: EmptyGameSlot[];
 }
 
 export interface HeistTheme {
@@ -353,6 +364,15 @@ function buildBankCentralPlan(payoutCash: number): BuildingFloorplan {
         ],
         activities: [
           {
+            id: 'bank_teller_work',
+            floor: 1,
+            kind: 'work_bank',
+            label: '🏦 Teller Window & Wire Shift',
+            x: 175,
+            y: 325,
+            radius: 30,
+          },
+          {
             id: 'bank_arcade',
             floor: 1,
             kind: 'arcade',
@@ -417,6 +437,15 @@ function buildBankCentralPlan(payoutCash: number): BuildingFloorplan {
           },
         ],
         activities: [
+          {
+            id: 'bank_2f_clearing_work',
+            floor: 2,
+            kind: 'work_office',
+            label: '💼 2F Federal Clearing Desk (Work)',
+            x: 600,
+            y: 230,
+            radius: 30,
+          },
           {
             id: 'bank_2f_pinball',
             floor: 2,
@@ -708,6 +737,15 @@ function buildBankPacificBullionPlan(payoutCash: number): BuildingFloorplan {
         ],
         activities: [
           {
+            id: 'capitol_teller_work',
+            floor: 1,
+            kind: 'work_bank',
+            label: '🏦 Treasury Counter Shift',
+            x: 600,
+            y: 215,
+            radius: 30,
+          },
+          {
             id: 'capitol_arcade',
             floor: 1,
             kind: 'arcade',
@@ -955,6 +993,15 @@ function buildBankNationalHarborPlan(payoutCash: number): BuildingFloorplan {
         ],
         activities: [
           {
+            id: 'harbor_bank_work',
+            floor: 1,
+            kind: 'work_bank',
+            label: '🏦 Reserve Teller Shift',
+            x: 632,
+            y: 305,
+            radius: 30,
+          },
+          {
             id: 'harbor_air_hockey',
             floor: 1,
             kind: 'air_hockey',
@@ -1077,6 +1124,15 @@ function buildBankFrederickTrustPlan(payoutCash: number): BuildingFloorplan {
         ],
         activities: [
           {
+            id: 'fred_teller_work',
+            floor: 1,
+            kind: 'work_bank',
+            label: '🏦 Trust Teller Counter Shift',
+            x: 224,
+            y: 315,
+            radius: 30,
+          },
+          {
             id: 'fred_arcade',
             floor: 1,
             kind: 'arcade',
@@ -1194,6 +1250,15 @@ function buildJewelryDiamondExchangePlan(payoutCash: number): BuildingFloorplan 
         ],
         activities: [
           {
+            id: 'diamond_retail_work',
+            floor: 1,
+            kind: 'work_retail',
+            label: '💎 Gem Sales & Appraisal Shift',
+            x: 400,
+            y: 315,
+            radius: 30,
+          },
+          {
             id: 'diamond_arcade',
             floor: 1,
             kind: 'arcade',
@@ -1305,6 +1370,15 @@ function buildJewelryColumbiaMallPlan(payoutCash: number): BuildingFloorplan {
           },
         ],
         activities: [
+          {
+            id: 'col_jewelry_work',
+            floor: 1,
+            kind: 'work_retail',
+            label: '💎 Boutique Register Shift',
+            x: 575,
+            y: 445,
+            radius: 28,
+          },
           {
             id: 'col_arcade',
             floor: 1,
@@ -1430,7 +1504,17 @@ function buildJewelryVangelicoPlan(payoutCash: number): BuildingFloorplan {
             dialogue: 'Take the Harbor Lift elevator or grand staircase up to our 2F VIP diamond penthouse.',
           },
         ],
-        activities: [],
+        activities: [
+          {
+            id: 'harbor_jewelry_work',
+            floor: 1,
+            kind: 'work_retail',
+            label: '💎 Showroom Sales Shift',
+            x: 480,
+            y: 345,
+            radius: 30,
+          },
+        ],
       },
       2: {
         floorId: 2,
@@ -1574,6 +1658,15 @@ function buildStoreRioElectronicsPlan(payoutCash: number): BuildingFloorplan {
         ],
         activities: [
           {
+            id: 'rio_retail_work',
+            floor: 1,
+            kind: 'work_retail',
+            label: '🛒 Tech Boutique Register Shift',
+            x: 620,
+            y: 326,
+            radius: 30,
+          },
+          {
             id: 'rio_arcade',
             floor: 1,
             kind: 'arcade',
@@ -1680,6 +1773,15 @@ function buildStoreNeonMartPlan(payoutCash: number): BuildingFloorplan {
         ],
         activities: [
           {
+            id: 'oc_retail_work',
+            floor: 1,
+            kind: 'work_retail',
+            label: '🛒 Superette Checkout Shift',
+            x: 650,
+            y: 340,
+            radius: 30,
+          },
+          {
             id: 'oc_arcade',
             floor: 1,
             kind: 'arcade',
@@ -1780,6 +1882,15 @@ function buildStoreCompactPawnOrMarketPlan(id: string, payoutCash: number, isPaw
           },
         ],
         activities: [
+          {
+            id: 'corner_retail_work',
+            floor: 1,
+            kind: 'work_retail',
+            label: isPawn ? '🛒 Pawn Counter Shift' : '🛒 Market Register Shift',
+            x: 530,
+            y: 398,
+            radius: 28,
+          },
           {
             id: 'corner_arcade',
             floor: 1,
@@ -1934,6 +2045,7 @@ function buildStoreDaveAndBustersPlan(payoutCash: number): BuildingFloorplan {
           { id: 'db_hockey', floor: 1, kind: 'air_hockey', label: '🏒 D&B Neon Air Hockey', x: 452, y: 322, radius: 32 },
           { id: 'db_pingpong', floor: 1, kind: 'table_tennis', label: '🏓 Olympic Table Tennis', x: 190, y: 562, radius: 32 },
           { id: 'db_popshot', floor: 1, kind: 'pop_a_shot', label: '🏀 D&B Pop-a-Shot Hoops', x: 443, y: 560, radius: 32 },
+          { id: 'db_prize_shift', floor: 1, kind: 'work_retail', label: '🛒 Prize Counter Staff Shift', x: 980, y: 332, radius: 30 },
         ],
       },
       2: {
@@ -2391,12 +2503,12 @@ function buildServiceStationPlan(id: string, name: string): BuildingFloorplan {
             floor: 1,
             name: 'Trey Vance',
             roleLabel: 'Lead Tuner',
-            x: 540,
-            y: 330,
+            x: 622,
+            y: 365,
             facing: Math.PI / 2,
             shirtColor: '#ea580c',
             hairColor: '#1e293b',
-            dialogue: 'Need fresh nitro pressure or a quick arcade round while we check your tires?',
+            dialogue: 'Step over to the Lift Bay Terminal ([E]) to clock a mechanic shift, or grab a quick arcade round!',
             serviceAction: { label: 'Quick Pit Wash Tip (+$150)', rewardCash: 150, kind: 'tune' },
           },
           {
@@ -2421,6 +2533,15 @@ function buildServiceStationPlan(id: string, name: string): BuildingFloorplan {
             x: 180,
             y: 355,
             radius: 30,
+          },
+          {
+            id: 'pit_mechanic_work',
+            floor: 1,
+            kind: 'work_mechanic',
+            label: '🔧 Lift Bay & Dyno Tuning (Work)',
+            x: 540,
+            y: 315,
+            radius: 32,
           },
         ],
       },
@@ -2502,6 +2623,15 @@ function buildPolicePrecinctPlan(): BuildingFloorplan {
           },
         ],
         activities: [
+          {
+            id: 'mcpd_dispatch_work',
+            floor: 1,
+            kind: 'work_dispatch',
+            label: '📻 MCPD Dispatch Console Shift',
+            x: 560,
+            y: 262,
+            radius: 32,
+          },
           {
             id: 'mcpd_range',
             floor: 1,
@@ -2683,11 +2813,16 @@ function buildStarterHousePlan(
           facing: Math.PI / 2,
           shirtColor: '#0ea5e9',
           hairColor: '#451a03',
-          dialogue: `Welcome home! Matching ${ext.wallColorHex} 1-story cottage—buy games in the Shop button above to furnish your carport & den!`,
+          dialogue: `Welcome home! Matching ${ext.wallColorHex} 1-story cottage—buy Billiards, Air Hockey, or Ping Pong in the Shop to furnish your rooms!`,
         },
       ],
       activities: [
         { id: 'starter_rest', floor: 1, kind: 'rest', label: '🛋️ Relax on Living Sofa', x: 158, y: 376, radius: 30 },
+      ],
+      emptySlots: [
+        { id: 'starter_carport_1', floor: 1, x: 650, y: 230, w: 150, h: 86, label: 'Carport Game Pad A' },
+        { id: 'starter_carport_2', floor: 1, x: 650, y: 380, w: 150, h: 86, label: 'Carport Game Pad B' },
+        { id: 'starter_den_1', floor: 1, x: 375, y: 315, w: 150, h: 86, label: 'Living Den Pad' },
       ],
     },
   };
@@ -2853,11 +2988,16 @@ function buildColonialOrSplitHousePlan(
           facing: Math.PI / 2,
           shirtColor: '#10b981',
           hairColor: '#78350f',
-          dialogue: `Welcome inside ${name}! Buy arcade or billiards items with cash from the top Shop menu to customize your rooms.`,
+          dialogue: `Welcome inside ${name}! Buy Air Hockey, Billiards, or Ping Pong tables with cash from the Shop menu to furnish your rooms.`,
         },
       ],
       activities: [
         { id: 'col_rest', floor: 1, kind: 'rest', label: '🛋️ Relax in Living Room', x: 138, y: 425, radius: 30 },
+      ],
+      emptySlots: [
+        { id: 'col_garage_1', floor: 1, x: 675, y: 245, w: 150, h: 86, label: 'Garage Arcade Pad A' },
+        { id: 'col_garage_2', floor: 1, x: 675, y: 405, w: 150, h: 86, label: 'Garage Arcade Pad B' },
+        { id: 'col_1f_den', floor: 1, x: 295, y: 350, w: 150, h: 86, label: '1F Family Room Pad' },
       ],
     },
     2: {
@@ -2890,6 +3030,9 @@ function buildColonialOrSplitHousePlan(
       ],
       npcs: [],
       activities: [],
+      emptySlots: [
+        { id: 'col_2f_study', floor: 2, x: 240, y: 335, w: 150, h: 86, label: '2F Loft Game Pad' },
+      ],
     },
   };
 
@@ -2929,6 +3072,10 @@ function buildColonialOrSplitHousePlan(
       ],
       npcs: [],
       activities: [],
+      emptySlots: [
+        { id: 'col_b1_rec1', floor: 0, x: 115, y: 220, w: 165, h: 90, label: 'Basement Game Pad A' },
+        { id: 'col_b1_rec2', floor: 0, x: 325, y: 220, w: 165, h: 90, label: 'Basement Game Pad B' },
+      ],
     };
   }
 
@@ -3222,6 +3369,11 @@ function buildLuxuryEstatePlan(
       activities: [
         { id: 'est_rest', floor: 1, kind: 'rest', label: '🛋️ Relax in Parlor', x: 228, y: 390, radius: 30 },
       ],
+      emptySlots: [
+        { id: 'est_garage_1', floor: 1, x: 870, y: 255, w: 160, h: 90, label: '3-Car Garage Pad A' },
+        { id: 'est_garage_2', floor: 1, x: 870, y: 425, w: 160, h: 90, label: '3-Car Garage Pad B' },
+        { id: 'est_1f_east', floor: 1, x: 525, y: 365, w: 160, h: 90, label: 'Grand Hall Game Pad' },
+      ],
     },
     2: {
       floorId: 2,
@@ -3253,6 +3405,10 @@ function buildLuxuryEstatePlan(
       elevators: [elevatorPad],
       npcs: [],
       activities: [],
+      emptySlots: [
+        { id: 'est_2f_lounge1', floor: 2, x: 250, y: 250, w: 160, h: 90, label: '2F Penthouse Pad A' },
+        { id: 'est_2f_lounge2', floor: 2, x: 250, y: 410, w: 160, h: 90, label: '2F Penthouse Pad B' },
+      ],
     },
   };
 
@@ -3295,10 +3451,14 @@ function buildLuxuryEstatePlan(
           facing: Math.PI / 2,
           shirtColor: '#0284c7',
           hairColor: '#facc15',
-          dialogue: 'Spacious lower level ready for custom Pool Tables, Air Hockey, Skee-Ball & Racing Sims from the Shop!',
+          dialogue: 'Spacious lower level ready for Billiards, Air Hockey & Ping Pong tables from the Shop!',
         },
       ],
       activities: [],
+      emptySlots: [
+        { id: 'est_b1_pad1', floor: 0, x: 145, y: 355, w: 170, h: 92, label: 'B1 Game Hall Pad A' },
+        { id: 'est_b1_pad2', floor: 0, x: 375, y: 355, w: 170, h: 92, label: 'B1 Game Hall Pad B' },
+      ],
     };
   }
 
@@ -3408,6 +3568,9 @@ function buildTownhousePlan(
       stairs: f1Stairs,
       npcs: [],
       activities: [{ id: 'th_rest', floor: 1, kind: 'rest', label: '🛋️ Brownstone Lounge', x: 290, y: 345, radius: 28 }],
+      emptySlots: [
+        { id: 'th_1f_pad', floor: 1, x: 270, y: 120, w: 155, h: 86, label: 'Parlor Game Pad' },
+      ],
     },
     2: {
       floorId: 2,
@@ -3427,6 +3590,9 @@ function buildTownhousePlan(
       ],
       npcs: [],
       activities: [],
+      emptySlots: [
+        { id: 'th_2f_pad', floor: 2, x: 275, y: 225, w: 160, h: 86, label: '2F Suite Game Pad' },
+      ],
     },
   };
 
@@ -3460,6 +3626,9 @@ function buildTownhousePlan(
       ],
       npcs: [],
       activities: [],
+      emptySlots: [
+        { id: 'th_b1_pad', floor: 0, x: 255, y: 215, w: 165, h: 90, label: 'B1 Brick Vault Pad' },
+      ],
     };
   }
 
@@ -3538,32 +3707,56 @@ function buildGenericCityBuildingPlan(
 ): BuildingFloorplan {
   const lower = `${id} ${name}`.toLowerCase();
   const floorCount = computeBuildingFloorCount(buildingHeight, name, buildingStories);
-  const worldW = floorCount >= 4 ? 1180 : floorCount === 3 ? 1120 : floorCount === 2 ? 1020 : 860;
-  const worldH = floorCount >= 4 ? 740 : floorCount === 3 ? 700 : floorCount === 2 ? 640 : 560;
   const availFloors: HeistFloorId[] = Array.from({ length: floorCount }, (_, idx) => idx + 1);
   const seed = hashString(id + name);
 
-  const isArenaOrBowling = /bowling|arena|stadium|theater|cinema|clubhouse|pool|fitness|gym|rec/.test(lower);
-  const isMallOrRetail = /mall|plaza|outlet|gallery|mart|store|shop|market|center|crown/.test(lower);
-  const isHospitalOrLab = /hospital|medical|clinic|health|lab|science|nist|aquarium/.test(lower);
-  const isSchool = /school|high|academy|university|campus|library|college/.test(lower);
+  const isClinic = /clinic|hospital|medical|urgent|health|dental|wellness|infirmary|pharmacy|doctor|care center/.test(lower);
+  const isAirportOrAirpark = !isClinic && /airport|airpark|bwi|kgai|aviation|terminal|hangar/.test(lower);
+  const isMediaOrWtc = !isClinic && /wtc|world trade|media|broadcast|studio/.test(lower);
+  const isArenaOrBowling = !isClinic && /bowling|arena|stadium|theater|cinema|clubhouse|pool|fitness|gym|rec/.test(lower);
+  const isMallOrRetail = !isClinic && /mall|plaza|outlet|gallery|mart|store|shop|market|center|crown/.test(lower);
+  const isSchool = !isClinic && /school|high|academy|university|campus|library|college/.test(lower);
+  const isLab = !isClinic && /nist|research|science|lab|aquarium/.test(lower);
+  const isOffice =
+    !isClinic &&
+    !isArenaOrBowling &&
+    !isMallOrRetail &&
+    !isSchool &&
+    !isLab &&
+    (/office|corporate|headquarters|hq|tower|financial|legal|law|tech|solutions|associates|enterprise|business|commerce|trade|city hall|courthouse|annex|executive|mercantile|charles|pratt|light st|insurance|agency|realty|bankers|consult/.test(
+      lower
+    ) ||
+      floorCount >= 3);
 
-  const accentColor = isArenaOrBowling
+  const baseW = floorCount >= 4 ? 1180 : floorCount === 3 ? 1120 : floorCount === 2 ? 1020 : 860;
+  const baseH = floorCount >= 4 ? 740 : floorCount === 3 ? 700 : floorCount === 2 ? 640 : 560;
+  const worldW = isClinic || isOffice ? Math.max(baseW, 1140) : baseW;
+  const worldH = isClinic || isOffice ? Math.max(baseH, 720) : baseH;
+
+  const accentColor = isClinic
+    ? '#22d3ee'
+    : isOffice
+    ? '#3b82f6'
+    : isArenaOrBowling
     ? '#f97316'
     : isMallOrRetail
     ? '#ec4899'
-    : isHospitalOrLab
+    : isLab
     ? '#38bdf8'
     : isSchool
     ? '#fbbf24'
     : '#60a5fa';
 
-  const venueBadge = isArenaOrBowling
+  const venueBadge = isClinic
+    ? 'CLINIC & MEDICAL SUITES'
+    : isOffice
+    ? 'CORPORATE OFFICE SUITES'
+    : isArenaOrBowling
     ? 'SPORTS & REC VENUE'
     : isMallOrRetail
     ? 'SHOPPING CONCOURSE'
-    : isHospitalOrLab
-    ? 'MEDICAL & RESEARCH'
+    : isLab
+    ? 'RESEARCH & LAB FACILITY'
     : isSchool
     ? 'CAMPUS HALL'
     : floorCount >= 10
@@ -3649,6 +3842,35 @@ function buildGenericCityBuildingPlan(
     'Concierge Ellis',
   ];
   const npcShirts = ['#0284c7', '#7c3aed', '#059669', '#d97706', '#2563eb', '#db2777'];
+  const patientFirstNames = [
+    'Maya R.', 'Devon K.', 'Elena S.', 'Carlos M.', 'Priya N.', 'Jordan T.',
+    'Hannah W.', 'Lucas B.', 'Nadia P.', 'Trevor G.', 'Sonia L.', 'Owen H.',
+  ];
+  const employeeFirstNames = [
+    'Alex Chen', 'Morgan Vance', 'Taylor Brooks', 'Jordan Patel', 'Casey Diaz', 'Riley Kim',
+    'Samira Ali', 'Grant Miller', 'Chloe Ortiz', 'Noah Reed', 'Avery Foster', 'Dylan Cruz',
+  ];
+  const employeeRoles = [
+    'Senior Analyst', 'Project Lead', 'Systems Engineer', 'Account Manager',
+    'Legal Counsel', 'Operations Specialist', 'Product Designer', 'HR Coordinator',
+    'Compliance Officer', 'Tax Consultant', 'Strategy Associate', 'IT Admin',
+  ];
+  const patientDialogues = [
+    'Checking in for my afternoon checkup in this clinic wing.',
+    'Waiting on vitals and lab results before seeing the doctor.',
+    'The nurses called my chart—my exam room is just down the hall.',
+    'Came in for an urgent physical and prescription refill.',
+    'Just finished blood pressure screening in the triage bay.',
+    'Appreciate how organized all the individual exam suites are here.',
+  ];
+  const employeeDialogues = [
+    'Wrapping up Q4 projections before the 3 PM departmental sync.',
+    'Heads down reviewing client briefs inside my office suite.',
+    'Grabbing a file from the operations pod before heading upstairs.',
+    'Our floor is packed with client calls today—busy quarter!',
+    'Checking spreadsheets in this workstation bay all afternoon.',
+    'Use the elevator in the northeast corner to visit other office floors.',
+  ];
 
   for (const fl of availFloors) {
     const obstacles: WallRect[] = [
@@ -3658,11 +3880,248 @@ function buildGenericCityBuildingPlan(
     const activities: FloorActivitySpec[] = [];
     const npcs: FloorNpcSpec[] = [];
     const decors: FloorDecor[] = [];
+    const rugs: FloorRug[] = [];
     const midX = Math.round(worldW / 2);
     const midY = Math.round(worldH / 2);
     let floorSubtitle = name.toUpperCase();
 
-    if (fl === 1) {
+    if (isClinic || isOffice) {
+      // Zero mini-games inside Clinics and Offices! Partitioned small rooms + high patient/employee density.
+      const roomCols = 4;
+      const wingLeft = 92;
+      const wingRight = worldW - 92;
+      const roomW = Math.floor((wingRight - wingLeft) / roomCols);
+      const wallThick = 14;
+      const doorW = 66;
+      const northTopY = 142;
+      const northBotY = 294;
+      const southTopY = 426;
+      const southBotY = 578;
+      const roomH = northBotY - northTopY;
+
+      floorSubtitle = isClinic
+        ? fl === 1
+          ? 'TRIAGE RECEPTION & EXAM ROOMS'
+          : fl === floorCount
+          ? 'SPECIALTY DIAGNOSTICS & PATIENT SUITES'
+          : `CLINIC EXAM WING · ${fl}F`
+        : fl === 1
+        ? 'CORPORATE RECEPTION & WORKSTATIONS'
+        : fl === floorCount
+        ? 'EXECUTIVE OFFICES & CONFERENCE SUITES'
+        : `OFFICE SUITES & WORKSTATIONS · ${fl}F`;
+
+      rugs.push({
+        x: wingLeft,
+        y: northBotY + 18,
+        w: roomCols * roomW,
+        h: southTopY - northBotY - 36,
+        color: isClinic ? '#0c4a6e' : '#1e293b',
+        borderColor: accentColor,
+      });
+
+      // Build outer vertical dividers for all 4 north rooms and 4 south rooms
+      for (let c = 0; c <= roomCols; c++) {
+        const vx = wingLeft + c * roomW;
+        obstacles.push({ x: vx, y: northTopY, w: wallThick, h: roomH, kind: 'interior_wall' });
+        obstacles.push({ x: vx, y: southTopY, w: wallThick, h: roomH, kind: 'interior_wall' });
+      }
+
+      // Build back & doorway walls + interior room props for each of the 8 rooms
+      for (let c = 0; c < roomCols; c++) {
+        const rx = wingLeft + c * roomW;
+        const doorStart = rx + Math.round((roomW - doorW) / 2);
+        const doorEnd = doorStart + doorW;
+
+        // North room back wall + corridor-facing doorway wall
+        obstacles.push({ x: rx, y: northTopY, w: roomW + wallThick, h: wallThick, kind: 'interior_wall' });
+        obstacles.push({ x: rx, y: northBotY - wallThick, w: doorStart - rx, h: wallThick, kind: 'interior_wall' });
+        obstacles.push({ x: doorEnd, y: northBotY - wallThick, w: rx + roomW + wallThick - doorEnd, h: wallThick, kind: 'interior_wall' });
+
+        // South room back wall + corridor-facing doorway wall
+        obstacles.push({ x: rx, y: southBotY - wallThick, w: roomW + wallThick, h: wallThick, kind: 'interior_wall' });
+        obstacles.push({ x: rx, y: southTopY, w: doorStart - rx, h: wallThick, kind: 'interior_wall' });
+        obstacles.push({ x: doorEnd, y: southTopY, w: rx + roomW + wallThick - doorEnd, h: wallThick, kind: 'interior_wall' });
+
+        if (isClinic) {
+          // Small clinic exam room: exam bed on left side + clinician chart desk on right side
+          obstacles.push({ x: rx + 24, y: northTopY + 26, w: 66, h: 42, kind: 'bed' });
+          obstacles.push({ x: rx + roomW - 76, y: northTopY + 26, w: 54, h: 28, kind: 'desk' });
+
+          obstacles.push({ x: rx + 24, y: southBotY - 68, w: 66, h: 42, kind: 'bed' });
+          obstacles.push({ x: rx + roomW - 76, y: southBotY - 56, w: 54, h: 28, kind: 'desk' });
+        } else {
+          // Small corporate office / cubicle pod: work desk + side table or sofa
+          obstacles.push({ x: rx + 26, y: northTopY + 28, w: 78, h: 32, kind: 'desk' });
+          if (c === roomCols - 1) {
+            obstacles.push({ x: rx + roomW - 88, y: northTopY + 76, w: 66, h: 32, kind: 'table' });
+          } else {
+            obstacles.push({ x: rx + roomW - 78, y: northTopY + 30, w: 56, h: 28, kind: 'sofa' });
+          }
+
+          obstacles.push({ x: rx + 26, y: southBotY - 62, w: 78, h: 32, kind: 'desk' });
+          obstacles.push({ x: rx + roomW - 82, y: southBotY - 60, w: 60, h: 28, kind: 'table' });
+        }
+      }
+
+      if (fl === 1) {
+        // Lobby check-in reception desk near bottom entrance (keeps south corridor open)
+        obstacles.push({ x: midX - 115, y: worldH - 122, w: 230, h: 24, kind: 'counter' });
+        activities.push({
+          id: `${id}_work_reception_1f`,
+          floor: 1,
+          kind: isClinic ? 'work_clinic' : 'work_office',
+          label: isClinic ? '🩺 Triage Check-In Desk (Work)' : '💼 Reception & Admin Desk (Work)',
+          x: midX,
+          y: worldH - 156,
+          radius: 34,
+        });
+      }
+
+      // Add realistic indoor Work Shift stations inside individual rooms on EVERY floor (no arcade games!)
+      if (isClinic) {
+        activities.push(
+          {
+            id: `${id}_clinic_vitals_${fl}`,
+            floor: fl,
+            kind: 'work_clinic',
+            label: `🩺 Rm ${fl}02 Vitals & Charting`,
+            x: wingLeft + roomW + Math.round(roomW * 0.68),
+            y: northTopY + 94,
+            radius: 28,
+          },
+          {
+            id: `${id}_clinic_rx_${fl}`,
+            floor: fl,
+            kind: 'work_clinic',
+            label: `💊 Rm ${fl}07 Rx & Diagnostic Desk`,
+            x: wingLeft + 2 * roomW + Math.round(roomW * 0.68),
+            y: southTopY + 54,
+            radius: 28,
+          }
+        );
+      } else {
+        activities.push(
+          {
+            id: `${id}_office_analyst_${fl}`,
+            floor: fl,
+            kind: 'work_office',
+            label: `💼 Ste ${fl}01 Analyst Desk (Work)`,
+            x: wingLeft + Math.round(roomW * 0.36),
+            y: northTopY + 94,
+            radius: 28,
+          },
+          {
+            id: `${id}_office_ops_${fl}`,
+            floor: fl,
+            kind: isAirportOrAirpark ? 'work_atc' : isMediaOrWtc ? 'work_studio' : 'work_office',
+            label: isAirportOrAirpark
+              ? `✈️ Ste ${fl}03 ATC Radar Console (Work)`
+              : isMediaOrWtc
+              ? `🎬 Ste ${fl}03 Broadcast Studio (Work)`
+              : `💻 Ste ${fl}03 Operations Terminal`,
+            x: wingLeft + 2 * roomW + Math.round(roomW * 0.36),
+            y: northTopY + 94,
+            radius: 28,
+          },
+          {
+            id: `${id}_office_exec_${fl}`,
+            floor: fl,
+            kind: isMediaOrWtc && fl === floorCount ? 'work_studio' : 'work_office',
+            label:
+              isMediaOrWtc && fl === floorCount
+                ? `🎙️ ${fl}F Skyline Broadcast Booth (Work)`
+                : fl === floorCount
+                ? `📊 Ste ${fl}08 Executive Suite (Work)`
+                : `⚖️ Ste ${fl}08 Client Review Desk`,
+            x: wingLeft + 3 * roomW + Math.round(roomW * 0.36),
+            y: southTopY + 54,
+            radius: 28,
+          }
+        );
+      }
+
+      // Populate 8–12 Patients (plus 2–3 Doctors/Nurses) OR 8–12 Employees on every floor
+      const primaryNpcCount = 9 + ((seed + fl) % 3); // 9, 10, or 11 people per floor
+      for (let p = 0; p < primaryNpcCount; p++) {
+        const roomIdx = p % 8;
+        const isNorthRoom = roomIdx < 4;
+        const colIdx = roomIdx % 4;
+        const roomCenterX = wingLeft + colIdx * roomW + Math.round(roomW / 2);
+        const roomPosY = isNorthRoom ? northTopY + 104 : southTopY + 56;
+        const jitterX = p >= 8 ? (p % 2 === 0 ? -36 : 36) : ((p + fl) % 3 - 1) * 26;
+        const npcX = p >= 8 ? midX + (p - 9) * 145 : roomCenterX + jitterX;
+        const npcY = p >= 8 ? midY + (p % 2 === 0 ? -18 : 20) : roomPosY;
+
+        if (isClinic) {
+          const pName = patientFirstNames[(seed + fl * 5 + p) % patientFirstNames.length];
+          npcs.push({
+            id: `${id}_patient_${fl}_${p}`,
+            floor: fl,
+            name: pName,
+            roleLabel: `Patient · Rm ${fl}0${roomIdx + 1}`,
+            x: npcX,
+            y: npcY,
+            facing: isNorthRoom ? Math.PI / 2 : -Math.PI / 2,
+            shirtColor: ['#e2e8f0', '#7dd3fc', '#fda4af', '#a7f3d0', '#fde68a'][p % 5],
+            hairColor: ['#1e293b', '#78350f', '#451a03', '#334155'][p % 4],
+            dialogue: patientDialogues[(p + fl) % patientDialogues.length],
+          });
+        } else {
+          const eName = employeeFirstNames[(seed + fl * 7 + p) % employeeFirstNames.length];
+          const eRole = employeeRoles[(seed + fl * 3 + p) % employeeRoles.length];
+          npcs.push({
+            id: `${id}_emp_${fl}_${p}`,
+            floor: fl,
+            name: eName,
+            roleLabel: `${eRole} · Ste ${fl}0${roomIdx + 1}`,
+            x: npcX,
+            y: npcY,
+            facing: isNorthRoom ? Math.PI / 2 : -Math.PI / 2,
+            shirtColor: npcShirts[(p + fl) % npcShirts.length],
+            hairColor: ['#0f172a', '#451a03', '#78350f', '#334155'][p % 4],
+            dialogue:
+              p === 0
+                ? `Clock in at any Suite Desk ([E]) to work an office shift for cash, or take this floor's check-in stipend!`
+                : employeeDialogues[(p + fl) % employeeDialogues.length],
+            serviceAction:
+              p === 0
+                ? {
+                    label: `Office Floor ${fl} Check-In Bonus (+$300)`,
+                    rewardCash: 300,
+                    kind: 'teller',
+                  }
+                : undefined,
+          });
+        }
+      }
+
+      if (isClinic) {
+        const staffCount = 2 + (fl % 2); // 2 or 3 medical staff per floor
+        for (let s = 0; s < staffCount; s++) {
+          npcs.push({
+            id: `${id}_med_${fl}_${s}`,
+            floor: fl,
+            name: s === 0 ? `Dr. ${['Lin', 'Patel', 'Ramirez', 'Carter'][(seed + fl) % 4]}` : `Nurse ${['Avery', 'Chloe', 'Marcus'][(seed + fl + s) % 3]}`,
+            roleLabel: s === 0 ? 'Attending Physician' : 'Triage Nurse',
+            x: fl === 1 && s === 0 ? midX : wingLeft + 140 + s * 320,
+            y: fl === 1 && s === 0 ? worldH - 152 : midY + (s % 2 === 0 ? -12 : 12),
+            facing: -Math.PI / 2,
+            shirtColor: s === 0 ? '#f8fafc' : '#0ea5e9',
+            hairColor: '#0f172a',
+            dialogue: `Welcome to Floor ${fl} of ${name}. Step up to any Triage or Charting Desk ([E]) to work a medical shift!`,
+            serviceAction:
+              s === 0
+                ? {
+                    label: `Floor ${fl} Medical Shift Bonus (+$320)`,
+                    rewardCash: 320,
+                    kind: 'teller',
+                  }
+                : undefined,
+          });
+        }
+      }
+    } else if (fl === 1) {
       floorSubtitle = 'MAIN LOBBY';
       obstacles.push({ x: midX - 150, y: 175, w: 300, h: 30, kind: 'counter' });
       obstacles.push({ x: 110, y: 315, w: 120, h: 40, kind: 'sofa' });
@@ -3670,7 +4129,7 @@ function buildGenericCityBuildingPlan(
       npcs.push({
         id: `${id}_concierge`,
         floor: 1,
-        name: isSchool ? 'Dean Holloway' : isHospitalOrLab ? 'Dr. Lin' : isMallOrRetail ? 'Mall Host Avery' : 'Lobby Concierge',
+        name: isSchool ? 'Dean Holloway' : isLab ? 'Dr. Lin' : isMallOrRetail ? 'Mall Host Avery' : 'Lobby Concierge',
         roleLabel: venueBadge,
         x: midX,
         y: 142,
@@ -3679,9 +4138,51 @@ function buildGenericCityBuildingPlan(
         hairColor: '#1e293b',
         dialogue:
           floorCount >= 2
-            ? `Welcome inside ${name}! All ${floorCount} floors are open — take the Stairs or Main Elevator to any floor up to ${floorCount}F!`
-            : `Welcome inside ${name}! Take a look around our public concourse.`,
+            ? `Welcome inside ${name}! Work the front desk ([E]) for shift cash or take the Stairs / Main Elevator up to ${floorCount}F!`
+            : `Welcome inside ${name}! Step up to the front desk ([E]) to work a shift or explore the concourse.`,
       });
+      // Every commercial / lab / campus / terminal / lobby building has a front counter work shift!
+      const lobbyWorkKind = isAirportOrAirpark
+        ? 'work_atc'
+        : isMediaOrWtc
+        ? 'work_studio'
+        : isLab
+        ? 'work_lab'
+        : isMallOrRetail
+        ? 'work_retail'
+        : 'work_office';
+      const lobbyWorkLabel = isAirportOrAirpark
+        ? '✈️ ATC & Ramp Dispatch Console (Work)'
+        : isMediaOrWtc
+        ? '🎬 Broadcast & Audio Desk (Work)'
+        : isLab
+        ? '🔬 Lab Check-In & Assay Desk (Work)'
+        : isMallOrRetail
+        ? '🛒 Mall Register & Desk (Work)'
+        : isSchool
+        ? '📚 Campus Admin Desk (Work)'
+        : '💼 Front Desk Work Shift';
+      activities.push({
+        id: `${id}_lobby_work`,
+        floor: 1,
+        kind: lobbyWorkKind,
+        label: lobbyWorkLabel,
+        x: midX,
+        y: 236,
+        radius: 30,
+      });
+      if (isMallOrRetail) {
+        obstacles.push({ x: worldW - 255, y: 175, w: 120, h: 28, kind: 'counter' });
+        activities.push({
+          id: `${id}_kitchen_work`,
+          floor: 1,
+          kind: 'work_kitchen',
+          label: '👨‍🍳 Bistro & Crab House Kitchen (Work)',
+          x: worldW - 195,
+          y: 236,
+          radius: 30,
+        });
+      }
       if (isArenaOrBowling) {
         obstacles.push({ x: 140, y: 195, w: 124, h: 60, kind: 'air_hockey_table' });
         activities.push({ id: `${id}_air_hockey`, floor: 1, kind: 'air_hockey', label: '🏒 Lobby Air Hockey', x: 202, y: 286, radius: 30 });
@@ -3768,6 +4269,18 @@ function buildGenericCityBuildingPlan(
         radius: 30,
       });
 
+      if (isLab || isMallOrRetail || isSchool) {
+        activities.push({
+          id: `${id}_work_${fl}f`,
+          floor: fl,
+          kind: isLab ? 'work_lab' : isMallOrRetail ? 'work_retail' : 'work_office',
+          label: isLab ? `🔬 ${fl}F Lab Bench Shift` : isMallOrRetail ? `🛒 ${fl}F Retail Desk Shift` : `💼 ${fl}F Staff Workstation`,
+          x: 204,
+          y: 280,
+          radius: 28,
+        });
+      }
+
       const npcIdx = (seed + fl) % npcNames.length;
       npcs.push({
         id: `${id}_staff_${fl}f`,
@@ -3781,6 +4294,10 @@ function buildGenericCityBuildingPlan(
         hairColor: '#0f172a',
         dialogue: `Welcome to Floor ${fl} of ${floorCount} in ${name} (${spec.themeName}). Head up to ${floorCount}F for the top deck or ride the Main Elevator anytime!`,
       });
+    }
+
+    if (!isClinic && !isOffice) {
+      rugs.push({ x: midX - 180, y: 120, w: 360, h: worldH - 250, color: '#1e293b', borderColor: accentColor });
     }
 
     const stairs: StairPortal[] = [];
@@ -3818,12 +4335,14 @@ function buildGenericCityBuildingPlan(
       floorId: fl,
       floorName: `${fl}F · ${floorSubtitle}`,
       playableZones: [{ x: padX, y: 24, w: playW, h: playH }],
-      rugs: [{ x: midX - 180, y: 120, w: 360, h: worldH - 250, color: '#1e293b', borderColor: accentColor }],
+      rugs,
       decors,
       obstacles,
       waypoints: [
         { x: midX, y: worldH - 105 },
-        { x: midX, y: Math.round(worldH / 2) },
+        { x: 200, y: midY },
+        { x: midX, y: midY },
+        { x: worldW - 200, y: midY },
       ],
       stairs,
       elevators,
@@ -3846,21 +4365,21 @@ function buildGenericCityBuildingPlan(
     policeBreachCount: 0,
     theme: {
       exteriorBg: '#090e1a',
-      floorTileA: '#172033',
-      floorTileB: '#1f2b44',
+      floorTileA: isClinic ? '#0f1f2e' : '#172033',
+      floorTileB: isClinic ? '#142a3d' : '#1f2b44',
       tileSize: 34,
       vaultTileA: '#0f172a',
       vaultTileB: '#1e293b',
       wallFill: '#0f172a',
       wallStroke: accentColor,
-      interiorWallFill: '#334155',
+      interiorWallFill: isClinic ? '#334155' : '#334155',
       interiorWallStroke: accentColor,
       counterWood: '#1e293b',
       counterTop: accentColor,
       accentColor,
       lootVisual: 'tech_gear',
       vaultLabel: 'PUBLIC BUILDING',
-      tierBadge: `${floorCount}F · EXPLORABLE`,
+      tierBadge: `${floorCount}F · ${isClinic ? 'CLINIC' : isOffice ? 'OFFICE' : 'EXPLORABLE'}`,
     },
   };
 }
@@ -4167,40 +4686,114 @@ function findPlacementOnFloor(
 function applyHouseFurnishings(plan: BuildingFloorplan, furnishings?: string[]): BuildingFloorplan {
   if (!furnishings || furnishings.length === 0) return plan;
 
-  const uniqueIds = Array.from(new Set(furnishings));
+  const uniqueEntries = Array.from(new Set(furnishings));
+  const seenItemIds = new Set<string>();
   // Prefer Basement (0) -> 2F (2) -> 1F (1) so lower/upper game rooms fill naturally first
   const floorOrder: HeistFloorId[] = ([0, 2, 1] as HeistFloorId[]).filter(
     (f) => plan.floorsById[f] !== undefined
   );
 
   let placedCount = 0;
-  for (const itemId of uniqueIds) {
-    const item = getHomeFurnishingById(itemId);
+  for (const rawEntry of uniqueEntries) {
+    const [rawItemId, preferredSlotId] = rawEntry.split('@');
+    if (seenItemIds.has(rawItemId)) continue;
+    const item = getHomeFurnishingById(rawItemId);
     if (!item) continue;
+    seenItemIds.add(rawItemId);
 
-    for (const fl of floorOrder) {
-      const floorData = plan.floorsById[fl];
-      if (!floorData) continue;
-      const spot = findPlacementOnFloor(floorData, plan, item.propWidth, item.propHeight);
-      if (spot) {
-        floorData.obstacles.push({
-          x: spot.x,
-          y: spot.y,
-          w: item.propWidth,
-          h: item.propHeight,
-          kind: item.propKind,
-        });
-        floorData.activities.push({
-          id: `furn_${item.id}`,
-          floor: fl,
-          kind: item.activityKind,
-          label: item.activityLabel,
-          x: spot.actX,
-          y: spot.actY,
-          radius: 26,
-        });
-        placedCount++;
-        break;
+    let placed = false;
+    if (preferredSlotId) {
+      for (const fl of floorOrder) {
+        const floorData = plan.floorsById[fl];
+        if (!floorData || !floorData.emptySlots) continue;
+        const slotIdx = floorData.emptySlots.findIndex((s) => s.id === preferredSlotId);
+        if (slotIdx !== -1) {
+          const slot = floorData.emptySlots[slotIdx];
+          const px = Math.round(slot.x + (slot.w - item.propWidth) * 0.5);
+          const py = Math.round(slot.y + (slot.h - item.propHeight) * 0.5);
+          const actX = Math.round(px + item.propWidth * 0.5);
+          const actY = Math.round(py + item.propHeight + 20);
+          floorData.obstacles.push({
+            x: px,
+            y: py,
+            w: item.propWidth,
+            h: item.propHeight,
+            kind: item.propKind,
+          });
+          floorData.activities.push({
+            id: `furn_${item.id}`,
+            floor: fl,
+            kind: item.activityKind,
+            label: item.activityLabel,
+            x: actX,
+            y: actY,
+            radius: 26,
+          });
+          floorData.emptySlots.splice(slotIdx, 1);
+          placedCount++;
+          placed = true;
+          break;
+        }
+      }
+    }
+
+    if (!placed) {
+      // Fallback: place in first free slot on any available floor, or scan playable zones
+      for (const fl of floorOrder) {
+        const floorData = plan.floorsById[fl];
+        if (!floorData) continue;
+        const openSlot = floorData.emptySlots?.[0];
+        if (openSlot) {
+          const px = Math.round(openSlot.x + (openSlot.w - item.propWidth) * 0.5);
+          const py = Math.round(openSlot.y + (openSlot.h - item.propHeight) * 0.5);
+          floorData.obstacles.push({
+            x: px,
+            y: py,
+            w: item.propWidth,
+            h: item.propHeight,
+            kind: item.propKind,
+          });
+          floorData.activities.push({
+            id: `furn_${item.id}`,
+            floor: fl,
+            kind: item.activityKind,
+            label: item.activityLabel,
+            x: Math.round(px + item.propWidth * 0.5),
+            y: Math.round(py + item.propHeight + 20),
+            radius: 26,
+          });
+          floorData.emptySlots!.splice(0, 1);
+          placedCount++;
+          placed = true;
+          break;
+        }
+        const spot = findPlacementOnFloor(floorData, plan, item.propWidth, item.propHeight);
+        if (spot) {
+          floorData.obstacles.push({
+            x: spot.x,
+            y: spot.y,
+            w: item.propWidth,
+            h: item.propHeight,
+            kind: item.propKind,
+          });
+          floorData.activities.push({
+            id: `furn_${item.id}`,
+            floor: fl,
+            kind: item.activityKind,
+            label: item.activityLabel,
+            x: spot.actX,
+            y: spot.actY,
+            radius: 26,
+          });
+          if (floorData.emptySlots) {
+            floorData.emptySlots = floorData.emptySlots.filter(
+              (s) => !rectsOverlap(spot.x, spot.y, item.propWidth, item.propHeight, s.x, s.y, s.w, s.h, 12)
+            );
+          }
+          placedCount++;
+          placed = true;
+          break;
+        }
       }
     }
   }

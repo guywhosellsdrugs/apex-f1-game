@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { StreetCarModelArchetype } from './cityTrafficBuilder';
+import { getGraphicsPresetConfig } from '../utils/graphicsSettings';
 
 export type SculptSilhouetteKey =
   | 'civic_hatch'
@@ -14,6 +15,9 @@ export type SculptSilhouetteKey =
   | 'bmw_m4'
   | 'corvette_c8'
   | 'escalade'
+  | 'pickup_crew'
+  | 'suv_offroad'
+  | 'suv_sport'
   | 'porsche_911'
   | 'huracan'
   | 'mcmurtry'
@@ -41,6 +45,23 @@ export interface BodyDimensions {
   rearAxleZ: number;
   tireWidth: number;
   wheelCenterX: number;
+}
+
+export interface StreetCarWheelCorner {
+  suspGroup: THREE.Group;
+  steerGroup: THREE.Group;
+  spinGroup: THREE.Group;
+  baseY: number;
+  radius: number;
+  isFront: boolean;
+  isLeft: boolean;
+}
+
+export interface StreetCarWheelRig {
+  fl: StreetCarWheelCorner;
+  fr: StreetCarWheelCorner;
+  rl: StreetCarWheelCorner;
+  rr: StreetCarWheelCorner;
 }
 
 interface SilhouetteProfileSpec {
@@ -90,7 +111,12 @@ function getWheelTrackMetrics(key: SculptSilhouetteKey, width: number): {
   wheelCenterX: number;
   innerTireX: number;
 } {
-  const isSuv = key === 'escalade' || key === 'civ_suv';
+  const isSuvOrTruck =
+    key === 'escalade' ||
+    key === 'civ_suv' ||
+    key === 'pickup_crew' ||
+    key === 'suv_offroad' ||
+    key === 'suv_sport';
   const isWideHyper =
     key === 'huracan' ||
     key === 'corvette_c8' ||
@@ -101,10 +127,18 @@ function getWheelTrackMetrics(key: SculptSilhouetteKey, width: number): {
     key === 'nevera' ||
     key === 'porsche_911' ||
     key === 'supra_mk5';
-  const tireWidth = isSuv ? 0.27 : isWideHyper ? 0.255 : key === 'mcmurtry' ? 0.215 : 0.238;
+  const tireWidth = isSuvOrTruck
+    ? key === 'pickup_crew' || key === 'suv_offroad'
+      ? 0.295
+      : 0.275
+    : isWideHyper
+    ? 0.255
+    : key === 'mcmurtry'
+    ? 0.215
+    : 0.238;
   const halfW = width * 0.5;
-  // Tuck tire cleanly inside flared fender lip so full steering lock never causes fender poke
-  const outerTireX = halfW * 0.855;
+  // Position tires flush with outer fender lips (slightly wider on trucks/SUVs) so all 4 wheels, sidewalls, and rims are clearly visible
+  const outerTireX = isSuvOrTruck ? halfW * 0.965 : halfW * 0.945;
   const wheelCenterX = outerTireX - tireWidth * 0.5;
   const innerTireX = wheelCenterX - tireWidth * 0.5;
   return { tireWidth, outerTireX, wheelCenterX, innerTireX };
@@ -112,7 +146,8 @@ function getWheelTrackMetrics(key: SculptSilhouetteKey, width: number): {
 
 function getProfileSpec(key: SculptSilhouetteKey, dim: BodyDimensions): SilhouetteProfileSpec {
   const H = dim.lowerH;
-  const isSuv = key === 'escalade' || key === 'civ_suv';
+  const isSuv = key === 'escalade' || key === 'civ_suv' || key === 'suv_offroad' || key === 'suv_sport';
+  const isPickup = key === 'pickup_crew';
   const isEscalade = key === 'escalade';
   const isPorsche = key === 'porsche_911';
   const isCorvette = key === 'corvette_c8';
@@ -124,27 +159,50 @@ function getProfileSpec(key: SculptSilhouetteKey, dim: BodyDimensions): Silhouet
   const isMuscle = key === 'challenger' || key === 'charger' || key === 'camaro';
   const isSupra = key === 'supra_mk5' || key === 'supra_mk4';
 
-  if (isEscalade) {
+  if (isPickup) {
     return {
-      noseLowY: H * 0.24,
+      noseLowY: H * 0.28,
       noseBrowY: H * 0.94,
       cowlY: H * 1.0,
-      beltRearY: H * 1.0,
-      tailY: H * 0.99,
-      diffuserY: H * 0.18,
-      hoodCrown: 0.018,
-      fenderRidge: 0.014,
-      powerDome: 0.020,
-      noseTaper: 0.020,
+      beltRearY: H * 0.96,
+      tailY: H * 0.93,
+      diffuserY: H * 0.26,
+      hoodCrown: 0.022,
+      fenderRidge: 0.018,
+      powerDome: 0.028,
+      noseTaper: 0.025,
       tailTaper: 0.012,
-      frontSweep: 0.028,
-      rearSweep: 0.018,
-      fenderFlare: 0.048,
+      frontSweep: 0.032,
+      rearSweep: 0.015,
+      fenderFlare: 0.058,
       waistPinch: 0.0,
-      doorScallop: 0.012,
-      tumblehome: 0.024,
+      doorScallop: 0.014,
+      tumblehome: 0.03,
       roofStyle: 'suv',
-      rearHaunchSwell: 0.010,
+      rearHaunchSwell: 0.016,
+    };
+  }
+  if (isEscalade || key === 'suv_offroad') {
+    return {
+      noseLowY: H * 0.26,
+      noseBrowY: H * 0.93,
+      cowlY: H * 1.0,
+      beltRearY: H * 1.0,
+      tailY: H * 0.98,
+      diffuserY: H * 0.22,
+      hoodCrown: 0.020,
+      fenderRidge: 0.016,
+      powerDome: 0.024,
+      noseTaper: 0.024,
+      tailTaper: 0.014,
+      frontSweep: 0.032,
+      rearSweep: 0.020,
+      fenderFlare: key === 'suv_offroad' ? 0.058 : 0.048,
+      waistPinch: 0.0,
+      doorScallop: 0.014,
+      tumblehome: 0.028,
+      roofStyle: 'suv',
+      rearHaunchSwell: 0.014,
     };
   }
   if (isSuv) {
@@ -157,17 +215,17 @@ function getProfileSpec(key: SculptSilhouetteKey, dim: BodyDimensions): Silhouet
       diffuserY: H * 0.16,
       hoodCrown: 0.028,
       fenderRidge: 0.020,
-      powerDome: 0.012,
-      noseTaper: 0.065,
-      tailTaper: 0.045,
-      frontSweep: 0.09,
-      rearSweep: 0.065,
-      fenderFlare: 0.045,
-      waistPinch: 0.012,
-      doorScallop: 0.018,
-      tumblehome: 0.045,
+      powerDome: 0.016,
+      noseTaper: key === 'suv_sport' ? 0.085 : 0.065,
+      tailTaper: 0.050,
+      frontSweep: key === 'suv_sport' ? 0.12 : 0.09,
+      rearSweep: key === 'suv_sport' ? 0.085 : 0.065,
+      fenderFlare: 0.052,
+      waistPinch: 0.016,
+      doorScallop: 0.022,
+      tumblehome: key === 'suv_sport' ? 0.058 : 0.045,
       roofStyle: 'suv',
-      rearHaunchSwell: 0.02,
+      rearHaunchSwell: 0.032,
     };
   }
   if (isCorvette) {
@@ -461,8 +519,8 @@ function evalSideProfileTopY(
   const halfL = dim.length * 0.5;
   const cowlZ = dim.cabinZ - dim.cabinLen * 0.46;
   const rearDeckZ = dim.cabinZ + dim.cabinLen * 0.42;
-  const archR = dim.wheelRadius * 1.19;
-  const minArchFenderTop = dim.wheelRadius + archR + 0.055;
+  const archR = dim.wheelRadius * 1.24;
+  const minArchFenderTop = dim.wheelRadius + archR + 0.065;
 
   let y: number;
   if (z <= cowlZ) {
@@ -502,7 +560,7 @@ function buildSculptedLowerHullGeometry(
   key: SculptSilhouetteKey,
   dim: BodyDimensions
 ): THREE.BufferGeometry {
-  const cacheKey = `extrudeHull_v4_${key}_${dim.length.toFixed(2)}_${dim.width.toFixed(2)}_${dim.lowerH.toFixed(2)}_${dim.wheelRadius.toFixed(3)}_${dim.baseY.toFixed(2)}`;
+  const cacheKey = `extrudeHull_v5_${key}_${dim.length.toFixed(2)}_${dim.width.toFixed(2)}_${dim.lowerH.toFixed(2)}_${dim.wheelRadius.toFixed(3)}_${dim.baseY.toFixed(2)}`;
   const cached = hullGeoCache.get(cacheKey);
   if (cached) return cached;
 
@@ -515,7 +573,7 @@ function buildSculptedLowerHullGeometry(
 
   const bevelT = 0.044;
   const bevelS = 0.024;
-  const archR = dim.wheelRadius * 1.22;
+  const archR = dim.wheelRadius * 1.27;
   const cutR = archR + bevelS;
   const archCy = dim.wheelRadius;
 
@@ -690,12 +748,12 @@ function buildSculptedLowerHullGeometry(
  * so you never see through the car under the wheel arches.
  */
 function buildWheelWellLinersGeometry(dim: BodyDimensions): THREE.BufferGeometry {
-  const key = `wells_v4_${dim.length.toFixed(2)}_${dim.width.toFixed(2)}_${dim.wheelRadius.toFixed(3)}_${dim.wheelCenterX.toFixed(3)}`;
+  const key = `wells_v5_${dim.length.toFixed(2)}_${dim.width.toFixed(2)}_${dim.wheelRadius.toFixed(3)}_${dim.wheelCenterX.toFixed(3)}`;
   const cached = archWellGeoCache.get(key);
   if (cached) return cached;
 
-  const archR = dim.wheelRadius * 1.17;
-  const wellOuterX = dim.width * 0.47;
+  const archR = dim.wheelRadius * 1.22;
+  const wellOuterX = dim.width * 0.48;
   const wellInnerX = Math.max(0.18, dim.wheelCenterX - dim.tireWidth * 0.5 - 0.04);
   const wellDepth = Math.max(0.12, wellOuterX - wellInnerX);
   const midX = (wellOuterX + wellInnerX) * 0.5;
@@ -730,11 +788,11 @@ function buildWheelWellLinersGeometry(dim: BodyDimensions): THREE.BufferGeometry
  * Crisp outer fender-arch eyebrow trim rings hugging each circular wheel cutout
  */
 function buildFenderArchTrimGeometry(dim: BodyDimensions): THREE.BufferGeometry {
-  const key = `archTrim_v4_${dim.length.toFixed(2)}_${dim.width.toFixed(2)}_${dim.wheelRadius.toFixed(3)}`;
+  const key = `archTrim_v5_${dim.length.toFixed(2)}_${dim.width.toFixed(2)}_${dim.wheelRadius.toFixed(3)}`;
   const cached = archTrimGeoCache.get(key);
   if (cached) return cached;
 
-  const archR = dim.wheelRadius * 1.19;
+  const archR = dim.wheelRadius * 1.24;
   const parts: THREE.BufferGeometry[] = [];
   for (const side of [-1, 1]) {
     for (const axleZ of [dim.frontAxleZ, dim.rearAxleZ]) {
@@ -852,7 +910,9 @@ function buildLoftedGreenhouseParts(
     ? wsBotZ + cLen * 0.27
     : wsBotZ + cLen * 0.34;
   const rwTopZ =
-    key === 'escalade'
+    key === 'pickup_crew'
+      ? rwBotZ - cLen * 0.055
+      : key === 'escalade' || key === 'suv_offroad'
       ? rwBotZ - cLen * 0.055
       : isSuv
       ? rwBotZ - cLen * 0.095
@@ -1163,6 +1223,8 @@ export type HeadlightDesignId =
   | 'bmw_m4'
   | 'corvette_c8'
   | 'escalade'
+  | 'pickup_truck'
+  | 'suv_offroad'
   | 'porsche_911'
   | 'huracan'
   | 'bugatti_chiron'
@@ -1301,6 +1363,48 @@ export function resolveStreetCarSilhouette(
     cabinWidthRatio = 0.88;
     wheelRadius = 0.415;
     baseY = 0.24;
+  } else if (archetype === 'pickup_crew') {
+    key = 'pickup_crew';
+    const isHeavy = trimId.includes('trx') || trimId.includes('raptor_r') || trimId.includes('hummer') || trimId.includes('mammoth');
+    const isCompact = trimId.includes('maverick');
+    carWidth = isHeavy ? 2.26 : isCompact ? 1.98 : 2.12;
+    carLen = isHeavy ? 5.56 : isCompact ? 5.02 : 5.32;
+    lowerH = isHeavy ? 0.90 : 0.82;
+    cabinH = 0.66;
+    cabinLen = 2.08;
+    cabinZ = -0.34; // Crew cab set ahead of rear open cargo bed
+    cabinWidthRatio = 0.84;
+    wheelRadius = isHeavy ? 0.465 : 0.425;
+    baseY = isHeavy ? 0.34 : 0.28;
+  } else if (archetype === 'suv_offroad') {
+    key = 'suv_offroad';
+    const isExtremeLift =
+      trimId.includes('4x4') ||
+      trimId.includes('brabus') ||
+      trimId.includes('r1s') ||
+      trimId.includes('bronco') ||
+      trimId.includes('wrangler') ||
+      trimId.includes('392');
+    carWidth = isExtremeLift ? 2.18 : 2.08;
+    carLen = trimId.includes('wrangler') ? 4.82 : 5.08;
+    lowerH = 0.86;
+    cabinH = 0.74;
+    cabinLen = trimId.includes('wrangler') ? 3.25 : 3.65;
+    cabinZ = 0.44;
+    cabinWidthRatio = 0.87;
+    wheelRadius = isExtremeLift ? 0.455 : 0.42;
+    baseY = isExtremeLift ? 0.33 : 0.27;
+  } else if (archetype === 'suv_sport') {
+    key = 'suv_sport';
+    carWidth = 2.12;
+    carLen = 5.02;
+    lowerH = 0.78;
+    cabinH = 0.60;
+    cabinLen = 3.22;
+    cabinZ = 0.36;
+    cabinWidthRatio = 0.84;
+    wheelRadius = 0.405;
+    baseY = 0.24;
   } else if (archetype === 'porsche_911') {
     key = 'porsche_911';
     carWidth = 2.02;
@@ -1391,18 +1495,72 @@ export function resolveStreetCarSilhouette(
   };
 }
 
-function getHeadlightClearLensMaterial(): THREE.MeshPhysicalMaterial {
-  return new THREE.MeshPhysicalMaterial({
-    color: 0xdbeafe,
-    roughness: 0.04,
-    metalness: 0.08,
-    clearcoat: 1.0,
-    clearcoatRoughness: 0.02,
-    transparent: true,
-    opacity: 0.28,
-    depthWrite: false,
-    envMapIntensity: 2.0,
-  });
+let cachedClearLensPbrMat: THREE.MeshPhysicalMaterial | null = null;
+let cachedClearLensFastMat: THREE.MeshLambertMaterial | null = null;
+function getHeadlightClearLensMaterial(): THREE.Material {
+  const preset = getGraphicsPresetConfig();
+  const isFast = preset.id === 'retro' || preset.id === 'retro_pixel' || preset.id === 'low' || preset.id === 'dynamic_conservative';
+  if (isFast) {
+    if (!cachedClearLensFastMat) {
+      cachedClearLensFastMat = new THREE.MeshLambertMaterial({
+        color: 0xdbeafe,
+        transparent: true,
+        opacity: 0.28,
+        depthWrite: false,
+      });
+    }
+    return cachedClearLensFastMat;
+  }
+  if (!cachedClearLensPbrMat) {
+    cachedClearLensPbrMat = new THREE.MeshPhysicalMaterial({
+      color: 0xdbeafe,
+      roughness: 0.04,
+      metalness: 0.08,
+      clearcoat: 1.0,
+      clearcoatRoughness: 0.02,
+      transparent: true,
+      opacity: 0.28,
+      depthWrite: false,
+      envMapIntensity: 2.0,
+    });
+  }
+  return cachedClearLensPbrMat;
+}
+
+let cachedManifoldPbrMat: THREE.MeshStandardMaterial | null = null;
+let cachedManifoldFastMat: THREE.MeshLambertMaterial | null = null;
+function getSharedManifoldMat(): THREE.Material {
+  const preset = getGraphicsPresetConfig();
+  const isFast = preset.id === 'retro' || preset.id === 'retro_pixel' || preset.id === 'low' || preset.id === 'dynamic_conservative';
+  if (isFast) {
+    if (!cachedManifoldFastMat) {
+      cachedManifoldFastMat = new THREE.MeshLambertMaterial({ color: 0xdc2626 });
+    }
+    return cachedManifoldFastMat;
+  }
+  if (!cachedManifoldPbrMat) {
+    cachedManifoldPbrMat = new THREE.MeshStandardMaterial({ color: 0xdc2626, roughness: 0.35, metalness: 0.45 });
+  }
+  return cachedManifoldPbrMat;
+}
+
+const sharedCaliperMatCache = new Map<string, THREE.Material>();
+function getSharedCaliperMat(colorHex: number): THREE.Material {
+  const preset = getGraphicsPresetConfig();
+  const isFast = preset.id === 'retro' || preset.id === 'retro_pixel' || preset.id === 'low' || preset.id === 'dynamic_conservative';
+  const key = `${colorHex}_${isFast ? 1 : 0}`;
+  let m = sharedCaliperMatCache.get(key);
+  if (!m) {
+    m = isFast
+      ? new THREE.MeshLambertMaterial({ color: colorHex })
+      : new THREE.MeshStandardMaterial({
+          color: colorHex,
+          metalness: 0.65,
+          roughness: 0.22,
+        });
+    sharedCaliperMatCache.set(key, m);
+  }
+  return m;
 }
 
 function buildCurvedShapeExtrudeGeometry(
@@ -1662,6 +1820,18 @@ function getHeadlightSilhouettePoints(design: HeadlightDesignId): {
         ],
         wrap: 0.34,
         tiltBack: 0.04,
+      };
+    case 'pickup_truck':
+    case 'suv_offroad':
+      return {
+        pts: [
+          [-0.21, -0.065],
+          [0.21, -0.065],
+          [0.22, 0.065],
+          [-0.22, 0.065],
+        ],
+        wrap: 0.24,
+        tiltBack: 0.05,
       };
     case 'civic_hatch':
       return {
@@ -2087,30 +2257,43 @@ export function buildSculptedStreetCarBody(
   // 1. Extruded Side-Profile Automotive Lower Body with True Wheel-Arch Cutouts + Dark Liners
   const hullGeo = buildSculptedLowerHullGeometry(key, dim);
   const hullMesh = new THREE.Mesh(hullGeo, mats.bodyMat);
-  hullMesh.castShadow = true;
-  hullMesh.receiveShadow = true;
+  const presetCfg = getGraphicsPresetConfig();
+  hullMesh.castShadow = presetCfg.shadowsEnabled;
+  hullMesh.receiveShadow = presetCfg.shadowsEnabled;
   targetGroup.add(hullMesh);
 
   const wellMesh = new THREE.Mesh(buildWheelWellLinersGeometry(dim), mats.darkGrilleMat);
   targetGroup.add(wellMesh);
 
+  const isTruckOrSuv =
+    archetype === 'cadillac_escalade' ||
+    archetype === 'cadillac_escalade_v' ||
+    archetype === 'pickup_crew' ||
+    archetype === 'suv_offroad' ||
+    archetype === 'suv_sport';
+
   const archLipMat =
-    archetype === 'cadillac_escalade' || archetype === 'honda_civic' ? mats.darkGrilleMat : mats.bodyMat;
+    archetype === 'cadillac_escalade' ||
+    archetype === 'honda_civic' ||
+    archetype === 'pickup_crew' ||
+    archetype === 'suv_offroad'
+      ? mats.darkGrilleMat
+      : mats.bodyMat;
   const archLipMesh = new THREE.Mesh(buildFenderArchTrimGeometry(dim), archLipMat);
   targetGroup.add(archLipMesh);
 
-  // Sculpted Side Carbon Rocker Skirts (cleanly sized between front and rear wheel arches)
+  // Sculpted Side Carbon Rocker Skirts or Rugged Truck/SUV Running Boards
   for (const side of [-1, 1]) {
     const skirt = new THREE.Mesh(
-      new THREE.BoxGeometry(0.055, 0.042, carLen * 0.34),
-      mats.carbonMat
+      new THREE.BoxGeometry(isTruckOrSuv ? 0.11 : 0.055, 0.042, carLen * (isTruckOrSuv ? 0.38 : 0.34)),
+      isTruckOrSuv ? mats.darkGrilleMat : mats.carbonMat
     );
     skirt.position.set(side * (carWidth * 0.455), baseChassisY + 0.026, 0.0);
     targetGroup.add(skirt);
   }
 
-  // Contoured Tapered Front Aero Splitter Lip + Rear Venturi Diffuser with vertical aero strakes
-  if (archetype !== 'cadillac_escalade' && archetype !== 'cadillac_escalade_v') {
+  // Contoured Tapered Front Aero Splitter Lip + Rear Venturi Diffuser (omitted on trucks & off-road SUVs)
+  if (!isTruckOrSuv) {
     const splitterMat =
       archetype === 'toyota_camry' && trimId === 'camry_trd_v6' ? mats.accentMat : mats.carbonMat;
     const splitter = new THREE.Mesh(buildContouredSplitterGeometry(key, dim), splitterMat);
@@ -2118,16 +2301,34 @@ export function buildSculptedStreetCarBody(
     targetGroup.add(splitter);
   }
 
-  const diffuser = new THREE.Mesh(
-    new THREE.BoxGeometry(carWidth * 0.72, 0.10, 0.16),
-    mats.carbonMat
-  );
-  diffuser.position.set(0, baseChassisY + 0.072, carLen * 0.462);
-  targetGroup.add(diffuser);
-  for (const fx of [-0.40, -0.16, 0.16, 0.40]) {
-    const fin = new THREE.Mesh(new THREE.BoxGeometry(0.022, 0.095, 0.14), mats.carbonMat);
-    fin.position.set(fx * carWidth * 0.46, baseChassisY + 0.072, carLen * 0.478);
-    targetGroup.add(fin);
+  if (archetype === 'pickup_crew' || archetype === 'suv_offroad') {
+    // Rugged Skid Plate + Rear Steel Bumper Step instead of track venturi diffuser
+    const frontBashPlate = new THREE.Mesh(
+      new THREE.BoxGeometry(carWidth * 0.56, 0.075, 0.36),
+      mats.rotorMat
+    );
+    frontBashPlate.rotation.x = 0.28;
+    frontBashPlate.position.set(0, baseChassisY + 0.04, -carLen * 0.488 + 0.14);
+    targetGroup.add(frontBashPlate);
+
+    const rearStepBumper = new THREE.Mesh(
+      new THREE.BoxGeometry(carWidth * 0.88, 0.14, 0.18),
+      mats.darkGrilleMat
+    );
+    rearStepBumper.position.set(0, baseChassisY + 0.09, carLen * 0.488 - 0.01);
+    targetGroup.add(rearStepBumper);
+  } else {
+    const diffuser = new THREE.Mesh(
+      new THREE.BoxGeometry(carWidth * 0.72, 0.10, 0.16),
+      mats.carbonMat
+    );
+    diffuser.position.set(0, baseChassisY + 0.072, carLen * 0.462);
+    targetGroup.add(diffuser);
+    for (const fx of [-0.40, -0.16, 0.16, 0.40]) {
+      const fin = new THREE.Mesh(new THREE.BoxGeometry(0.022, 0.095, 0.14), mats.carbonMat);
+      fin.position.set(fx * carWidth * 0.46, baseChassisY + 0.072, carLen * 0.478);
+      targetGroup.add(fin);
+    }
   }
 
   // 2. Flush Curved Glass Greenhouse + Integrated Painted Roof & A/B/C/D Pillars
@@ -2357,7 +2558,7 @@ export function buildSculptedStreetCarBody(
 
     const v8Manifold = new THREE.Mesh(
       new THREE.BoxGeometry(0.36, 0.04, 0.48),
-      new THREE.MeshStandardMaterial({ color: 0xdc2626, roughness: 0.35, metalness: 0.45 })
+      getSharedManifoldMat()
     );
     v8Manifold.position.set(0, baseChassisY + lowerH * 0.94, carLen * 0.22);
     targetGroup.add(v8Manifold);
@@ -2830,6 +3031,135 @@ export function buildSculptedStreetCarBody(
     }
   }
 
+  // Dedicated 3D Styling for Pickup Trucks & Off-Road / Sport SUVs
+  if (archetype === 'pickup_crew') {
+    // Open Cargo Bed Liner Floor + Side Bed Rails + Tailgate Seam
+    const bedStartZ = cabinZ + cabinLen * 0.52;
+    const bedLen = Math.max(1.15, rearZ - bedStartZ - 0.14);
+    const bedCenterZ = bedStartZ + bedLen * 0.5;
+    const bedY = baseChassisY + lowerH * 0.90;
+
+    const bedFloor = new THREE.Mesh(
+      new THREE.BoxGeometry(carWidth * 0.74, 0.05, bedLen),
+      mats.darkGrilleMat
+    );
+    bedFloor.position.set(0, bedY + 0.015, bedCenterZ);
+    targetGroup.add(bedFloor);
+
+    // Bedliner floor ribs
+    for (const rx of [-0.42, -0.21, 0, 0.21, 0.42]) {
+      const rib = new THREE.Mesh(new THREE.BoxGeometry(0.032, 0.035, bedLen * 0.88), mats.carbonMat);
+      rib.position.set(rx, bedY + 0.04, bedCenterZ);
+      targetGroup.add(rib);
+    }
+
+    // Raised bed side coamings & sport bar / tonneau detail
+    for (const side of [-1, 1]) {
+      const sideRail = new THREE.Mesh(
+        new THREE.BoxGeometry(0.08, 0.09, bedLen + 0.06),
+        mats.darkGrilleMat
+      );
+      sideRail.position.set(side * (carWidth * 0.40), bedY + 0.05, bedCenterZ);
+      targetGroup.add(sideRail);
+
+      const hl = evalFasciaAnchor(key, dim, side, 0.72, 0.74, 'front');
+      addSignatureHeadlightCluster(
+        targetGroup,
+        side,
+        hl.x,
+        hl.y,
+        hl.z + 0.01,
+        hl.yaw,
+        mats,
+        'pickup_truck'
+      );
+
+      // Vertical Pickup Taillight Stacks
+      const rearStack = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.34, 0.06), mats.brakeMat);
+      rearStack.position.set(side * (carWidth * 0.42), baseChassisY + lowerH * 0.66, rearZ);
+      targetGroup.add(rearStack);
+    }
+
+    // Aggressive Pickup Grille + 3 Amber Raptor Marker Lamps
+    const truckGrille = new THREE.Mesh(
+      new THREE.BoxGeometry(carWidth * 0.62, lowerH * 0.38, 0.07),
+      mats.darkGrilleMat
+    );
+    truckGrille.position.set(0, baseChassisY + lowerH * 0.62, frontZ - 0.005);
+    targetGroup.add(truckGrille);
+    for (const mx of [-0.16, 0, 0.16]) {
+      const marker = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.032, 0.08), mats.amberMat);
+      marker.position.set(mx, baseChassisY + lowerH * 0.78, frontZ - 0.012);
+      targetGroup.add(marker);
+    }
+    // Roof Baja LED Lightbar on extreme offroad trims
+    if (trimId.includes('raptor') || trimId.includes('trx') || trimId.includes('hummer')) {
+      const roofLightHousing = new THREE.Mesh(new THREE.BoxGeometry(carWidth * 0.56, 0.06, 0.10), mats.darkGrilleMat);
+      roofLightHousing.position.set(0, baseChassisY + lowerH + cabinH + 0.03, cabinZ - cabinLen * 0.24);
+      targetGroup.add(roofLightHousing);
+      const roofLedStrip = new THREE.Mesh(new THREE.BoxGeometry(carWidth * 0.50, 0.035, 0.04), mats.headMat);
+      roofLedStrip.position.set(0, baseChassisY + lowerH + cabinH + 0.03, cabinZ - cabinLen * 0.28);
+      targetGroup.add(roofLedStrip);
+    }
+  } else if (archetype === 'suv_offroad' || archetype === 'suv_sport') {
+    const isOffroad = archetype === 'suv_offroad';
+    const suvGrille = new THREE.Mesh(
+      new THREE.BoxGeometry(carWidth * 0.56, lowerH * 0.38, 0.07),
+      mats.darkGrilleMat
+    );
+    suvGrille.position.set(0, baseChassisY + lowerH * 0.58, frontZ - 0.005);
+    targetGroup.add(suvGrille);
+
+    for (const side of [-1, 1]) {
+      const hl = evalFasciaAnchor(key, dim, side, 0.70, 0.72, 'front');
+      addSignatureHeadlightCluster(
+        targetGroup,
+        side,
+        hl.x,
+        hl.y,
+        hl.z + 0.01,
+        hl.yaw,
+        mats,
+        isOffroad ? 'suv_offroad' : 'camry_sedan'
+      );
+
+      const suvTl = new THREE.Mesh(
+        new THREE.BoxGeometry(isOffroad ? 0.13 : 0.34, isOffroad ? 0.32 : 0.085, 0.06),
+        mats.brakeMat
+      );
+      suvTl.position.set(side * (carWidth * (isOffroad ? 0.41 : 0.32)), baseChassisY + lowerH * 0.70, rearZ);
+      targetGroup.add(suvTl);
+
+      if (isOffroad) {
+        const roofRail = new THREE.Mesh(
+          new THREE.BoxGeometry(0.052, 0.052, cabinLen * 0.72),
+          mats.carbonMat
+        );
+        roofRail.position.set(side * (carWidth * 0.33), baseChassisY + lowerH * 0.96 + cabinH + 0.028, cabinZ);
+        targetGroup.add(roofRail);
+      }
+    }
+
+    // Rear tailgate-mounted full-size spare tire carrier on Trail/Rock-Crawler SUVs
+    if (isOffroad && (trimId.includes('bronco') || trimId.includes('wrangler') || trimId.includes('392') || trimId.includes('g63') || trimId.includes('defender'))) {
+      const spareTire = new THREE.Mesh(
+        new THREE.CylinderGeometry(wheelRadius * 0.88, wheelRadius * 0.88, 0.24, 18),
+        mats.darkGrilleMat
+      );
+      spareTire.rotation.x = Math.PI / 2;
+      spareTire.position.set(0, baseChassisY + lowerH * 0.76, rearZ + 0.14);
+      targetGroup.add(spareTire);
+
+      const spareHub = new THREE.Mesh(
+        new THREE.CylinderGeometry(wheelRadius * 0.42, wheelRadius * 0.42, 0.26, 12),
+        mats.chromeMat
+      );
+      spareHub.rotation.x = Math.PI / 2;
+      spareHub.position.set(0, baseChassisY + lowerH * 0.76, rearZ + 0.14);
+      targetGroup.add(spareHub);
+    }
+  }
+
   // ============================================================================
   // CAMBERED AIRFOIL GT WINGS / ABSOLUT DORSAL FINS / TRUNK LIP SPOILERS
   // ============================================================================
@@ -2869,17 +3199,20 @@ export function buildSculptedStreetCarBody(
     const wingBlade = new THREE.Mesh(buildAirfoilWingGeometry(wingWidth, 0.28, 0.042), wingMat);
     wingBlade.position.set(0, baseChassisY + lowerH + wingHeight, carLen * 0.42);
     targetGroup.add(wingBlade);
-  } else if (
-    aeroStyle === 'sport_spoiler' &&
-    archetype !== 'cadillac_escalade' &&
-    archetype !== 'cadillac_escalade_v'
-  ) {
+  } else if (aeroStyle === 'sport_spoiler' && !isTruckOrSuv) {
     const lipSpoiler = new THREE.Mesh(
       buildAirfoilWingGeometry(carWidth * 0.80, 0.15, 0.04),
       mats.carbonMat
     );
     lipSpoiler.position.set(0, baseChassisY + lowerH + 0.02, carLen * 0.44);
     targetGroup.add(lipSpoiler);
+  } else if (aeroStyle === 'sport_spoiler' && archetype === 'suv_sport') {
+    const suvRoofWing = new THREE.Mesh(
+      buildAirfoilWingGeometry(carWidth * 0.76, 0.18, 0.045),
+      mats.carbonMat
+    );
+    suvRoofWing.position.set(0, baseChassisY + lowerH * 0.96 + cabinH - 0.02, rearZ - 0.12);
+    targetGroup.add(suvRoofWing);
   }
 
   // ============================================================================
@@ -2909,34 +3242,54 @@ export function buildSculptedStreetCarBody(
       : archetype === 'bugatti_chiron_pur_sport' || archetype === 'rimac_nevera'
       ? 0x38bdf8
       : 0xef4444;
-  const caliperMat = new THREE.MeshStandardMaterial({
-    color: caliperColorHex,
-    metalness: 0.65,
-    roughness: 0.22,
-  });
+  const caliperMat = getSharedCaliperMat(caliperColorHex);
 
-  const wheelCoords = [
-    [-wheelCenterX, wheelRadius, dim.frontAxleZ],
-    [wheelCenterX, wheelRadius, dim.frontAxleZ],
-    [-wheelCenterX, wheelRadius, dim.rearAxleZ],
-    [wheelCenterX, wheelRadius, dim.rearAxleZ],
+  const cornerSpecs: Array<{
+    key: keyof StreetCarWheelRig;
+    wx: number;
+    wy: number;
+    wz: number;
+    isFront: boolean;
+    isLeft: boolean;
+  }> = [
+    { key: 'fl', wx: -wheelCenterX, wy: wheelRadius, wz: dim.frontAxleZ, isFront: true, isLeft: true },
+    { key: 'fr', wx: wheelCenterX, wy: wheelRadius, wz: dim.frontAxleZ, isFront: true, isLeft: false },
+    { key: 'rl', wx: -wheelCenterX, wy: wheelRadius, wz: dim.rearAxleZ, isFront: false, isLeft: true },
+    { key: 'rr', wx: wheelCenterX, wy: wheelRadius, wz: dim.rearAxleZ, isFront: false, isLeft: false },
   ];
-  for (const [wx, wy, wz] of wheelCoords) {
-    const tireMesh = new THREE.Mesh(wheelGeom, mats.darkGrilleMat);
-    tireMesh.position.set(wx, wy, wz);
 
-    const rimMesh = new THREE.Mesh(rimBarrelGeom, rimMaterial);
-    tireMesh.add(rimMesh);
+  const rigCorners: Partial<StreetCarWheelRig> = {};
+
+  for (const specCorner of cornerSpecs) {
+    const { key: cKey, wx, wy, wz, isFront, isLeft } = specCorner;
+    const suspGroup = new THREE.Group();
+    suspGroup.name = `street_wheel_susp_${cKey}`;
+    suspGroup.position.set(wx, wy, wz);
+
+    const steerGroup = new THREE.Group();
+    steerGroup.name = `street_wheel_steer_${cKey}`;
+    suspGroup.add(steerGroup);
+
+    const spinGroup = new THREE.Group();
+    spinGroup.name = `street_wheel_spin_${cKey}`;
+    steerGroup.add(spinGroup);
 
     const outX = wx < 0 ? -0.095 : 0.095;
-    const discMesh = new THREE.Mesh(brakeDiscGeom, mats.rotorMat);
-    discMesh.position.set(outX * 0.62, 0, 0);
-    tireMesh.add(discMesh);
-
+    // Caliper stays mounted on steerGroup so it steers with front wheels without spinning
     const caliperMesh = new THREE.Mesh(caliperGeom, caliperMat);
     caliperMesh.position.set(outX * 0.68, 0, 0);
     caliperMesh.rotation.x = wz < 0 ? 0.35 : -2.25;
-    tireMesh.add(caliperMesh);
+    steerGroup.add(caliperMesh);
+
+    const tireMesh = new THREE.Mesh(wheelGeom, mats.darkGrilleMat);
+    spinGroup.add(tireMesh);
+
+    const rimMesh = new THREE.Mesh(rimBarrelGeom, rimMaterial);
+    spinGroup.add(rimMesh);
+
+    const discMesh = new THREE.Mesh(brakeDiscGeom, mats.rotorMat);
+    discMesh.position.set(outX * 0.62, 0, 0);
+    spinGroup.add(discMesh);
 
     for (let sIdx = 0; sIdx < 5; sIdx++) {
       const baseAng = (sIdx * Math.PI * 2) / 5;
@@ -2945,17 +3298,29 @@ export function buildSculptedStreetCarBody(
         const a = baseAng + ySplit;
         spoke.rotation.x = a;
         spoke.position.set(outX * 1.12, Math.cos(a) * wheelRadius * 0.32, Math.sin(a) * wheelRadius * 0.32);
-        tireMesh.add(spoke);
+        spinGroup.add(spoke);
       }
     }
 
     const centerCap = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.035, 12), rimMaterial);
     centerCap.rotation.z = Math.PI / 2;
     centerCap.position.set(outX * 1.15, 0, 0);
-    tireMesh.add(centerCap);
+    spinGroup.add(centerCap);
 
-    targetGroup.add(tireMesh);
+    targetGroup.add(suspGroup);
+
+    rigCorners[cKey] = {
+      suspGroup,
+      steerGroup,
+      spinGroup,
+      baseY: wy,
+      radius: wheelRadius,
+      isFront,
+      isLeft,
+    };
   }
+
+  targetGroup.userData.streetWheelRig = rigCorners as StreetCarWheelRig;
 
   return dim;
 }

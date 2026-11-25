@@ -22,10 +22,20 @@ import {
   ICM_PLAYER_SPAWN,
   MD_LANDMARKS,
   getMarylandZoneAndSpeedAt,
+  isOnMarylandPavedSurface,
+  sampleOffRoadTerrainAt,
+  OffRoadTerrainSample,
+} from './marylandRoadNetwork';
+import {
   CITY_LANE_OFFSET,
   CITY_STREET_CARS,
   CITY_MISSIONS_CATALOG,
   CITY_REGULAR_JOBS_CATALOG,
+  CITY_INDOOR_JOBS_CATALOG,
+  CITY_OUTDOOR_JOBS_CATALOG,
+  CityOutdoorJobSpec,
+  OutdoorFieldJobKind,
+  getJobSkillRankInfo,
   CITY_HEIST_TARGETS_CATALOG,
   CITY_HOUSES_CATALOG,
   StreetCarSpec,
@@ -46,11 +56,13 @@ import {
   getEffectiveStreetCarSpec,
   CivilianCarEntity,
   PoliceCarEntity,
+  PoliceRoadblockEntity,
   TrafficLightColor,
   getIntersectionSignalState,
   getNearestIntersectionInfo,
   buildCivilianCarMesh,
   buildPoliceInterceptorMesh,
+  buildPoliceRoadblockGroup,
   updateVehicleLighting,
   updatePlayerHeadlightRig,
   updateNpcHeadlightsVisibility,
@@ -386,6 +398,8 @@ export class PhysicsEngine {
   public isCityMode: boolean = false;
   public cityCivilianCars: CivilianCarEntity[] = [];
   public cityPoliceCars: PoliceCarEntity[] = [];
+  public cityRoadblocks: PoliceRoadblockEntity[] = [];
+  private roadblockSpawnTimer: number = 4.0;
   private lastRedLightKey: string = '';
   private playerInsideIntersectionKey: string | null = null;
   private playerApproachAxis: 'ns' | 'ew' = 'ns';
@@ -405,6 +419,7 @@ export class PhysicsEngine {
   private nearMissCooldowns: Map<string, number> = new Map();
   private streetDriftAccum: number = 0;
   private passiveIncomeAccumSec: number = 0;
+  private minimapSyncAccum: number = 999;
   private customGpsTarget: { x: number; z: number; label: string; colorHex: string } | null = null;
   private activeRobberyState: {
     target: CityHeistTargetSpec;
@@ -425,6 +440,9 @@ export class PhysicsEngine {
   private activeJobStreak: number = 0;
   private activeJobTotalEarned: number = 0;
   private activeJobCrashesStart: number = 0;
+  private activeJobPeakSpeedKmh: number = 0;
+  private activeOutdoorJobSpec: CityOutdoorJobSpec | null = null;
+  private activeOutdoorSiteIdx: number = 0;
   private civEvasiveOffsets: Map<string, number> = new Map();
   private civHornCooldowns: Map<string, number> = new Map();
   public isMinigamePaused: boolean = false;
@@ -432,6 +450,20 @@ export class PhysicsEngine {
   private sportsMinigameGraceTimer: number = 0;
   private handbrakeSlideAngle: number = 0;
   public handbrakeActive: boolean = false;
+  private wheelSuspOffsets = { fl: 0, fr: 0, rl: 0, rr: 0 };
+  private offRoadChassisHeave: number = 0;
+  private offRoadChassisPitch: number = 0;
+  private offRoadChassisRoll: number = 0;
+  private grassWheelSpinKmh: number = 0;
+  private grassSlipIntensity: number = 0;
+  private roadWheelSpinKmh: number = 0;
+  private roadTireSmokeIntensity: number = 0;
+  private roadSlipAngle: number = 0;
+  private rwdTractionHooked: boolean = false;
+  private trafficLodTick: number = 0;
+  private buildingGridRef: CityBuildingBox[] | undefined = undefined;
+  private buildingGridCellSize: number = 120;
+  private buildingGrid: Map<string, CityBuildingBox[]> = new Map();
   private pickedHouseIds: Set<string> = new Set();
   private houseAlarmTriggeredIds: Set<string> = new Set();
   private recentRobberyHeatTimer: number = 0;
@@ -471,6 +503,10 @@ export class PhysicsEngine {
     passiveIncomePer30s: number;
     unpaidCrashTicketsTab: number;
     totalJobsCompleted: number;
+    outdoorJobsCompleted: number;
+    jobSkillXp: number;
+    jobSkillLevel: number;
+    jobSkillTitle: string;
     totalHeistsCompleted: number;
     heistCooldowns: Record<string, number>;
     pendingHeistLoot: {
@@ -506,6 +542,7 @@ export class PhysicsEngine {
       gpsRoute: { x: number; z: number }[];
       cops: { x: number; z: number; heading: number; isChasing: boolean; canSeePlayer: boolean }[];
       civs: { x: number; z: number }[];
+      roadblocks?: { x: number; z: number; heading: number }[];
       activeHome: { x: number; z: number; name: string };
     };
     nearbyHeistPrompt: {
@@ -708,10 +745,40 @@ export class PhysicsEngine {
       cooldownLeftSec: number;
       payoutCash: number;
     } | null;
+    activeOutdoorJob: {
+      jobId: string;
+      kind: OutdoorFieldJobKind;
+      title: string;
+      roleLabel: string;
+      icon: string;
+      mechanicLabel: string;
+      siteLabel: string;
+      distMeters: number;
+      directionDeg: number;
+      basePay: number;
+      maxSkillBonus: number;
+    } | null;
+    nearbyOutdoorJobPrompt: {
+      jobId: string;
+      title: string;
+      icon: string;
+      mechanicLabel: string;
+      siteLabel: string;
+      distMeters: number;
+      basePay: number;
+      maxSkillBonus: number;
+    } | null;
+    activeOutdoorSkillMinigame: {
+      job: CityOutdoorJobSpec;
+      siteLabel: string;
+    } | null;
     handbrakeActive: boolean;
     headlightMode: 'auto' | 'low' | 'high' | 'off';
     effectiveHeadlightState: 'off' | 'low' | 'high';
     timeOfDayPreset: TimeOfDayPreset;
+    groundClearanceInches: number;
+    offRoadScore: number;
+    tireLife: number;
   } = {
     wantedStars: 0,
     pursuitState: 'CLEAR',
@@ -753,6 +820,10 @@ export class PhysicsEngine {
     passiveIncomePer30s: 0,
     unpaidCrashTicketsTab: 0,
     totalJobsCompleted: 0,
+    outdoorJobsCompleted: 0,
+    jobSkillXp: 0,
+    jobSkillLevel: 1,
+    jobSkillTitle: 'Apprentice',
     totalHeistsCompleted: 0,
     heistCooldowns: {},
     pendingHeistLoot: null,
@@ -801,10 +872,16 @@ export class PhysicsEngine {
     nearbyServicePrompt: null,
     nearbyCityBuildingPrompt: null,
     nearbyCarMeetPrompt: null,
+    activeOutdoorJob: null,
+    nearbyOutdoorJobPrompt: null,
+    activeOutdoorSkillMinigame: null,
     handbrakeActive: false,
     headlightMode: 'auto',
     effectiveHeadlightState: 'off',
     timeOfDayPreset: getTimeOfDayPreset(),
+    groundClearanceInches: 5.3,
+    offRoadScore: 38,
+    tireLife: 100,
   };
 
   public currentWeather: GaithersburgWeather = (() => {
@@ -844,6 +921,27 @@ export class PhysicsEngine {
     floorsLabel: string;
   }[] = [];
 
+  private isRestrictedReligiousBuilding(nameOrId: string): boolean {
+    const lower = nameOrId.toLowerCase();
+    return (
+      lower.includes('islamic center of maryland') ||
+      lower.includes('islamic society of baltimore') ||
+      /\bicm\b/.test(lower) ||
+      /\bisb\b/.test(lower) ||
+      lower.includes('musalla') ||
+      lower.includes('mosque') ||
+      lower.includes('masjid') ||
+      lower.includes('church') ||
+      lower.includes('redeemer') ||
+      lower.includes('basilica') ||
+      lower.includes('cathedral') ||
+      lower.includes('chapel') ||
+      lower.includes('parish') ||
+      lower.includes('synagogue') ||
+      lower.includes('temple')
+    );
+  }
+
   private ensureExplorableCityBuildingsCache() {
     const rawBuildings = this.track.cityBuildings;
     if (rawBuildings === this.explorableBuildingsTrackRef) return;
@@ -879,8 +977,8 @@ export class PhysicsEngine {
 
       const rawName = (box.name || 'Metro City Building').trim();
       const lower = rawName.toLowerCase();
-      // Strictly disallow exploring ICM (Islamic Center of Maryland) buildings; outdoor basketball court [B] remains active
-      if (lower.includes('islamic center of maryland') || /\bicm\b/.test(lower)) continue;
+      // Strictly disallow exploring any mosques, churches, chapels, or other houses of worship
+      if (this.isRestrictedReligiousBuilding(rawName)) continue;
 
       const height = box.height ?? 12;
       const floors = computeBuildingFloorCount(height, rawName, box.stories);
@@ -2049,7 +2147,7 @@ export class PhysicsEngine {
           ? steerAbs * input.brake * 0.36
           : 0;
 
-      const surfaceAbrasion = surface.offTrack ? 1.85 : surface.onCurb ? 1.18 : 1.0;
+      const surfaceAbrasion = surface.offTrack ? 1.65 : surface.onCurb ? 1.18 : 1.0;
 
       // Target tire temperature rises with hard cornering & high-speed braking, and cools down when coasting or on straights
       const targetTemp =
@@ -2065,22 +2163,24 @@ export class PhysicsEngine {
       const thermalOverheatMultiplier =
         this.tireTempValue > maxOptTemp ? 1.0 + (this.tireTempValue - maxOptTemp) * 0.032 : 1.0;
 
-      // Balanced multi-lap wear: straight-line wear is very low (0.012 * speedNorm);
-      // coasting into corners wears tires slowly, while hard high-speed braking & aggressive cornering wear tires slightly faster
+      // Balanced multi-lap wear: straight-line wear is very low (0.008 * speedNorm);
+      // In Metro City open world, tires degrade very slowly over extended driving & off-roading
       const lapScale = Math.max(0.50, Math.min(1.15, 5 / Math.max(3, this.totalLaps)));
-      const straightLineWear = 0.012 * speedNorm;
+      const straightLineWear = 0.008 * speedNorm;
       const corneringAndBrakingWear =
-        steerLoad * 0.45 +
-        highSpeedBrakeFactor * 0.39 +
-        brakeLockupLoad * 0.28 +
+        steerLoad * 0.42 +
+        highSpeedBrakeFactor * 0.36 +
+        brakeLockupLoad * 0.25 +
         combinedCornerBrakeScrub;
 
+      const cityTireLongevityScale = this.isCityMode ? 0.28 : 1.0;
       const wearPerSec =
         (straightLineWear + corneringAndBrakingWear) *
         compoundWearRate *
         surfaceAbrasion *
         thermalOverheatMultiplier *
-        lapScale;
+        lapScale *
+        cityTireLongevityScale;
 
       this.tireLife = Math.max(0, this.tireLife - wearPerSec * dt);
 
@@ -2095,22 +2195,22 @@ export class PhysicsEngine {
       this.tireCorners.rl = Math.max(0, this.tireCorners.rl - wearPerSec * (0.75 + rightTurnLoad + rearTractionLoad) * dt);
       this.tireCorners.rr = Math.max(0, this.tireCorners.rr - wearPerSec * (0.75 + leftTurnLoad + rearTractionLoad) * dt);
 
-      // Proactive Race Engineer tire health & thermal radio warnings
-      if (!this.warnedGraining && this.tireLife < 58 && this.tireLife > 35) {
+      // Proactive Race Engineer tire health & thermal radio warnings (F1 mode only)
+      if (!this.isCityMode && !this.warnedGraining && this.tireLife < 58 && this.tireLife > 35) {
         this.warnedGraining = true;
         this.triggerEngineerRadio(
           `Tire health at ${Math.round(this.tireLife)}% on the ${this.tireCompound}s. Surface graining starting—ease off throttle on turn-in to save rubber.`,
           'tires',
           'normal'
         );
-      } else if (!this.warnBlistering && this.tireLife <= 35 && this.tireLife > 22) {
+      } else if (!this.isCityMode && !this.warnBlistering && this.tireLife <= 35 && this.tireLife > 22) {
         this.warnBlistering = true;
         this.triggerEngineerRadio(
           `Blistering detected on the ${this.tireCompound}s (${Math.round(this.tireLife)}% life). Grip is dropping—consider boxing soon.`,
           'tires',
           'warning'
         );
-      } else if (!this.warnedCriticalTires && this.tireLife <= 20) {
+      } else if (!this.isCityMode && !this.warnedCriticalTires && this.tireLife <= 20) {
         this.warnedCriticalTires = true;
         this.triggerEngineerRadio(
           `Box, box! Critical tire wear at ${Math.round(this.tireLife)}%—heavy blistering, pit this lap!`,
@@ -2119,6 +2219,7 @@ export class PhysicsEngine {
           true
         );
       } else if (
+        !this.isCityMode &&
         this.tireTempValue > compoundSpec.optimalTempRange[1] + 6 &&
         this.raceTimer - (this.engineerCalloutCooldowns['overheat'] || -99) > 25
       ) {
@@ -2129,7 +2230,7 @@ export class PhysicsEngine {
           'warning'
         );
       }
-      if (this.isOpenFieldMode && this.openFieldStats.infiniteGripAndBatteryLock) {
+      if (this.isOpenFieldMode && !this.isCityMode && this.openFieldStats.infiniteGripAndBatteryLock) {
         this.tireLife = 100;
         this.tireCorners = { fl: 100, fr: 100, rl: 100, rr: 100 };
         this.tireTempValue = 90;
@@ -2171,8 +2272,78 @@ export class PhysicsEngine {
     }
 
     const effectiveTireGrip = compoundBaseGrip * tireLifeGripFactor * thermalGripFactor;
-    let surfaceGrip = surface.offTrack ? 0.45 : surface.onCurb ? 0.9 : 1.0;
+    const clearanceInches = this.isCityMode
+      ? (this.cityPursuitStats.currentStreetCar?.groundClearanceInches ??
+        (this.cityPursuitStats.currentStreetCar?.groundClearance === 'high'
+          ? 8.5
+          : this.cityPursuitStats.currentStreetCar?.groundClearance === 'medium'
+          ? 5.8
+          : 4.2))
+      : 2.2;
+    const offRoadScore = this.isCityMode
+      ? (this.cityPursuitStats.currentStreetCar?.offRoadScore ??
+        this.cityPursuitStats.offRoadScore ??
+        38)
+      : 15;
+    const activeStreetCar = this.isCityMode ? this.cityPursuitStats.currentStreetCar : undefined;
+    const isMuscleCar = Boolean(this.isCityMode && activeStreetCar?.bodyStyle === 'muscle_v8');
+    const activeDrivetrain: 'RWD' | 'FWD' | 'AWD' = this.isCityMode
+      ? (activeStreetCar?.drivetrain || 'RWD')
+      : 'RWD';
+    const offRoadTerrain: OffRoadTerrainSample | null =
+      this.isCityMode && surface.offTrack
+        ? sampleOffRoadTerrainAt(this.playerPos.x, this.playerPos.z)
+        : null;
 
+    // Real-world off-road grass speed & traction based on vehicle's authentic offRoadScore
+    // (tires, suspension travel, differential lockers, geometry) + clearance + grass height & pebbles:
+    // RWD V8 muscle cars bog down realistically slow on ALL grass; taller grass & loose pebbles penalize low/street cars heavily
+    // while trail-rated 4x4 SUVs & Baja pickup trucks power through cleanly.
+    let offRoadCapKmh = 135;
+    if (this.isCityMode) {
+      let baseOffRoadCap: number;
+      if (offRoadScore <= 30) {
+        baseOffRoadCap = 50 + Math.max(0, offRoadScore - 12) * 1.15;
+      } else if (offRoadScore <= 45) {
+        baseOffRoadCap = 71 + (offRoadScore - 30) * 1.15;
+      } else if (offRoadScore <= 68) {
+        baseOffRoadCap = 89 + (offRoadScore - 45) * 1.75;
+      } else if (offRoadScore <= 88) {
+        baseOffRoadCap = 130 + (offRoadScore - 68) * 1.98;
+      } else {
+        baseOffRoadCap = 170 + Math.min(40, (offRoadScore - 88) * 3.15);
+      }
+      const clearanceTrim = Math.max(-5, Math.min(8, (clearanceInches - 6.5) * 0.7));
+      let cap = baseOffRoadCap + clearanceTrim;
+
+      // Heavy front-engine RWD V8 muscle cars struggle on all grass (street/drag rubber spins & bogs down)
+      if (isMuscleCar) {
+        cap = Math.min(cap, 34 + Math.max(0, offRoadScore - 16) * 1.1);
+      }
+
+      if (offRoadTerrain) {
+        const tallFrac = Math.max(0, Math.min(1, (offRoadTerrain.grassHeight - 0.44) / 0.56));
+        const tallPenaltyMax =
+          offRoadScore >= 85 ? 0.15 : offRoadScore >= 68 ? 0.24 : offRoadScore >= 45 ? 0.31 : 0.42;
+        cap *= 1.0 - tallFrac * tallPenaltyMax;
+        if (offRoadTerrain.pebbleFactor > 0) {
+          const pebPenaltyMax = offRoadScore >= 75 ? 0.05 : 0.12;
+          cap *= 1.0 - offRoadTerrain.pebbleFactor * pebPenaltyMax;
+        }
+      }
+
+      offRoadCapKmh = Math.min(
+        this.cityStreetCarTopSpeedKmh || 240,
+        Math.max(20, Math.round(cap))
+      );
+    }
+
+    const grassGripBase = this.isCityMode
+      ? Math.min(0.92, Math.max(0.24, 0.22 + (offRoadScore / 100) * 0.68 + (activeDrivetrain === 'AWD' ? 0.03 : 0)))
+      : 0.45;
+    let surfaceGrip = surface.offTrack ? grassGripBase : surface.onCurb ? 0.9 : 1.0;
+
+    let grassTractionLoss = 0;
     if (this.isCityMode) {
       const eff = this.cityPursuitStats.currentStreetCar;
       const drivetrain = eff.drivetrain || 'RWD';
@@ -2180,16 +2351,210 @@ export class PhysicsEngine {
       const traction = calculateDrivetrainTractionModifier(drivetrain, clearance, this.currentWeather);
       surfaceGrip *= traction.effectiveGrip;
 
+      if (surface.offTrack) {
+        const tallExtra = offRoadTerrain?.isTallGrass
+          ? 0.14 * Math.min(1, (offRoadTerrain.grassHeight - 0.48) / 0.52)
+          : 0;
+        const pebExtra = offRoadTerrain ? offRoadTerrain.pebbleFactor * 0.11 : 0;
+        const rawSlipSusceptibility = Math.max(
+          0.08,
+          Math.min(
+            0.96,
+            (1.0 - offRoadScore / 92) *
+              (drivetrain === 'RWD' ? 1.32 : drivetrain === 'FWD' ? 1.08 : 0.68) *
+              (isMuscleCar ? 1.24 : 1.0) +
+              tallExtra +
+              pebExtra
+          )
+        );
+        const throttleDemand = input.throttle > 0.08 ? 0.35 + 0.65 * input.throttle : 0;
+        grassTractionLoss = Math.min(0.95, rawSlipSusceptibility * throttleDemand);
+        surfaceGrip *= Math.max(0.32, 1.0 - grassTractionLoss * 0.42 - tallExtra * 0.55 - pebExtra * 0.4);
+
+        // Noticeable grass loss-of-traction fishtail/oversteer under throttle
+        if (grassTractionLoss > 0.18 && input.throttle > 0.2 && Math.abs(this.playerSpeedKmh) > 4) {
+          const kickSign = Math.sin(this.raceTimer * 6.4 + this.playerPos.x * 0.04);
+          const steerKick = Math.abs(input.steer) > 0.05 ? -input.steer * 0.016 : kickSign * 0.013;
+          this.playerHeading +=
+            steerKick * grassTractionLoss * input.throttle * (drivetrain === 'RWD' ? 1.35 : 0.72);
+        }
+
+        const targetWheelSpinKmh =
+          input.throttle > 0.08
+            ? input.throttle *
+              (drivetrain === 'RWD' ? 122 : drivetrain === 'FWD' ? 96 : 64) *
+              grassTractionLoss *
+              (isMuscleCar ? 1.25 : 1.0) *
+              (offRoadTerrain?.isTallGrass ? 1.15 : 1.0)
+            : 0;
+        this.grassWheelSpinKmh +=
+          (targetWheelSpinKmh - this.grassWheelSpinKmh) *
+          Math.min(1, dt * (targetWheelSpinKmh > this.grassWheelSpinKmh ? 6.5 : 4.5));
+        this.roadWheelSpinKmh = 0;
+        this.roadTireSmokeIntensity = 0;
+        this.roadSlipAngle *= Math.max(0, 1 - dt * 8.0);
+      } else {
+        this.grassWheelSpinKmh += (0 - this.grassWheelSpinKmh) * Math.min(1, dt * 8.0);
+
+        // Regular paved road wheel spin, traction hook-up, power-oversteer & tire smoke
+        const absRoadSpd = Math.abs(this.playerSpeedKmh);
+        const carId = activeStreetCar?.id || '';
+        const hp = activeStreetCar?.horsepower || 300;
+        const zeroToSixty = Math.max(1.3, activeStreetCar?.zeroToSixtySec || 4.5);
+        const isHighDownforceFanCar = carId === 'mcmurtry_speirling';
+        const isHandbrakeDrift = input.handbrake && absRoadSpd > 12;
+        const isBurnoutHold =
+          drivetrain === 'RWD' && input.throttle > 0.45 && input.brake > 0.35 && absRoadSpd < 34;
+        const wetMult =
+          this.currentWeather.isSnowing
+            ? 1.55
+            : this.currentWeather.isRaining ||
+              this.currentWeather.condition === 'drizzle' ||
+              this.currentWeather.condition === 'heavy_rain' ||
+              this.currentWeather.condition === 'thunderstorm'
+            ? 1.32
+            : 1.0;
+
+        let targetRoadSpinKmh = 0;
+        let roadSpinFactor = 0;
+        let targetSlipAngle = 0;
+
+        if (!isHighDownforceFanCar) {
+          const hpFactor = Math.max(0.08, Math.min(1.45, (hp - 220) / 500));
+          const handlingGuard = Math.max(0.28, 1.25 - Math.max(0, this.handlingScore - 74) * 0.028);
+
+          if (drivetrain === 'RWD') {
+            // Compute realistic traction hook-up speed:
+            // High-handling / sticky-tire RWD cars (e.g. Porsche 911, Corvette Z06, Viper, Demon 170) hook up quickly;
+            // heavy street muscle cars spin briefly off the line then hook & launch cleanly.
+            const baseHookSpeed =
+              this.handlingScore >= 94 || zeroToSixty <= 2.6
+                ? 22
+                : this.handlingScore >= 85
+                ? 30
+                : isMuscleCar
+                ? 42
+                : 34;
+            const hookSpeedKmh = baseHookSpeed * (wetMult > 1.05 ? 1.45 : 1.0);
+
+            if (absRoadSpd < 7) {
+              this.rwdTractionHooked = false;
+            } else if (
+              !this.rwdTractionHooked &&
+              ((absRoadSpd >= hookSpeedKmh && input.throttle > 0.12) ||
+                (absRoadSpd >= 15 && input.throttle < 0.65))
+            ) {
+              // Rear tires have caught traction and hooked!
+              this.rwdTractionHooked = true;
+            }
+
+            // Initial off-the-line wheelspin ONLY before the tires hook up (unless wet/snow)
+            let launchSpin = 0;
+            if (!this.rwdTractionHooked && input.throttle > 0.52) {
+              const preHookFrac = Math.max(0, 1.0 - absRoadSpd / Math.max(18, hookSpeedKmh));
+              launchSpin = (input.throttle - 0.42) * hpFactor * preHookFrac * handlingGuard * 1.18;
+            } else if (wetMult > 1.08 && absRoadSpd < 55 && input.throttle > 0.72) {
+              launchSpin = (input.throttle - 0.62) * hpFactor * (1.0 - absRoadSpd / 58) * (wetMult - 1.0) * 1.3;
+            }
+
+            // Once hooked on dry pavement, normal turns grip cleanly without slipping!
+            // Power-oversteer only breaks loose when deliberately provoked at low/mid speed with full lock + full throttle
+            // in lower-handling RWD cars (or on wet/snowy roads).
+            let cornerPowerSlip = 0;
+            const isDry = wetMult <= 1.05;
+            if (isDry) {
+              if (
+                this.handlingScore < 90 &&
+                absRoadSpd >= 18 &&
+                absRoadSpd <= 62 &&
+                Math.abs(input.steer) > 0.76 &&
+                input.throttle > 0.86
+              ) {
+                cornerPowerSlip =
+                  (Math.abs(input.steer) - 0.72) *
+                  (input.throttle - 0.78) *
+                  hpFactor *
+                  handlingGuard *
+                  1.85;
+              }
+            } else if (absRoadSpd > 18 && absRoadSpd < 95 && Math.abs(input.steer) > 0.45 && input.throttle > 0.62) {
+              cornerPowerSlip =
+                Math.abs(input.steer) * (input.throttle - 0.5) * hpFactor * handlingGuard * (wetMult - 0.9) * 1.1;
+            }
+
+            roadSpinFactor = Math.min(0.95, (launchSpin + cornerPowerSlip) * wetMult);
+            if (roadSpinFactor > 0.16) {
+              targetRoadSpinKmh = 20 + roadSpinFactor * 88;
+              surfaceGrip *= Math.max(0.72, 1.0 - roadSpinFactor * 0.18);
+              if (cornerPowerSlip > 0.18 && absRoadSpd > 20) {
+                targetSlipAngle = -Math.sign(input.steer) * Math.min(0.24, roadSpinFactor * Math.abs(input.steer) * 0.25);
+                if (cornerPowerSlip > 0.26) {
+                  this.playerHeading += -input.steer * 0.008 * roadSpinFactor * dt * 60;
+                }
+              }
+            }
+          } else if (drivetrain === 'FWD') {
+            const launchZone = absRoadSpd < 42 ? Math.max(0, 1.0 - absRoadSpd / 44) : 0;
+            roadSpinFactor =
+              input.throttle > 0.64 ? Math.min(0.55, (input.throttle - 0.54) * hpFactor * launchZone * 1.1 * wetMult) : 0;
+            if (roadSpinFactor > 0.14) {
+              targetRoadSpinKmh = 16 + roadSpinFactor * 44;
+              surfaceGrip *= Math.max(0.80, 1.0 - roadSpinFactor * 0.14);
+            }
+          } else if (wetMult > 1.08 && input.throttle > 0.70 && absRoadSpd < 55) {
+            roadSpinFactor = Math.min(0.38, 0.28 * (wetMult - 1.0) * input.throttle);
+            targetRoadSpinKmh = roadSpinFactor * 40;
+          }
+        }
+
+        if (isBurnoutHold) {
+          this.rwdTractionHooked = false;
+          roadSpinFactor = Math.max(roadSpinFactor, 0.96);
+          targetRoadSpinKmh = Math.max(targetRoadSpinKmh, 130);
+        }
+        if (isHandbrakeDrift) {
+          roadSpinFactor = Math.max(roadSpinFactor, 0.85);
+          targetRoadSpinKmh = Math.max(targetRoadSpinKmh, 55);
+        }
+
+        this.roadWheelSpinKmh +=
+          (targetRoadSpinKmh - this.roadWheelSpinKmh) *
+          Math.min(1, dt * (targetRoadSpinKmh > this.roadWheelSpinKmh ? 8.5 : 10.5));
+        this.roadSlipAngle += (targetSlipAngle - this.roadSlipAngle) * Math.min(1, dt * (targetSlipAngle === 0 ? 10.0 : 6.5));
+        this.roadTireSmokeIntensity = Math.min(
+          1.0,
+          Math.max(
+            this.roadWheelSpinKmh > 16 ? (this.roadWheelSpinKmh - 14) / 68 : 0,
+            isHandbrakeDrift ? 0.85 : 0,
+            Math.abs(this.roadSlipAngle) * 2.6 + Math.abs(this.handbrakeSlideAngle) * 2.1
+          )
+        );
+      }
+
       // Realistic fishtailing & oversteer on slippery snow/ice/rain under hard throttle (RWD struggles most):
-      if (traction.fishtailFactor > 0.08 && input.throttle > 0.45 && this.playerSpeedKmh > 12 && this.playerSpeedKmh < 185) {
-        const fishtailAmt = Math.sin(this.raceTimer * 5.8) * 0.015 * traction.fishtailFactor * input.throttle;
+      if (traction.fishtailFactor > 0.08 && input.throttle > 0.52 && this.playerSpeedKmh > 14 && this.playerSpeedKmh < 185) {
+        const fishtailAmt = Math.sin(this.raceTimer * 5.8) * 0.013 * traction.fishtailFactor * input.throttle;
         this.playerHeading += fishtailAmt;
       }
+    } else {
+      this.grassWheelSpinKmh = 0;
+      this.roadWheelSpinKmh = 0;
+      this.roadTireSmokeIntensity = 0;
+      this.roadSlipAngle = 0;
+      this.rwdTractionHooked = false;
     }
+
+    this.grassSlipIntensity = surface.offTrack && this.isCityMode
+      ? Math.min(
+          1.0,
+          this.grassWheelSpinKmh / 85 +
+            (Math.abs(this.playerSpeedKmh) > 20 ? 0.18 + (offRoadTerrain?.isTallGrass ? 0.18 : 0) : 0)
+        )
+      : 0;
 
     const gripMultiplier = surfaceGrip * effectiveTireGrip;
     // NO 380 KM/H LIMITER: Top speed is realistically determined by engine power, gear ratio, and aerodynamic drag
-    const maxSurfaceSpeed = surface.offTrack ? 135 : 440;
+    const maxSurfaceSpeed = surface.offTrack ? Math.max(135, offRoadCapKmh + 8) : 440;
 
     // Ticking protection shield timer after crash recovery
     if (this.playerProtectionShieldTimer > 0) {
@@ -2330,9 +2695,17 @@ export class PhysicsEngine {
             ? 8200
             : 7000;
         const safeRpmFrac = Math.max(0, rpmFrac);
+        const activeWheelSpinKmh = surface.offTrack ? this.grassWheelSpinKmh : this.roadWheelSpinKmh;
+        const spinRpmFlare =
+          activeWheelSpinKmh > 10
+            ? Math.min(2400, activeWheelSpinKmh * 22)
+            : 0;
         this.playerRpm = Math.max(
           streetIdle * 0.9,
-          Math.min(streetRedline * 1.06, streetIdle + safeRpmFrac * (streetRedline - streetIdle) + limiterJitter)
+          Math.min(
+            streetRedline * 1.06,
+            streetIdle + safeRpmFrac * (streetRedline - streetIdle) + spinRpmFlare + limiterJitter
+          )
         );
       } else {
         this.playerRpm = Math.max(3600, Math.min(15000, 4500 + rpmFrac * 10500 + limiterJitter));
@@ -2396,8 +2769,9 @@ export class PhysicsEngine {
           : 0;
       const gearSpeedCap = this.manualGearMode && this.playerGear < 8 ? curMax + 6 : 550;
       const minTerminalFloor = this.isCityMode ? 145 : 190;
+      const tireWearGrassPenalty = this.isCityMode && this.tireLife < 40 ? 12 * (1 - this.tireLife / 40) : 0;
       const targetTerminalKmh = surface.offTrack
-        ? 140
+        ? Math.max(18, offRoadCapKmh - tireWearGrassPenalty)
         : Math.min(
             gearSpeedCap,
             Math.max(minTerminalFloor, baseTerminalKmh + compoundSpeedDelta + drsBonus + boostBonus - tireWearSpeedPenalty)
@@ -2415,16 +2789,49 @@ export class PhysicsEngine {
         baseAccel = targetAvgAccel * streetGearTorque;
       }
 
-      const speedRatio = Math.min(1.05, this.playerSpeedKmh / Math.max(80, targetTerminalKmh));
+      const speedRatio = Math.min(1.05, this.playerSpeedKmh / Math.max(24, targetTerminalKmh));
       const availableThrust = Math.max(0, 1.0 - Math.pow(speedRatio, 2.2));
       const boostBonusRate = isBoosting ? 1.35 : 1.0;
       const slipstreamThrustBonus = this.slipstreamActive ? 2.5 * this.slipstreamFactor : 0;
+      const muscleGrassBog = surface.offTrack && isMuscleCar ? 0.62 : 1.0;
+      const tallGrassBog =
+        surface.offTrack && offRoadTerrain?.isTallGrass
+          ? Math.max(0.58, 1.0 - (offRoadTerrain.grassHeight - 0.48) * 0.65)
+          : 1.0;
+      const wheelSpinPowerLoss = surface.offTrack ? Math.max(0.45, 1.0 - grassTractionLoss * 0.36) : 1.0;
+      const grassPowerScale =
+        surface.offTrack && this.isCityMode
+          ? Math.min(1.0, (0.46 + (offRoadScore / 100) * 0.58) * muscleGrassBog * tallGrassBog * wheelSpinPowerLoss)
+          : 1.0;
+      const hookedRwdLaunchSurge =
+        this.isCityMode &&
+        !surface.offTrack &&
+        activeDrivetrain === 'RWD' &&
+        this.rwdTractionHooked &&
+        this.roadWheelSpinKmh < 8 &&
+        this.playerSpeedKmh >= 24 &&
+        this.playerSpeedKmh <= 145
+          ? 1.0 + Math.min(0.14, Math.max(0.04, ((activeStreetCar?.horsepower || 300) - 320) / 3800))
+          : 1.0;
       const forwardAccel =
-        baseAccel * availableThrust * boostBonusRate * gripMultiplier * gearTorqueMultiplier + slipstreamThrustBonus;
+        (baseAccel * availableThrust * boostBonusRate * gripMultiplier * gearTorqueMultiplier + slipstreamThrustBonus) *
+        grassPowerScale *
+        hookedRwdLaunchSurge;
 
-      const overspeedDrag = this.playerSpeedKmh > targetTerminalKmh
-        ? Math.min(18.0, Math.pow((this.playerSpeedKmh - targetTerminalKmh) / 8, 1.8) * 1.6) + engineBrakingDrag
-        : engineBrakingDrag;
+      // Gradual deceleration when entering grass at high speed instead of an instant velocity snap
+      let overspeedDrag = engineBrakingDrag;
+      if (this.playerSpeedKmh > targetTerminalKmh) {
+        const excessKmh = this.playerSpeedKmh - targetTerminalKmh;
+        if (surface.offTrack) {
+          const tallGrassDragBoost = offRoadTerrain?.isTallGrass ? 1.28 : 1.0;
+          const offRoadDragMult = this.isCityMode
+            ? Math.max(0.55, (1.42 - (offRoadScore / 100) * 0.72) * tallGrassDragBoost)
+            : 1.0;
+          overspeedDrag = Math.min(7.8, (1.55 + excessKmh * 0.025) * offRoadDragMult) + engineBrakingDrag;
+        } else {
+          overspeedDrag = Math.min(18.0, Math.pow(excessKmh / 8, 1.8) * 1.6) + engineBrakingDrag;
+        }
+      }
 
       if (effectiveThrottle > 0) {
         if (this.playerSpeedKmh < targetTerminalKmh) {
@@ -2434,7 +2841,8 @@ export class PhysicsEngine {
         }
       } else {
         const manualEngineBrake = (this.manualGearMode || this.manualGearHoldTimer > 0) && rawRpmFrac > 0.7 ? 2.2 : 0;
-        const coastDrag = (1.8 + (this.playerSpeedKmh / 350) * 4.5 + manualEngineBrake) * (surface.offTrack ? 3.0 : 1.0);
+        const grassCoastMult = surface.offTrack ? (this.isCityMode ? 1.65 : 2.2) : 1.0;
+        const coastDrag = (1.8 + (this.playerSpeedKmh / 350) * 4.5 + manualEngineBrake) * grassCoastMult;
         this.playerSpeedKmh = Math.max(0, this.playerSpeedKmh - (coastDrag + overspeedDrag) * dt * 3.6);
       }
 
@@ -2488,26 +2896,31 @@ export class PhysicsEngine {
     const speed = Math.abs(this.playerSpeedKmh);
 
     // Natural, fluid speed-scaled steering authority:
-    // Slower speeds (0-140 km/h) allow wide turning lock for tight corners, hairpins and chicane flicks.
-    // High speeds down straights (140-360 km/h) transition gently so the car is completely comfortable to weave without snapping or being rigid.
-    // Formula 1 steering rack scaling:
+    // High-downforce & track-focused chassis (e.g. McMurtry Speirling) retain huge cornering speed without washing out,
+    // while heavier muscle cars (e.g. Challenger) wash wide at speed and require earlier braking.
     const speedRatio = Math.min(360, speed) / 220;
-    const speedDamping = 1.0 / (1.0 + Math.pow(speed / 210, 1.15) * 0.72);
+    const citySpeedWashoutScale = this.isCityMode
+      ? 195 + Math.max(0, downforceNorm - 0.35) * 175
+      : 210;
+    const speedDamping = 1.0 / (1.0 + Math.pow(speed / citySpeedWashoutScale, 1.15) * 0.72);
     // Smooth natural turn authority (1.75):
     const naturalSensitivity = 1.75 * speedDamping;
 
     // Cornering bite & understeer elimination from handling:
-    // Baseline cars push heavily when throttle is pinned. Upgraded handling cars carve cleanly without understeer fighting:
+    // Baseline/heavy cars push heavily when throttle is pinned. High-handling track weapons carve cleanly:
     const effectiveThrottleVal = this.playerCrashWaitTimer > 0 ? 0 : input.throttle;
-    const understeerMitigation = Math.min(0.44, handlingNorm * 0.32);
+    const understeerMitigation = Math.min(0.46, handlingNorm * 0.32);
     const throttleUndersteer = effectiveThrottleVal > 0.05
-      ? Math.max(0.68, 1.0 - (speedRatio * effectiveThrottleVal * Math.max(0.03, 0.40 - understeerMitigation)))
+      ? Math.max(this.isCityMode ? 0.56 : 0.68, 1.0 - (speedRatio * effectiveThrottleVal * Math.max(0.02, (this.isCityMode ? 0.48 : 0.40) - understeerMitigation)))
       : 1.0;
 
-    // Fluid weaving agility bonus:
-    // Good handling allows crisp, smooth turn-in and effortless direction changes without making straight-line micro-inputs twitchy:
-    const corneringAgility = 1.0 + Math.min(0.35, handlingNorm * 0.20);
-    const gripHold = Math.min(1.22, 0.95 + Math.min(0.25, downforceNorm * 0.16));
+    // Fluid weaving agility & lateral grip contrast:
+    const corneringAgility = this.isCityMode
+      ? 0.82 + Math.min(0.84, handlingNorm * 0.50)
+      : 1.0 + Math.min(0.35, handlingNorm * 0.20);
+    const gripHold = this.isCityMode
+      ? Math.min(1.48, 0.88 + Math.min(0.60, downforceNorm * 0.31))
+      : Math.min(1.22, 0.95 + Math.min(0.25, downforceNorm * 0.16));
 
     // Dynamic progressive steering curve:
     // Linear center zone (82%) provides immediate, direct response for smooth weaving between rival cars,
@@ -2542,11 +2955,35 @@ export class PhysicsEngine {
       this.playerCar.updateSparks(this.playerSpeedKmh, true, dt);
     }
 
-    this.playerCar.setSteerAngle(-steerInput * 0.38);
-    this.playerCar.setWheelSpin(input.handbrake && speed > 10 ? this.playerSpeedKmh * 0.35 : this.playerSpeedKmh, dt);
+    const activeExtraSpinKmh = surface.offTrack ? this.grassWheelSpinKmh : this.roadWheelSpinKmh;
+    this.playerCar.setSteerAngle(-steerInput * 0.42);
+    this.playerCar.setWheelSpin(
+      input.handbrake && speed > 10 ? this.playerSpeedKmh * 0.35 : this.playerSpeedKmh,
+      dt,
+      activeExtraSpinKmh,
+      activeDrivetrain
+    );
+    if (this.isCityMode) {
+      this.playerCar.updateOffroadSpray?.(
+        surface.offTrack ? this.grassSlipIntensity : 0,
+        Math.abs(this.playerSpeedKmh) + activeExtraSpinKmh,
+        dt,
+        surface.offTrack
+      );
+      const smokeAmt = surface.offTrack
+        ? Math.max(0, (this.grassWheelSpinKmh - 65) / 110)
+        : this.roadTireSmokeIntensity;
+      this.playerCar.updateTireSmoke?.(
+        smokeAmt,
+        Math.abs(this.playerSpeedKmh) + activeExtraSpinKmh,
+        dt,
+        activeDrivetrain,
+        this.roadSlipAngle + this.handbrakeSlideAngle
+      );
+    }
 
-    // Compute Forward Vector from car heading + handbrake drift slip vector (zero allocation)
-    const moveHeading = this.playerHeading - this.handbrakeSlideAngle * 0.52;
+    // Compute Forward Vector from car heading + handbrake/power-oversteer drift slip vector (zero allocation)
+    const moveHeading = this.playerHeading - (this.handbrakeSlideAngle + this.roadSlipAngle) * 0.52;
     const forwardX = -Math.sin(moveHeading);
     const forwardZ = -Math.cos(moveHeading);
     const forwardVec = this._scratchForwardVec.set(forwardX, 0, forwardZ);
@@ -2561,6 +2998,77 @@ export class PhysicsEngine {
       this.playerPos.x += forwardVec.x * speedMs * dt;
       this.playerPos.z += forwardVec.z * speedMs * dt;
       this.playerPos.y = 0.33;
+
+      // Independent 4-wheel suspension bounce over rocks, pebbles, and taller grass patches
+      if (this.isCityMode) {
+        if (surface.offTrack) {
+          const cFwdX = -Math.sin(this.playerHeading);
+          const cFwdZ = -Math.cos(this.playerHeading);
+          const cRightX = Math.cos(this.playerHeading);
+          const cRightZ = -Math.sin(this.playerHeading);
+          const halfTrack = 0.88;
+          const halfWheelbase = 1.42;
+
+          const sFL = sampleOffRoadTerrainAt(
+            this.playerPos.x + cFwdX * halfWheelbase - cRightX * halfTrack,
+            this.playerPos.z + cFwdZ * halfWheelbase - cRightZ * halfTrack
+          );
+          const sFR = sampleOffRoadTerrainAt(
+            this.playerPos.x + cFwdX * halfWheelbase + cRightX * halfTrack,
+            this.playerPos.z + cFwdZ * halfWheelbase + cRightZ * halfTrack
+          );
+          const sRL = sampleOffRoadTerrainAt(
+            this.playerPos.x - cFwdX * halfWheelbase - cRightX * halfTrack,
+            this.playerPos.z - cFwdZ * halfWheelbase - cRightZ * halfTrack
+          );
+          const sRR = sampleOffRoadTerrainAt(
+            this.playerPos.x - cFwdX * halfWheelbase + cRightX * halfTrack,
+            this.playerPos.z - cFwdZ * halfWheelbase + cRightZ * halfTrack
+          );
+
+          const speedMoveGain = Math.min(1.0, 0.25 + Math.abs(this.playerSpeedKmh) / 38);
+          const tgtFL = sFL.rockBump * speedMoveGain;
+          const tgtFR = sFR.rockBump * speedMoveGain;
+          const tgtRL = sRL.rockBump * speedMoveGain;
+          const tgtRR = sRR.rockBump * speedMoveGain;
+
+          const wheelLerp = Math.min(1, dt * 18);
+          this.wheelSuspOffsets.fl += (tgtFL - this.wheelSuspOffsets.fl) * wheelLerp;
+          this.wheelSuspOffsets.fr += (tgtFR - this.wheelSuspOffsets.fr) * wheelLerp;
+          this.wheelSuspOffsets.rl += (tgtRL - this.wheelSuspOffsets.rl) * wheelLerp;
+          this.wheelSuspOffsets.rr += (tgtRR - this.wheelSuspOffsets.rr) * wheelLerp;
+        } else {
+          const settle = Math.min(1, dt * 14);
+          this.wheelSuspOffsets.fl *= 1 - settle;
+          this.wheelSuspOffsets.fr *= 1 - settle;
+          this.wheelSuspOffsets.rl *= 1 - settle;
+          this.wheelSuspOffsets.rr *= 1 - settle;
+        }
+
+        const avgBump =
+          (this.wheelSuspOffsets.fl +
+            this.wheelSuspOffsets.fr +
+            this.wheelSuspOffsets.rl +
+            this.wheelSuspOffsets.rr) *
+          0.25;
+        const frontAvg = (this.wheelSuspOffsets.fl + this.wheelSuspOffsets.fr) * 0.5;
+        const rearAvg = (this.wheelSuspOffsets.rl + this.wheelSuspOffsets.rr) * 0.5;
+        const leftAvg = (this.wheelSuspOffsets.fl + this.wheelSuspOffsets.rl) * 0.5;
+        const rightAvg = (this.wheelSuspOffsets.fr + this.wheelSuspOffsets.rr) * 0.5;
+
+        const chassisLerp = Math.min(1, dt * 11);
+        this.offRoadChassisHeave += (avgBump * 0.52 - this.offRoadChassisHeave) * chassisLerp;
+        this.offRoadChassisPitch += ((frontAvg - rearAvg) * 0.14 - this.offRoadChassisPitch) * chassisLerp;
+        this.offRoadChassisRoll += ((leftAvg - rightAvg) * 0.18 - this.offRoadChassisRoll) * chassisLerp;
+
+        const clampWheel = (v: number) => Math.max(-0.045, Math.min(0.115, v));
+        this.playerCar.setWheelSuspension?.(
+          clampWheel(this.wheelSuspOffsets.fl - this.offRoadChassisHeave),
+          clampWheel(this.wheelSuspOffsets.fr - this.offRoadChassisHeave),
+          clampWheel(this.wheelSuspOffsets.rl - this.offRoadChassisHeave),
+          clampWheel(this.wheelSuspOffsets.rr - this.offRoadChassisHeave)
+        );
+      }
 
       // Seamlessly snap the 8,000m × 8,000m tiled road tarmac & endless highway around the car's coordinates
       this.track.updateInfiniteRoadOrigin?.(this.playerPos.x, this.playerPos.z);
@@ -2814,15 +3322,23 @@ export class PhysicsEngine {
       }
     }
 
-    // Sync 3D Mesh (with crisp handbrake oversteer yaw kick)
-    this.playerCar.root.position.copy(this.playerPos);
-    this.playerCar.root.rotation.y = this.playerHeading + this.handbrakeSlideAngle * 0.45;
+    // Sync 3D Mesh (with crisp handbrake/power-oversteer yaw kick & off-road terrain suspension heave/pitch/roll)
+    this.playerCar.root.position.set(
+      this.playerPos.x,
+      this.playerPos.y + (this.isCityMode ? this.offRoadChassisHeave : 0),
+      this.playerPos.z
+    );
+    this.playerCar.root.rotation.y =
+      this.playerHeading + (this.handbrakeSlideAngle + this.roadSlipAngle) * 0.45;
 
     const slope = surface.tangent.y;
-    this.playerCar.root.rotation.x = -Math.asin(Math.max(-0.4, Math.min(0.4, slope)));
+    this.playerCar.root.rotation.x =
+      -Math.asin(Math.max(-0.4, Math.min(0.4, slope))) +
+      (this.isCityMode ? this.offRoadChassisPitch : 0);
     this.playerCar.root.rotation.z =
       -input.steer * Math.min(0.08, (Math.abs(this.playerSpeedKmh) / 300) * 0.08) +
-      this.handbrakeSlideAngle * 0.14;
+      (this.handbrakeSlideAngle + this.roadSlipAngle) * 0.14 +
+      (this.isCityMode ? this.offRoadChassisRoll : 0);
 
     // Titanium Sparks (always pass non-negative speed)
     const isHandbrakeSliding =
@@ -2839,7 +3355,8 @@ export class PhysicsEngine {
     // Audio
     const lateralG = Math.abs(input.steer) * (Math.abs(this.playerSpeedKmh) / 140);
     const handbrakeSlipAudio = isHandbrakeSliding ? 0.85 : 0;
-    const tireSlip = Math.min(1, lateralG * 0.5 + (surface.onCurb ? 0.3 : 0) + handbrakeSlipAudio);
+    const roadWheelSpinAudio = !surface.offTrack ? this.roadTireSmokeIntensity * 0.72 : 0;
+    const tireSlip = Math.min(1, lateralG * 0.5 + (surface.onCurb ? 0.3 : 0) + handbrakeSlipAudio + roadWheelSpinAudio);
     const isStalledNow = this.falseStartPenaltyTimer > 0;
     const safeRpm = isStalledNow ? 0 : Number.isFinite(this.playerRpm) ? this.playerRpm : 5000;
     const safeSpeed = isStalledNow ? 0 : Number.isFinite(this.playerSpeedKmh) ? Math.abs(this.playerSpeedKmh) : 0;
@@ -4355,6 +4872,7 @@ export class PhysicsEngine {
     for (const p of this.cityPoliceCars) {
       this.track.group.remove(p.built.root);
     }
+    this.clearAllCityRoadblocks();
     if (this.missionBeacon) {
       this.track.group.remove(this.missionBeacon.group);
     }
@@ -4391,6 +4909,11 @@ export class PhysicsEngine {
     this.cityPursuitStats.houseFurnishings = syncedFurnishings;
     this.cityPursuitStats.unpaidCrashTicketsTab = this.citySave.unpaidCrashTicketsTab || 0;
     this.cityPursuitStats.totalJobsCompleted = this.citySave.totalJobsCompleted || 0;
+    this.cityPursuitStats.outdoorJobsCompleted = this.citySave.outdoorJobsCompleted || 0;
+    this.cityPursuitStats.jobSkillXp = this.citySave.jobSkillXp || 0;
+    const initSkillInfo = getJobSkillRankInfo(this.cityPursuitStats.jobSkillXp);
+    this.cityPursuitStats.jobSkillLevel = initSkillInfo.level;
+    this.cityPursuitStats.jobSkillTitle = initSkillInfo.title;
     this.cityPursuitStats.totalHeistsCompleted = this.citySave.totalHeistsCompleted || 0;
     this.recomputePassiveRealEstateIncome();
     this.equipCityStreetCar(this.citySave.selectedCarId);
@@ -4421,7 +4944,7 @@ export class PhysicsEngine {
       { name: 'BMW 330i M-Sport', style: 'sedan' as const },
       { name: 'Chevrolet Tahoe LTZ', style: 'suv' as const },
       { name: 'Ford Mustang GT', style: 'coupe' as const },
-      { name: 'Tesla Model 3 Performance', style: 'sedan' as const },
+      { name: 'Honda Accord Touring', style: 'sedan' as const },
       { name: 'Cadillac Escalade Sport', style: 'suv' as const },
       { name: 'Nissan 370Z Nismo', style: 'coupe' as const },
       { name: 'Audi A4 Quattro S-Line', style: 'sedan' as const },
@@ -4684,11 +5207,25 @@ export class PhysicsEngine {
     soundEngine.setStreetCarEngineProfile(baseSpec.id, activeTrimId);
 
     this.cityPursuitStats.currentStreetCar = effectiveSpec;
+    this.cityPursuitStats.groundClearanceInches = effectiveSpec.groundClearanceInches ?? 5.3;
+    this.cityPursuitStats.offRoadScore = effectiveSpec.offRoadScore ?? 38;
+    this.cityPursuitStats.tireLife = Number(this.tireLife.toFixed(1));
     this.cityPursuitStats.ownedCarIds = [...this.citySave.ownedCarIds];
     this.cityPursuitStats.unlockedTrimsByCar = { ...this.citySave.unlockedTrimsByCar };
     this.cityPursuitStats.activeTrimByCar = { ...this.citySave.activeTrimByCar };
     this.cityPursuitStats.customPaintByCar = { ...this.citySave.customPaintByCar };
     this.cityPursuitStats.streetCash = this.citySave.streetCash;
+    this.rwdTractionHooked = false;
+    this.roadWheelSpinKmh = 0;
+    this.roadSlipAngle = 0;
+    this.roadTireSmokeIntensity = 0;
+  }
+
+  private clearAllCityRoadblocks() {
+    for (let i = 0; i < this.cityRoadblocks.length; i++) {
+      this.track.group.remove(this.cityRoadblocks[i].root);
+    }
+    this.cityRoadblocks = [];
   }
 
   public buyOrSelectCityStreetCar(carId: string): { success: boolean; message: string } {
@@ -4858,36 +5395,74 @@ export class PhysicsEngine {
     ];
   }
 
-  private resolveBuildingCollision(pos: THREE.Vector3, radius: number): { hit: boolean; normalX: number; normalZ: number } {
-    const buildings = this.track.cityBuildings;
-    if (!buildings) return { hit: false, normalX: 0, normalZ: 0 };
-
+  private ensureBuildingSpatialGrid(buildings: CityBuildingBox[]) {
+    if (this.buildingGridRef === buildings) return;
+    this.buildingGridRef = buildings;
+    this.buildingGrid.clear();
+    const cell = this.buildingGridCellSize;
     for (let i = 0; i < buildings.length; i++) {
       const b = buildings[i];
-      if (
-        pos.x > b.minX - radius &&
-        pos.x < b.maxX + radius &&
-        pos.z > b.minZ - radius &&
-        pos.z < b.maxZ + radius
-      ) {
-        const penLeft = pos.x - (b.minX - radius);
-        const penRight = b.maxX + radius - pos.x;
-        const penTop = pos.z - (b.minZ - radius);
-        const penBottom = b.maxZ + radius - pos.z;
-        const minPen = Math.min(penLeft, penRight, penTop, penBottom);
+      const cx0 = Math.floor(b.minX / cell);
+      const cx1 = Math.floor(b.maxX / cell);
+      const cz0 = Math.floor(b.minZ / cell);
+      const cz1 = Math.floor(b.maxZ / cell);
+      for (let cx = cx0; cx <= cx1; cx++) {
+        for (let cz = cz0; cz <= cz1; cz++) {
+          const key = `${cx},${cz}`;
+          let bucket = this.buildingGrid.get(key);
+          if (!bucket) {
+            bucket = [];
+            this.buildingGrid.set(key, bucket);
+          }
+          bucket.push(b);
+        }
+      }
+    }
+  }
 
-        if (minPen === penLeft) {
-          pos.x = b.minX - radius;
-          return { hit: true, normalX: -1, normalZ: 0 };
-        } else if (minPen === penRight) {
-          pos.x = b.maxX + radius;
-          return { hit: true, normalX: 1, normalZ: 0 };
-        } else if (minPen === penTop) {
-          pos.z = b.minZ - radius;
-          return { hit: true, normalX: 0, normalZ: -1 };
-        } else {
-          pos.z = b.maxZ + radius;
-          return { hit: true, normalX: 0, normalZ: 1 };
+  private resolveBuildingCollision(pos: THREE.Vector3, radius: number): { hit: boolean; normalX: number; normalZ: number } {
+    const buildings = this.track.cityBuildings;
+    if (!buildings || buildings.length === 0) return { hit: false, normalX: 0, normalZ: 0 };
+    this.ensureBuildingSpatialGrid(buildings);
+
+    const cell = this.buildingGridCellSize;
+    const cx0 = Math.floor((pos.x - radius) / cell);
+    const cx1 = Math.floor((pos.x + radius) / cell);
+    const cz0 = Math.floor((pos.z - radius) / cell);
+    const cz1 = Math.floor((pos.z + radius) / cell);
+
+    for (let cx = cx0; cx <= cx1; cx++) {
+      for (let cz = cz0; cz <= cz1; cz++) {
+        const bucket = this.buildingGrid.get(`${cx},${cz}`);
+        if (!bucket) continue;
+        for (let i = 0; i < bucket.length; i++) {
+          const b = bucket[i];
+          if (
+            pos.x > b.minX - radius &&
+            pos.x < b.maxX + radius &&
+            pos.z > b.minZ - radius &&
+            pos.z < b.maxZ + radius
+          ) {
+            const penLeft = pos.x - (b.minX - radius);
+            const penRight = b.maxX + radius - pos.x;
+            const penTop = pos.z - (b.minZ - radius);
+            const penBottom = b.maxZ + radius - pos.z;
+            const minPen = Math.min(penLeft, penRight, penTop, penBottom);
+
+            if (minPen === penLeft) {
+              pos.x = b.minX - radius;
+              return { hit: true, normalX: -1, normalZ: 0 };
+            } else if (minPen === penRight) {
+              pos.x = b.maxX + radius;
+              return { hit: true, normalX: 1, normalZ: 0 };
+            } else if (minPen === penTop) {
+              pos.z = b.minZ - radius;
+              return { hit: true, normalX: 0, normalZ: -1 };
+            } else {
+              pos.z = b.maxZ + radius;
+              return { hit: true, normalX: 0, normalZ: 1 };
+            }
+          }
         }
       }
     }
@@ -5132,6 +5707,7 @@ export class PhysicsEngine {
     this.cityPursuitStats.policeSirenActive = false;
     this.cityPursuitStats.authorizedChaseSuspectId = null;
     this.cityPursuitStats.policeShiftEarnings = 0;
+    this.cityPursuitStats.radarTarget = null;
 
     // Immediately return car to civilian street livery
     updateVehicleLighting(
@@ -5590,7 +6166,7 @@ export class PhysicsEngine {
     return { success: true, message: `Purchased ${spec.name}!` };
   }
 
-  public buyHouseFurnishing(houseId: string, itemId: string): { success: boolean; message: string } {
+  public buyHouseFurnishing(houseId: string, itemId: string, slotId?: string): { success: boolean; message: string } {
     if (!this.isCityMode) return { success: false, message: 'Not in Metro City Mode' };
     if (!(this.citySave.ownedHouseIds || []).includes(houseId)) {
       return { success: false, message: 'You must own this house first' };
@@ -5602,7 +6178,7 @@ export class PhysicsEngine {
       this.citySave.houseFurnishings = {};
     }
     const currentList = [...(this.citySave.houseFurnishings[houseId] || [])];
-    if (currentList.includes(item.id)) {
+    if (currentList.some((entry) => entry.split('@')[0] === item.id)) {
       return { success: false, message: `${item.name} is already installed in this house` };
     }
     if (this.citySave.streetCash < item.price) {
@@ -5613,7 +6189,8 @@ export class PhysicsEngine {
     }
 
     this.citySave.streetCash -= item.price;
-    currentList.push(item.id);
+    const storedEntry = slotId ? `${item.id}@${slotId}` : item.id;
+    currentList.push(storedEntry);
     this.citySave.houseFurnishings[houseId] = currentList;
     saveMetroCitySave(this.citySave);
 
@@ -5634,22 +6211,45 @@ export class PhysicsEngine {
   /**
    * Start or switch to a Legal Street Job (Taxi Driver, Pizza Delivery, Express Courier, Burger Blitz, Paramedic)
    */
+  private grantJobSkillXp(xpDelta: number) {
+    if (!Number.isFinite(xpDelta) || xpDelta <= 0) return;
+    this.citySave.jobSkillXp = Math.max(0, Math.round((this.citySave.jobSkillXp || 0) + xpDelta));
+    const rank = getJobSkillRankInfo(this.citySave.jobSkillXp);
+    this.cityPursuitStats.jobSkillXp = this.citySave.jobSkillXp;
+    this.cityPursuitStats.jobSkillLevel = rank.level;
+    this.cityPursuitStats.jobSkillTitle = rank.title;
+  }
+
   public startCityRegularJob(jobId: string) {
     if (!this.isCityMode) return;
     const spec = CITY_REGULAR_JOBS_CATALOG.find((j) => j.id === jobId);
     if (!spec) return;
 
-    // Cancel any active illegal street contract or GPS marker so the beacon guides your job
+    // Cancel any active illegal street contract, outdoor contract, or GPS marker so the beacon guides your job
     this.activeMissionTemplate = null;
     this.cityPursuitStats.activeMission = null;
+    this.activeOutdoorJobSpec = null;
+    this.cityPursuitStats.activeOutdoorJob = null;
     this.customGpsTarget = null;
 
+    let bestRouteIdx = 0;
+    let bestRouteDist = Infinity;
+    for (let i = 0; i < spec.routes.length; i++) {
+      const r = spec.routes[i];
+      const d = Math.hypot(r.pickupX - this.playerPos.x, r.pickupZ - this.playerPos.z);
+      if (d < bestRouteDist) {
+        bestRouteDist = d;
+        bestRouteIdx = i;
+      }
+    }
+
     this.activeJobSpec = spec;
-    this.activeJobRouteIdx = Math.floor(Math.random() * spec.routes.length);
+    this.activeJobRouteIdx = bestRouteIdx;
     this.activeJobStage = 'PICKUP';
     this.activeJobTimeLeft = spec.timeLimitSec;
     this.activeJobStreak = 0;
     this.activeJobTotalEarned = 0;
+    this.activeJobPeakSpeedKmh = 0;
     this.activeJobCrashesStart = this.cityPursuitStats.trafficCarsHit + this.cityPursuitStats.policeCarsHit;
 
     const route = spec.routes[this.activeJobRouteIdx];
@@ -5666,17 +6266,300 @@ export class PhysicsEngine {
     const role = this.activeJobSpec.roleLabel;
     this.activeJobSpec = null;
     this.cityPursuitStats.activeRegularJob = null;
-    if (!this.activeMissionTemplate && !this.customGpsTarget) {
+    if (!this.activeMissionTemplate && !this.customGpsTarget && !this.activeOutdoorJobSpec) {
       this.missionBeacon?.setWaypoint(0, 0, '#10b981', false, 0);
     }
     this.cityPursuitStats.activeAlertBanner = `💼 CLOCKED OUT OF ${role.toUpperCase()} SHIFT (EARNED +$${earned.toLocaleString()})`;
     this.cityPursuitStats.activeAlertTimer = 3.8;
   }
 
+  private findNearestIndoorWorkplaceTarget(spec: (typeof CITY_INDOOR_JOBS_CATALOG)[number]): {
+    x: number;
+    z: number;
+    label: string;
+    distMeters: number;
+  } {
+    this.ensureExplorableCityBuildingsCache();
+
+    const px = this.playerPos.x;
+    const pz = this.playerPos.z;
+    const kws = spec.buildingMatchKeywords;
+
+    let bestX = MD_LANDMARKS.baltimoreWTC.x;
+    let bestZ = MD_LANDMARKS.baltimoreWTC.z;
+    let bestLabel = 'Baltimore World Trade Center';
+    let bestDist = Infinity;
+
+    const considerCandidate = (x: number, z: number, label: string) => {
+      const dist = Math.hypot(x - px, z - pz);
+      if (dist < bestDist) {
+        bestDist = dist;
+        bestX = x;
+        bestZ = z;
+        bestLabel = label;
+      }
+    };
+
+    // 1) Check explorable city buildings (offices, towers, clinics, labs, malls, transit, airports, studios)
+    for (const b of this.explorableCityBuildings) {
+      const lower = `${b.name} ${b.categoryLabel}`.toLowerCase();
+      let isMatch = false;
+      for (const kw of kws) {
+        if (lower.includes(kw)) {
+          isMatch = true;
+          break;
+        }
+      }
+      if (!isMatch) {
+        if (spec.workKind === 'work_clinic' && (lower.includes('hospital') || lower.includes('clinic') || lower.includes('medical'))) {
+          isMatch = true;
+        } else if (spec.workKind === 'work_lab' && (lower.includes('nist') || lower.includes('research') || lower.includes('lab'))) {
+          isMatch = true;
+        } else if (spec.workKind === 'work_office' && ((b.stories ?? 1) >= 3 || lower.includes('office') || lower.includes('tower'))) {
+          isMatch = true;
+        } else if ((spec.workKind === 'work_retail' || spec.workKind === 'work_kitchen') && (lower.includes('mall') || lower.includes('plaza') || lower.includes('market') || lower.includes('shopping') || lower.includes('crown'))) {
+          isMatch = true;
+        } else if (spec.workKind === 'work_atc' && (lower.includes('airport') || lower.includes('airpark') || lower.includes('bwi') || lower.includes('kgai') || lower.includes('hangar') || lower.includes('terminal'))) {
+          isMatch = true;
+        } else if (spec.workKind === 'work_studio' && (lower.includes('wtc') || lower.includes('world trade') || lower.includes('media') || lower.includes('broadcast') || lower.includes('studio'))) {
+          isMatch = true;
+        } else if (spec.workKind === 'work_dispatch' && (lower.includes('station') || lower.includes('airport') || lower.includes('airpark') || lower.includes('marc'))) {
+          isMatch = true;
+        }
+      }
+      if (isMatch) {
+        considerCandidate(b.cx, b.cz, b.name);
+      }
+    }
+
+    // 2) Check Banks / Stores / Jewelry catalog for work_bank, work_retail & work_kitchen
+    if (spec.workKind === 'work_bank' || spec.workKind === 'work_retail' || spec.workKind === 'work_kitchen') {
+      for (const h of CITY_HEIST_TARGETS_CATALOG) {
+        if (h.category === 'HOUSE') continue;
+        if (spec.workKind === 'work_bank' && h.category !== 'BANK') continue;
+        if ((spec.workKind === 'work_retail' || spec.workKind === 'work_kitchen') && h.category !== 'STORE' && h.category !== 'JEWELRY') continue;
+        considerCandidate(h.x, h.z, h.name);
+      }
+    }
+
+    // 3) Check Service Stations for work_mechanic
+    if (spec.workKind === 'work_mechanic') {
+      for (const svc of CITY_SERVICE_STATIONS) {
+        considerCandidate(svc.x, svc.z, svc.name);
+      }
+    }
+
+    // 4) Check MCPD Central Precinct for work_dispatch
+    if (spec.workKind === 'work_dispatch') {
+      considerCandidate(
+        MD_LANDMARKS.baltimorePoliceHQ.x,
+        MD_LANDMARKS.baltimorePoliceHQ.z,
+        'MCPD Central Police Precinct'
+      );
+    }
+
+    if (!Number.isFinite(bestDist)) {
+      bestDist = Math.hypot(bestX - px, bestZ - pz);
+    }
+
+    return {
+      x: bestX,
+      z: bestZ,
+      label: bestLabel,
+      distMeters: Math.round(bestDist),
+    };
+  }
+
+  public getNearestJobProximities(): {
+    outdoor: Record<string, { distMeters: number; targetLabel: string }>;
+    indoor: Record<string, { distMeters: number; targetLabel: string }>;
+    regular: Record<string, { distMeters: number; targetLabel: string }>;
+  } {
+    const px = this.playerPos.x;
+    const pz = this.playerPos.z;
+    const outdoor: Record<string, { distMeters: number; targetLabel: string }> = {};
+    const indoor: Record<string, { distMeters: number; targetLabel: string }> = {};
+    const regular: Record<string, { distMeters: number; targetLabel: string }> = {};
+
+    for (const job of CITY_OUTDOOR_JOBS_CATALOG) {
+      let bestDist = Infinity;
+      let bestLabel = job.sites[0]?.label || 'Field Site';
+      for (const site of job.sites) {
+        const d = Math.hypot(site.x - px, site.z - pz);
+        if (d < bestDist) {
+          bestDist = d;
+          bestLabel = site.label;
+        }
+      }
+      outdoor[job.id] = {
+        distMeters: Math.round(Number.isFinite(bestDist) ? bestDist : 0),
+        targetLabel: bestLabel,
+      };
+    }
+
+    for (const job of CITY_INDOOR_JOBS_CATALOG) {
+      const target = this.findNearestIndoorWorkplaceTarget(job);
+      indoor[job.id] = {
+        distMeters: target.distMeters,
+        targetLabel: target.label,
+      };
+    }
+
+    for (const job of CITY_REGULAR_JOBS_CATALOG) {
+      let bestDist = Infinity;
+      let bestLabel = job.routes[0]?.pickupLabel || 'Dispatch Pickup';
+      for (const route of job.routes) {
+        const d = Math.hypot(route.pickupX - px, route.pickupZ - pz);
+        if (d < bestDist) {
+          bestDist = d;
+          bestLabel = route.pickupLabel;
+        }
+      }
+      regular[job.id] = {
+        distMeters: Math.round(Number.isFinite(bestDist) ? bestDist : 0),
+        targetLabel: bestLabel,
+      };
+    }
+
+    return { outdoor, indoor, regular };
+  }
+
+  public routeToIndoorWorkplaceJob(indoorJobId: string) {
+    if (!this.isCityMode) return;
+    const spec = CITY_INDOOR_JOBS_CATALOG.find((j) => j.id === indoorJobId);
+    if (!spec) return;
+
+    // Cancel active road / outdoor job so the player can immediately drive to the workplace
+    this.activeMissionTemplate = null;
+    this.cityPursuitStats.activeMission = null;
+    this.activeJobSpec = null;
+    this.cityPursuitStats.activeRegularJob = null;
+    this.activeOutdoorJobSpec = null;
+    this.cityPursuitStats.activeOutdoorJob = null;
+
+    const target = this.findNearestIndoorWorkplaceTarget(spec);
+
+    this.customGpsTarget = {
+      x: target.x,
+      z: target.z,
+      label: `${spec.icon} ${target.label} (${spec.roleLabel})`,
+      colorHex: spec.badgeColor,
+    };
+    this.missionBeacon?.setWaypoint(target.x, target.z, spec.badgeColor, true, this.raceTimer);
+    soundEngine.playStartLightBeep(true);
+    this.cityPursuitStats.activeAlertBanner = `${spec.icon} GPS SET TO WORKPLACE: ${target.label.toUpperCase()} — PARK & PRESS [V] TO WORK INSIDE!`;
+    this.cityPursuitStats.activeAlertTimer = 5.0;
+  }
+
+  public startOutdoorFieldJob(jobId: string) {
+    if (!this.isCityMode) return;
+    const spec = CITY_OUTDOOR_JOBS_CATALOG.find((j) => j.id === jobId);
+    if (!spec || spec.sites.length === 0) return;
+
+    this.activeMissionTemplate = null;
+    this.cityPursuitStats.activeMission = null;
+    this.activeJobSpec = null;
+    this.cityPursuitStats.activeRegularJob = null;
+    this.customGpsTarget = null;
+
+    // Pick closest outdoor site
+    let bestIdx = 0;
+    let bestDist = Infinity;
+    for (let i = 0; i < spec.sites.length; i++) {
+      const s = spec.sites[i];
+      const d = Math.hypot(s.x - this.playerPos.x, s.z - this.playerPos.z);
+      if (d < bestDist) {
+        bestDist = d;
+        bestIdx = i;
+      }
+    }
+
+    this.activeOutdoorJobSpec = spec;
+    this.activeOutdoorSiteIdx = bestIdx;
+    const site = spec.sites[bestIdx];
+    this.missionBeacon?.setWaypoint(site.x, site.z, spec.badgeColor, true, this.raceTimer);
+    soundEngine.playStartLightBeep(true);
+    this.cityPursuitStats.activeAlertBanner = `${spec.icon} FIELD DISPATCH: DRIVE TO ${site.label.toUpperCase()} & PRESS [J]!`;
+    this.cityPursuitStats.activeAlertTimer = 4.8;
+  }
+
+  public stopOutdoorFieldJob() {
+    if (!this.activeOutdoorJobSpec) return;
+    const role = this.activeOutdoorJobSpec.roleLabel;
+    this.activeOutdoorJobSpec = null;
+    this.cityPursuitStats.activeOutdoorJob = null;
+    if (!this.activeMissionTemplate && !this.customGpsTarget && !this.activeJobSpec) {
+      this.missionBeacon?.setWaypoint(0, 0, '#10b981', false, 0);
+    }
+    this.cityPursuitStats.activeAlertBanner = `🏕️ ENDED ${role} FIELD CONTRACT`;
+    this.cityPursuitStats.activeAlertTimer = 3.2;
+  }
+
+  public triggerOutdoorJobMinigame(jobId?: string) {
+    if (!this.isCityMode) return;
+    const prompt = this.cityPursuitStats.nearbyOutdoorJobPrompt;
+    const targetId = jobId || prompt?.jobId || this.activeOutdoorJobSpec?.id;
+    const spec = targetId ? CITY_OUTDOOR_JOBS_CATALOG.find((j) => j.id === targetId) : undefined;
+    if (!spec) return;
+
+    const siteLabel =
+      prompt?.jobId === spec.id
+        ? prompt.siteLabel
+        : spec.sites[this.activeOutdoorSiteIdx]?.label || spec.sites[0].label;
+
+    this.playerSpeedKmh = 0;
+    this.isMinigamePaused = true;
+    this.cityPursuitStats.activeOutdoorSkillMinigame = {
+      job: spec,
+      siteLabel,
+    };
+    soundEngine.playStartLightBeep(true);
+  }
+
+  public completeOutdoorFieldJob(cashEarned: number, tierLabel: string, xpEarned: number) {
+    const active = this.cityPursuitStats.activeOutdoorSkillMinigame;
+    this.cityPursuitStats.activeOutdoorSkillMinigame = null;
+    this.isMinigamePaused = false;
+    if (!this.isCityMode || !active) return;
+
+    const prev = this.citySave.streetCash;
+    const safeCash = Math.max(0, Math.round(cashEarned));
+    const next = prev < 0 ? Math.round(prev + safeCash) : Math.max(0, Math.round(prev + safeCash));
+    const appliedDelta = next - prev;
+    this.citySave.streetCash = next;
+    this.citySave.totalJobsCompleted = (this.citySave.totalJobsCompleted || 0) + 1;
+    this.citySave.outdoorJobsCompleted = (this.citySave.outdoorJobsCompleted || 0) + 1;
+    this.grantJobSkillXp(xpEarned);
+    saveMetroCitySave(this.citySave);
+
+    this.cityPursuitStats.streetCash = this.citySave.streetCash;
+    this.cityPursuitStats.totalJobsCompleted = this.citySave.totalJobsCompleted;
+    this.cityPursuitStats.outdoorJobsCompleted = this.citySave.outdoorJobsCompleted;
+    this.cityPursuitStats.inDebt = this.citySave.streetCash < 0;
+    this.cityPursuitStats.heistDebtAmount = Math.max(0, -this.citySave.streetCash);
+
+    if (this.activeOutdoorJobSpec?.id === active.job.id) {
+      this.activeOutdoorSiteIdx = (this.activeOutdoorSiteIdx + 1) % active.job.sites.length;
+      const nextSite = active.job.sites[this.activeOutdoorSiteIdx];
+      this.missionBeacon?.setWaypoint(nextSite.x, nextSite.z, active.job.badgeColor, true, this.raceTimer);
+    }
+
+    if (appliedDelta > 0) {
+      soundEngine.playStartLightBeep(true);
+      this.awardStreetSkillBonus(`${active.job.icon} ${tierLabel} FIELD OP (+${xpEarned} XP)`, appliedDelta);
+    }
+  }
+
+  public abortOutdoorFieldJobMinigame() {
+    this.cityPursuitStats.activeOutdoorSkillMinigame = null;
+    this.isMinigamePaused = false;
+  }
+
   public setCityGpsTarget(x: number, z: number, label: string, colorHex: string = '#facc15') {
     if (!this.isCityMode) return;
     this.customGpsTarget = { x, z, label, colorHex };
-    const busyMissionOrJob = Boolean(this.activeMissionTemplate || this.activeJobSpec);
+    this.minimapSyncAccum = 999;
+    const busyMissionOrJob = Boolean(this.activeMissionTemplate || this.activeJobSpec || this.activeOutdoorJobSpec);
     if (!busyMissionOrJob) {
       this.missionBeacon?.setWaypoint(x, z, colorHex, true, this.raceTimer);
     }
@@ -5993,8 +6876,7 @@ export class PhysicsEngine {
       const bId = id || this.cityPursuitStats.nearbyCityBuildingPrompt?.id;
       const entry = bId ? this.explorableCityBuildings.find((b) => b.id === bId) : undefined;
       if (!entry) return;
-      const entryLower = entry.name.toLowerCase();
-      if (entryLower.includes('islamic center of maryland') || /\bicm\b/.test(entryLower)) return;
+      if (this.isRestrictedReligiousBuilding(entry.name)) return;
 
       this.activeRobberyState = null;
       this.playerSpeedKmh = 0;
@@ -6149,6 +7031,27 @@ export class PhysicsEngine {
     if (appliedDelta > 0) {
       soundEngine.playStartLightBeep(true);
       this.awardStreetSkillBonus(label, appliedDelta);
+    }
+  }
+
+  public completeIndoorWorkShift(delta: number, label: string) {
+    if (!this.isCityMode || !Number.isFinite(delta) || delta <= 0) return;
+    const rank = getJobSkillRankInfo(this.citySave.jobSkillXp || 0);
+    const rankedDelta = Math.round(delta * rank.payoutMultiplier);
+    const prev = this.citySave.streetCash;
+    const next = prev < 0 ? Math.round(prev + rankedDelta) : Math.max(0, Math.round(prev + rankedDelta));
+    const appliedDelta = next - prev;
+    this.citySave.streetCash = next;
+    this.citySave.totalJobsCompleted = (this.citySave.totalJobsCompleted || 0) + 1;
+    this.grantJobSkillXp(35);
+    saveMetroCitySave(this.citySave);
+    this.cityPursuitStats.streetCash = this.citySave.streetCash;
+    this.cityPursuitStats.totalJobsCompleted = this.citySave.totalJobsCompleted;
+    this.cityPursuitStats.inDebt = this.citySave.streetCash < 0;
+    this.cityPursuitStats.heistDebtAmount = Math.max(0, -this.citySave.streetCash);
+    if (appliedDelta > 0) {
+      soundEngine.playStartLightBeep(true);
+      this.awardStreetSkillBonus(`${label} (+35 XP)`, appliedDelta);
     }
   }
 
@@ -6501,12 +7404,14 @@ export class PhysicsEngine {
     this.ersBattery = 100;
     this.tireLife = 100;
     this.tireCorners = { fl: 100, fr: 100, rl: 100, rr: 100 };
+    this.cityPursuitStats.tireLife = 100;
 
     if (this.cityPursuitStats.wantedStars === 1) {
       this.cityPursuitStats.wantedStars = 0;
       this.cityPursuitStats.pursuitState = 'CLEAR';
       this.cityPursuitStats.bustProgress = 0;
       this.cityPursuitStats.escapeProgress = 0;
+      this.clearAllCityRoadblocks();
       for (const cop of this.cityPoliceCars) {
         cop.built.setSirenActive(false, 0);
       }
@@ -6895,6 +7800,53 @@ export class PhysicsEngine {
       }
     }
 
+    // 0g2. Check Proximity to Outdoor Interactive Field Job Sites
+    {
+      let matchedJob: CityOutdoorJobSpec | null = null;
+      let matchedSiteLabel = '';
+      let matchedDist = 24.0;
+      const px = this.playerPos.x;
+      const pz = this.playerPos.z;
+
+      if (this.activeOutdoorJobSpec) {
+        const s = this.activeOutdoorJobSpec.sites[this.activeOutdoorSiteIdx];
+        if (s) {
+          const d = Math.hypot(s.x - px, s.z - pz);
+          if (d < matchedDist) {
+            matchedDist = d;
+            matchedJob = this.activeOutdoorJobSpec;
+            matchedSiteLabel = s.label;
+          }
+        }
+      }
+      if (!matchedJob) {
+        for (let j = 0; j < CITY_OUTDOOR_JOBS_CATALOG.length; j++) {
+          const job = CITY_OUTDOOR_JOBS_CATALOG[j];
+          for (let sIdx = 0; sIdx < job.sites.length; sIdx++) {
+            const site = job.sites[sIdx];
+            const d = Math.hypot(site.x - px, site.z - pz);
+            if (d < matchedDist) {
+              matchedDist = d;
+              matchedJob = job;
+              matchedSiteLabel = site.label;
+            }
+          }
+        }
+      }
+      this.cityPursuitStats.nearbyOutdoorJobPrompt = matchedJob
+        ? {
+            jobId: matchedJob.id,
+            title: matchedJob.title,
+            icon: matchedJob.icon,
+            mechanicLabel: matchedJob.mechanicLabel,
+            siteLabel: matchedSiteLabel,
+            distMeters: Math.round(matchedDist),
+            basePay: matchedJob.basePay,
+            maxSkillBonus: matchedJob.maxSkillBonus,
+          }
+        : null;
+    }
+
     // 0h. Highway & Blvd Speed Camera Flyby Cash Bonuses
     {
       for (const ck of Object.keys(this.speedCameraCooldowns)) {
@@ -7227,64 +8179,90 @@ export class PhysicsEngine {
       this.policeDriveThroughCooldown -= dt;
     }
 
-    // 3d. Police Officer Radar Speed Gun Target Cone Scanning
-    let bestRadarTarget: CivilianCarEntity | null = null;
-    let bestRadarDist = 65.0;
+    // 3d. Police Officer Radar Speed Gun Target Cone Scanning (only active when on police duty)
+    if (this.cityPursuitStats.isPoliceOnDuty) {
+      let bestRadarTarget: CivilianCarEntity | null = null;
+      let bestRadarDist = 65.0;
 
-    for (let rIdx = 0; rIdx < this.cityCivilianCars.length; rIdx++) {
-      const civ = this.cityCivilianCars[rIdx];
-      const dx = civ.pos.x - this.playerPos.x;
-      const dz = civ.pos.z - this.playerPos.z;
-      const dist = Math.hypot(dx, dz);
-      if (dist < bestRadarDist) {
-        const forwardDot = (-dx * Math.sin(this.playerHeading) + -dz * Math.cos(this.playerHeading)) / dist;
-        if (forwardDot > 0.65) {
-          bestRadarDist = dist;
-          bestRadarTarget = civ;
+      for (let rIdx = 0; rIdx < this.cityCivilianCars.length; rIdx++) {
+        const civ = this.cityCivilianCars[rIdx];
+        const dx = civ.pos.x - this.playerPos.x;
+        const dz = civ.pos.z - this.playerPos.z;
+        const dist = Math.hypot(dx, dz);
+        if (dist < bestRadarDist) {
+          const forwardDot = (-dx * Math.sin(this.playerHeading) + -dz * Math.cos(this.playerHeading)) / dist;
+          if (forwardDot > 0.65) {
+            bestRadarDist = dist;
+            bestRadarTarget = civ;
+          }
         }
       }
-    }
 
-    if (bestRadarTarget) {
-      const clockedMph = Math.round(bestRadarTarget.speedKmh * 0.621371);
-      bestRadarTarget.clockedSpeedMph = clockedMph;
-      const pc = this.checkProbableCauseForCar(bestRadarTarget);
-      const targetZone = this.getSpeedLimitAtPosition(bestRadarTarget.pos.x, bestRadarTarget.pos.z);
+      if (bestRadarTarget) {
+        const clockedMph = Math.round(bestRadarTarget.speedKmh * 0.621371);
+        bestRadarTarget.clockedSpeedMph = clockedMph;
+        const pc = this.checkProbableCauseForCar(bestRadarTarget);
+        const targetZone = this.getSpeedLimitAtPosition(bestRadarTarget.pos.x, bestRadarTarget.pos.z);
 
-      this.cityPursuitStats.radarTarget = {
-        civId: bestRadarTarget.id,
-        modelName: bestRadarTarget.modelName,
-        licensePlate: bestRadarTarget.licensePlate,
-        colorName: bestRadarTarget.colorName,
-        clockedSpeedMph: clockedMph,
-        speedLimitMph: targetZone.limitMph,
-        distMeters: Math.round(bestRadarDist),
-        status: bestRadarTarget.crimeType === 'none' ? 'CLEAN' : (bestRadarTarget.crimeType.toUpperCase() as any),
-        probableCauseValid: pc.valid,
-        probableCauseReason: pc.reason,
-        isStopped: Boolean(bestRadarTarget.isStopped),
-        isFleeing: Boolean(bestRadarTarget.isFleeing || bestRadarTarget.isFleeingHitAndRun),
-        hidingInHouseAddress: bestRadarTarget.hidingInHouseAddress,
-      };
+        this.cityPursuitStats.radarTarget = {
+          civId: bestRadarTarget.id,
+          modelName: bestRadarTarget.modelName,
+          licensePlate: bestRadarTarget.licensePlate,
+          colorName: bestRadarTarget.colorName,
+          clockedSpeedMph: clockedMph,
+          speedLimitMph: targetZone.limitMph,
+          distMeters: Math.round(bestRadarDist),
+          status: bestRadarTarget.crimeType === 'none' ? 'CLEAN' : (bestRadarTarget.crimeType.toUpperCase() as any),
+          probableCauseValid: pc.valid,
+          probableCauseReason: pc.reason,
+          isStopped: Boolean(bestRadarTarget.isStopped),
+          isFleeing: Boolean(bestRadarTarget.isFleeing || bestRadarTarget.isFleeingHitAndRun),
+          hidingInHouseAddress: bestRadarTarget.hidingInHouseAddress,
+        };
+      } else {
+        this.cityPursuitStats.radarTarget = null;
+      }
     } else {
       this.cityPursuitStats.radarTarget = null;
     }
 
-    // 4. Update 28 Civilian Traffic Cars (Defensive Accident-Avoidance Radar, Emergency Braking & Lateral Swerving)
-    // "also make it so drivers try to avoid accidents"
+    // 4. Update Civilian Traffic Cars with Spatial LOD + Fast Neighborhood Culling
+    this.trafficLodTick = (this.trafficLodTick + 1) & 3;
+    const npcNightActive =
+      (this.currentWeather.sunElevationDeg ?? 15) < 5.0 ||
+      this.currentWeather.sunAltitude < 0.09 ||
+      this.currentWeather.isRaining ||
+      this.currentWeather.isSnowing ||
+      this.currentWeather.condition === 'fog';
+
     for (let i = 0; i < this.cityCivilianCars.length; i++) {
       const civ = this.cityCivilianCars[i];
       if (civ.hitCooldown > 0) civ.hitCooldown = Math.max(0, civ.hitCooldown - dt);
+
+      const preDx = this.playerPos.x - civ.pos.x;
+      const preDz = this.playerPos.z - civ.pos.z;
+      const preDistSq = preDx * preDx + preDz * preDz;
 
       const isClaimTargetWaiting =
         this.cityPursuitStats.civilianAtFaultClaim?.active &&
         this.cityPursuitStats.civilianAtFaultClaim.civId === civ.id &&
         this.cityPursuitStats.civilianAtFaultClaim.status === 'CAN_CALL_COPS';
 
-      civ.built.setFleeingBeacon?.(Boolean(civ.isFleeingHitAndRun), this.raceTimer);
+      const isImportantCiv =
+        preDistSq < 330 * 330 ||
+        Boolean(civ.isFleeing || civ.isFleeingHitAndRun || civ.pulloverRefused || civ.spinTimer > 0 || isClaimTargetWaiting);
+
+      if (!isImportantCiv && ((i + this.trafficLodTick) & 3) !== 0) {
+        continue;
+      }
+      const civDt = isImportantCiv ? dt : dt * 4;
+
+      if (civ.built.root.visible) {
+        civ.built.setFleeingBeacon?.(Boolean(civ.isFleeingHitAndRun), this.raceTimer);
+      }
 
       if (civ.resumeDriveDelay && civ.resumeDriveDelay > 0) {
-        civ.resumeDriveDelay = Math.max(0, civ.resumeDriveDelay - dt);
+        civ.resumeDriveDelay = Math.max(0, civ.resumeDriveDelay - civDt);
         if (civ.resumeDriveDelay === 0) {
           civ.isStopped = false;
           civ.hazardActive = false;
@@ -7295,16 +8273,16 @@ export class PhysicsEngine {
       }
 
       if (civ.spinTimer > 0) {
-        civ.spinTimer = Math.max(0, civ.spinTimer - dt);
-        civ.pos.x += civ.hitVelX * dt;
-        civ.pos.z += civ.hitVelZ * dt;
-        civ.hitVelX *= Math.pow(0.18, dt);
-        civ.hitVelZ *= Math.pow(0.18, dt);
-        civ.heading += 2.6 * dt;
+        civ.spinTimer = Math.max(0, civ.spinTimer - civDt);
+        civ.pos.x += civ.hitVelX * civDt;
+        civ.pos.z += civ.hitVelZ * civDt;
+        civ.hitVelX *= Math.pow(0.18, civDt);
+        civ.hitVelZ *= Math.pow(0.18, civDt);
+        civ.heading += 2.6 * civDt;
         this.resolveBuildingCollision(civ.pos, 2.0);
       } else if (civ.isStopped && (!civ.resumeDriveDelay || civ.resumeDriveDelay > 0)) {
         civ.speedKmh = 0;
-        civ.built.setBraking(true);
+        if (civ.built.root.visible) civ.built.setBraking(true);
       } else if (civ.fleeingToHouse && (civ.isFleeing || civ.crimeType === 'bank_robber' || civ.crimeType === 'wanted_felon')) {
         // Criminal is fleeing towards a suburban residential house in Pine Crest Suburbs to hide!
         const houseTarget = civ.fleeingToHouse.drivewayCoord || civ.fleeingToHouse.drivewayTarget || { x: civ.pos.x, z: civ.pos.z };
@@ -7325,7 +8303,7 @@ export class PhysicsEngine {
           const targetHeading = Math.atan2(-(hx - civ.pos.x), -(hz - civ.pos.z));
           civ.heading = targetHeading;
           civ.speedKmh = 120;
-          const step = (civ.speedKmh / 3.6) * dt;
+          const step = (civ.speedKmh / 3.6) * civDt;
           civ.pos.x += -Math.sin(civ.heading) * step;
           civ.pos.z += -Math.cos(civ.heading) * step;
           this.resolveBuildingCollision(civ.pos, 2.2);
@@ -7347,34 +8325,37 @@ export class PhysicsEngine {
         const ignoresLights =
           civ.isFleeingHitAndRun || civ.isFleeing || civ.crimeType === 'red_light' || civ.crimeType === 'bank_robber';
 
-        for (let g = 0; g < MARYLAND_SIGNAL_JUNCTIONS.length; g++) {
-          const jct = MARYLAND_SIGNAL_JUNCTIONS[g];
-          const dxJ = jct.x - civ.pos.x;
-          const dzJ = jct.z - civ.pos.z;
-          const fwdDist = dxJ * dirX + dzJ * dirZ;
-          const latDist = Math.abs(-dxJ * dirZ + dzJ * dirX);
-          if (latDist < 14.0 && fwdDist > 12.0 && fwdDist < 38.0) {
-            const sigState = getIntersectionSignalState(jct.x, jct.z, this.raceTimer);
-            const myLight = Math.abs(dirZ) >= Math.abs(dirX) ? sigState.ns : sigState.ew;
-            if (!ignoresLights) {
-              if (myLight === 'RED' || (myLight === 'YELLOW' && fwdDist > 18.0)) {
-                mustStopForLight = true;
-                break;
+        if (preDistSq < 340 * 340) {
+          for (let g = 0; g < MARYLAND_SIGNAL_JUNCTIONS.length; g++) {
+            const jct = MARYLAND_SIGNAL_JUNCTIONS[g];
+            const dxJ = jct.x - civ.pos.x;
+            const dzJ = jct.z - civ.pos.z;
+            if (Math.abs(dxJ) > 45 || Math.abs(dzJ) > 45) continue;
+            const fwdDist = dxJ * dirX + dzJ * dirZ;
+            const latDist = Math.abs(-dxJ * dirZ + dzJ * dirX);
+            if (latDist < 14.0 && fwdDist > 12.0 && fwdDist < 38.0) {
+              const sigState = getIntersectionSignalState(jct.x, jct.z, this.raceTimer);
+              const myLight = Math.abs(dirZ) >= Math.abs(dirX) ? sigState.ns : sigState.ew;
+              if (!ignoresLights) {
+                if (myLight === 'RED' || (myLight === 'YELLOW' && fwdDist > 18.0)) {
+                  mustStopForLight = true;
+                  break;
+                }
+              } else if (civ.crimeType === 'red_light' && fwdDist < 20.0 && myLight === 'RED') {
+                if (preDistSq < 75 * 75) civ.redLightRunWitnessed = true;
               }
-            } else if (civ.crimeType === 'red_light' && fwdDist < 20.0 && myLight === 'RED') {
-              const distToPlayer = Math.hypot(civ.pos.x - this.playerPos.x, civ.pos.z - this.playerPos.z);
-              if (distToPlayer < 75) civ.redLightRunWitnessed = true;
             }
           }
         }
 
         let carAheadStopped = false;
-        if (!ignoresLights) {
+        if (!ignoresLights && preDistSq < 260 * 260) {
           for (let j = 0; j < this.cityCivilianCars.length; j++) {
             if (i === j) continue;
             const other = this.cityCivilianCars[j];
             const dxO = other.pos.x - civ.pos.x;
             const dzO = other.pos.z - civ.pos.z;
+            if (Math.abs(dxO) > 22 || Math.abs(dzO) > 22) continue;
             const fwdGap = dxO * dirX + dzO * dirZ;
             const latGap = Math.abs(-dxO * dirZ + dzO * dirX);
             if (fwdGap > 0 && fwdGap < 16.0 && latGap < 3.4) {
@@ -7386,8 +8367,10 @@ export class PhysicsEngine {
 
         let slowPassForStationaryPlayer = false;
         let targetEvasiveOffset = 0;
-        const hornCd = Math.max(0, (this.civHornCooldowns.get(civ.id) || 0) - dt);
-        this.civHornCooldowns.set(civ.id, hornCd);
+        const hornCd = Math.max(0, (this.civHornCooldowns.get(civ.id) || 0) - civDt);
+        if (hornCd > 0 || this.civHornCooldowns.has(civ.id)) {
+          this.civHornCooldowns.set(civ.id, hornCd);
+        }
 
         const predPlayerX = this.playerPos.x + playerFwd.x * (this.playerSpeedKmh / 3.6) * 0.35;
         const predPlayerZ = this.playerPos.z + playerFwd.z * (this.playerSpeedKmh / 3.6) * 0.35;
@@ -7452,14 +8435,14 @@ export class PhysicsEngine {
         const targetSpeed = mustStopForLight || carAheadStopped ? 0 : desiredCruise;
 
         if (civ.speedKmh > targetSpeed) {
-          civ.speedKmh = Math.max(targetSpeed, civ.speedKmh - 90 * dt);
-          civ.built.setBraking(true);
+          civ.speedKmh = Math.max(targetSpeed, civ.speedKmh - 90 * civDt);
+          if (civ.built.root.visible) civ.built.setBraking(true);
         } else {
-          civ.speedKmh = Math.min(targetSpeed, civ.speedKmh + (civ.isFleeingHitAndRun || civ.isFleeing ? 70 : 38) * dt);
-          civ.built.setBraking(false);
+          civ.speedKmh = Math.min(targetSpeed, civ.speedKmh + (civ.isFleeingHitAndRun || civ.isFleeing ? 70 : 38) * civDt);
+          if (civ.built.root.visible) civ.built.setBraking(false);
         }
 
-        const stepMeters = (civ.speedKmh / 3.6) * dt;
+        const stepMeters = (civ.speedKmh / 3.6) * civDt;
         let nextT = segT + (routeDir * stepMeters) / segLen;
         if (nextT > 1) {
           if (segIdx < pts.length - 2) {
@@ -7497,15 +8480,17 @@ export class PhysicsEngine {
 
         const targetX = segA.x + segDx * nextT + -dirZ * (civ.laneOffset + nextEvasive);
         const targetZ = segA.z + segDz * nextT + dirX * (civ.laneOffset + nextEvasive);
-        civ.pos.x += (targetX - civ.pos.x) * Math.min(1, dt * 8.5);
-        civ.pos.z += (targetZ - civ.pos.z) * Math.min(1, dt * 8.5);
+        civ.pos.x += (targetX - civ.pos.x) * Math.min(1, civDt * 8.5);
+        civ.pos.z += (targetZ - civ.pos.z) * Math.min(1, civDt * 8.5);
 
         const desiredHeading = Math.atan2(-dirX, -dirZ);
         let hDiff = desiredHeading - civ.heading;
         while (hDiff > Math.PI) hDiff -= Math.PI * 2;
         while (hDiff < -Math.PI) hDiff += Math.PI * 2;
-        civ.heading += hDiff * Math.min(1, dt * 10);
-        this.resolveBuildingCollision(civ.pos, 2.2);
+        civ.heading += hDiff * Math.min(1, civDt * 10);
+        if (preDistSq < 260 * 260 || civ.isFleeing || civ.isFleeingHitAndRun) {
+          this.resolveBuildingCollision(civ.pos, 2.2);
+        }
       } else {
         let mustStopForLight = false;
         const stopLineOffset = 16.8;
@@ -7755,14 +8740,7 @@ export class PhysicsEngine {
       const dz = this.playerPos.z - civ.pos.z;
       const distSq = dx * dx + dz * dz;
 
-      const npcNightActive =
-        (this.currentWeather.sunElevationDeg ?? 15) < 5.0 ||
-        this.currentWeather.sunAltitude < 0.09 ||
-        this.currentWeather.isRaining ||
-        this.currentWeather.isSnowing ||
-        this.currentWeather.condition === 'fog';
-
-      if (distSq < 280 * 280) {
+      if (civ.built.root.visible && distSq < 280 * 280) {
         civ.built.setWheelSpin(civ.speedKmh, dt);
         civ.built.setTurnSignals?.(
           Boolean(civ.leftSignalActive || civ.hazardActive),
@@ -7783,6 +8761,7 @@ export class PhysicsEngine {
         updateNpcHeadlightsVisibility(civ.built.root, false);
       }
 
+      if (distSq > 900) continue; // Skip near-miss & collision math for cars > 30m away
       const dist = Math.sqrt(distSq);
 
       // Street Driving Near-Miss Overtake Bonus (+$150)
@@ -8071,12 +9050,15 @@ export class PhysicsEngine {
         cop.heading += Math.max(-maxTurnRate, Math.min(maxTurnRate, angleDiff));
         cop.built.setSteerAngle(-Math.max(-0.38, Math.min(0.38, angleDiff)));
 
-        const targetCopSpeed = 118 + wanted * 13;
+        const copOnPaved = isOnMarylandPavedSurface(cop.pos.x, cop.pos.z);
+        const pavedCopSpeed = 118 + wanted * 13;
+        const targetCopSpeed = copOnPaved ? pavedCopSpeed : Math.min(pavedCopSpeed, 94 + wanted * 4);
 
         if (cop.speedKmh < targetCopSpeed) {
-          cop.speedKmh = Math.min(targetCopSpeed, cop.speedKmh + (34 + wanted * 4) * dt);
+          cop.speedKmh = Math.min(targetCopSpeed, cop.speedKmh + (copOnPaved ? 34 + wanted * 4 : 18) * dt);
         } else {
-          cop.speedKmh = Math.max(targetCopSpeed, cop.speedKmh - 42 * dt);
+          const copDecelRate = copOnPaved ? 42 : 20;
+          cop.speedKmh = Math.max(targetCopSpeed, cop.speedKmh - copDecelRate * dt);
         }
 
         const copStep = (cop.speedKmh / 3.6) * dt;
@@ -8107,7 +9089,9 @@ export class PhysicsEngine {
         while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
         const maxTurnRate = 2.6 * dt;
         cop.heading += Math.max(-maxTurnRate, Math.min(maxTurnRate, angleDiff));
-        cop.speedKmh = Math.min(150, cop.speedKmh + 50 * dt);
+        const copBackupOnPaved = isOnMarylandPavedSurface(cop.pos.x, cop.pos.z);
+        const backupCap = copBackupOnPaved ? 150 : 104;
+        cop.speedKmh = cop.speedKmh <= backupCap ? Math.min(backupCap, cop.speedKmh + 50 * dt) : Math.max(backupCap, cop.speedKmh - 20 * dt);
         const copStep = (cop.speedKmh / 3.6) * dt;
         cop.pos.x += -Math.sin(cop.heading) * copStep;
         cop.pos.z += -Math.cos(cop.heading) * copStep;
@@ -8132,7 +9116,9 @@ export class PhysicsEngine {
         while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
         const maxTurnRate = 2.6 * dt;
         cop.heading += Math.max(-maxTurnRate, Math.min(maxTurnRate, angleDiff));
-        cop.speedKmh = Math.min(155, cop.speedKmh + 55 * dt);
+        const copCivOnPaved = isOnMarylandPavedSurface(cop.pos.x, cop.pos.z);
+        const civCap = copCivOnPaved ? 155 : 104;
+        cop.speedKmh = cop.speedKmh <= civCap ? Math.min(civCap, cop.speedKmh + 55 * dt) : Math.max(civCap, cop.speedKmh - 20 * dt);
         const copStep = (cop.speedKmh / 3.6) * dt;
         cop.pos.x += -Math.sin(cop.heading) * copStep;
         cop.pos.z += -Math.cos(cop.heading) * copStep;
@@ -8313,6 +9299,140 @@ export class PhysicsEngine {
 
     this.cityPursuitStats.closestCopDistMeters = Math.round(closestCopDist);
 
+    // 5b. Tactical Police Roadblocks Ahead During ★2+ Pursuits
+    const shouldDeployRoadblocks =
+      wanted >= 2 &&
+      this.cityPursuitStats.pursuitState === 'PURSUIT' &&
+      !this.cityPursuitStats.isPoliceOnDuty;
+
+    if (!shouldDeployRoadblocks) {
+      if (this.cityRoadblocks.length > 0 && (wanted === 0 || this.cityPursuitStats.isPoliceOnDuty)) {
+        this.clearAllCityRoadblocks();
+      }
+    } else {
+      this.roadblockSpawnTimer -= dt;
+      if (this.roadblockSpawnTimer <= 0 && this.cityRoadblocks.length < 2) {
+        this.roadblockSpawnTimer = wanted >= 4 ? 7.0 : 10.5;
+        let bestCandidate: { roadId: string; x: number; z: number; heading: number; roadWidth: number; score: number } | null = null;
+        for (let rIdx = 0; rIdx < ALL_MARYLAND_ROADS.length; rIdx++) {
+          const road = ALL_MARYLAND_ROADS[rIdx];
+          if (road.points.length < 2) continue;
+          for (let sIdx = 0; sIdx < road.points.length - 1; sIdx++) {
+            const pA = road.points[sIdx];
+            const pB = road.points[sIdx + 1];
+            for (const frac of [0.35, 0.65]) {
+              const cx = pA.x + (pB.x - pA.x) * frac;
+              const cz = pA.z + (pB.z - pA.z) * frac;
+              const dxP = cx - this.playerPos.x;
+              const dzP = cz - this.playerPos.z;
+              const d = Math.hypot(dxP, dzP);
+              if (d < 115 || d > 245) continue;
+              const fwdDot = (dxP * playerFwd.x + dzP * playerFwd.z) / d;
+              if (fwdDot < 0.35) continue;
+              // Avoid signal intersections & existing roadblocks
+              let tooClose = false;
+              for (let g = 0; g < MARYLAND_SIGNAL_JUNCTIONS.length; g++) {
+                const jct = MARYLAND_SIGNAL_JUNCTIONS[g];
+                if (Math.hypot(cx - jct.x, cz - jct.z) < 28) {
+                  tooClose = true;
+                  break;
+                }
+              }
+              if (tooClose) continue;
+              for (let rbIdx = 0; rbIdx < this.cityRoadblocks.length; rbIdx++) {
+                const existing = this.cityRoadblocks[rbIdx];
+                if (Math.hypot(cx - existing.pos.x, cz - existing.pos.z) < 95) {
+                  tooClose = true;
+                  break;
+                }
+              }
+              if (tooClose) continue;
+              const score = fwdDot * 100 - Math.abs(d - 165) * 0.4;
+              if (!bestCandidate || score > bestCandidate.score) {
+                const segHeading = Math.atan2(-(pB.x - pA.x), -(pB.z - pA.z));
+                bestCandidate = {
+                  roadId: road.id,
+                  x: cx,
+                  z: cz,
+                  heading: segHeading,
+                  roadWidth: Math.min(18, Math.max(11, road.width * 0.85)),
+                  score,
+                };
+              }
+            }
+          }
+        }
+        if (bestCandidate) {
+          const built = buildPoliceRoadblockGroup(bestCandidate.roadWidth);
+          const rbPos = new THREE.Vector3(bestCandidate.x, 0.25, bestCandidate.z);
+          built.root.position.copy(rbPos);
+          built.root.rotation.y = bestCandidate.heading;
+          this.track.group.add(built.root);
+          const rb: PoliceRoadblockEntity = {
+            id: `rb_${Math.round(this.raceTimer * 1000)}_${this.cityRoadblocks.length}`,
+            roadId: bestCandidate.roadId,
+            pos: rbPos,
+            heading: bestCandidate.heading,
+            halfWidth: built.halfWidth,
+            root: built.root,
+            hitCooldown: 0,
+            updateStrobe: built.updateStrobe,
+          };
+          this.cityRoadblocks.push(rb);
+          this.cityPursuitStats.activeAlertBanner = `🚧 METRO PD SET UP A TACTICAL ROADBLOCK AHEAD!`;
+          this.cityPursuitStats.activeAlertTimer = 4.0;
+        }
+      }
+    }
+
+    // Update, animate strobes, check collisions & despawn distant roadblocks
+    for (let rbIdx = this.cityRoadblocks.length - 1; rbIdx >= 0; rbIdx--) {
+      const rb = this.cityRoadblocks[rbIdx];
+      rb.updateStrobe(this.raceTimer);
+      if (rb.hitCooldown > 0) rb.hitCooldown = Math.max(0, rb.hitCooldown - dt);
+
+      const dxPlayer = this.playerPos.x - rb.pos.x;
+      const dzPlayer = this.playerPos.z - rb.pos.z;
+      const distPlayer = Math.hypot(dxPlayer, dzPlayer);
+
+      if (distPlayer > 420) {
+        this.track.group.remove(rb.root);
+        this.cityRoadblocks.splice(rbIdx, 1);
+        continue;
+      }
+
+      // Oriented bounding check (barricade spans local X axis +/- halfWidth, depth Z +/- 2.6m)
+      if (distPlayer < rb.halfWidth * 1.3 + 4.0) {
+        const cosH = Math.cos(rb.heading);
+        const sinH = Math.sin(rb.heading);
+        // Transform player offset into barricade local space (inverse rotation by -rb.heading)
+        const localX = dxPlayer * cosH - dzPlayer * sinH;
+        const localZ = dxPlayer * sinH + dzPlayer * cosH;
+        const halfSpan = rb.halfWidth * 0.96 + 1.15;
+        const halfDepth = 2.65;
+        if (Math.abs(localX) < halfSpan && Math.abs(localZ) < halfDepth) {
+          const pushSign = localZ >= 0 ? 1 : -1;
+          const pushDist = halfDepth - Math.abs(localZ) + 0.35;
+          // Local Z unit vector in world space is (sinH, cosH)
+          const worldNormX = sinH * pushSign;
+          const worldNormZ = cosH * pushSign;
+          this.playerPos.x += worldNormX * pushDist;
+          this.playerPos.z += worldNormZ * pushDist;
+
+          this.playerSpeedKmh *= 0.56;
+          this.collisionTrauma = Math.min(1.0, this.collisionTrauma + 0.55);
+          this.playerCar.updateSparks(135, true, dt);
+
+          if (rb.hitCooldown <= 0) {
+            rb.hitCooldown = 2.2;
+            soundEngine.playCrash(0.85);
+            this.cityPursuitStats.activeAlertBanner = `🚧 SMASHED THROUGH METRO PD ROADBLOCK!`;
+            this.cityPursuitStats.activeAlertTimer = 3.2;
+          }
+        }
+      }
+    }
+
     // 6. Pursuit Bust Meter vs Line-of-Sight Escape Cooldown
     if (this.cityPursuitStats.wantedStars > 0) {
       if (closestCopDist < 12.5 && Math.abs(this.playerSpeedKmh) < 16) {
@@ -8351,6 +9471,7 @@ export class PhysicsEngine {
           this.cityPursuitStats.unpaidRedLightTickets = 0;
           this.cityPursuitStats.bustProgress = 0;
           this.cityPursuitStats.escapeProgress = 0;
+          this.clearAllCityRoadblocks();
           this.playerSpeedKmh = 0;
 
           if (confiscatedLoot > 0) {
@@ -8391,6 +9512,7 @@ export class PhysicsEngine {
               this.cityPursuitStats.pursuitState = 'CLEAR';
               this.cityPursuitStats.escapeProgress = 0;
               this.cityPursuitStats.bustProgress = 0;
+              this.clearAllCityRoadblocks();
               const escapeBonus = 1500;
               this.citySave.streetCash += escapeBonus;
               saveMetroCitySave(this.citySave);
@@ -8469,6 +9591,7 @@ export class PhysicsEngine {
           this.cityPursuitStats.pursuitState = 'CLEAR';
           this.cityPursuitStats.escapeProgress = 0;
           this.cityPursuitStats.bustProgress = 0;
+          this.clearAllCityRoadblocks();
           for (const cop of this.cityPoliceCars) {
             cop.built.setSirenActive(false, 0);
           }
@@ -8626,9 +9749,12 @@ export class PhysicsEngine {
         }
       }
     } else if (this.activeJobSpec) {
-      // 7b. Regular Street Job Shift Progression (Taxi, Pizza Delivery, Courier, Burger Blitz, Paramedic)
+      // 7b. Regular Street Job Shift Progression + Driving Skill Challenge Bonuses
       this.cityPursuitStats.activeMission = null;
+      this.cityPursuitStats.activeOutdoorJob = null;
       this.activeJobTimeLeft = Math.max(0, this.activeJobTimeLeft - dt);
+      this.activeJobPeakSpeedKmh = Math.max(this.activeJobPeakSpeedKmh, Math.abs(this.playerSpeedKmh));
+
       const route = this.activeJobSpec.routes[this.activeJobRouteIdx];
       const targetX = this.activeJobStage === 'PICKUP' ? route.pickupX : route.dropoffX;
       const targetZ = this.activeJobStage === 'PICKUP' ? route.pickupZ : route.dropoffZ;
@@ -8675,6 +9801,7 @@ export class PhysicsEngine {
         this.activeJobStage = 'PICKUP';
         this.activeJobTimeLeft = this.activeJobSpec.timeLimitSec;
         this.activeJobStreak = 0;
+        this.activeJobPeakSpeedKmh = 0;
         const nextRoute = this.activeJobSpec.routes[this.activeJobRouteIdx];
         this.cityPursuitStats.activeAlertBanner = `⏱️ ORDER EXPIRED! NEW DISPATCH: ${nextRoute.pickupLabel}`;
         this.cityPursuitStats.activeAlertTimer = 3.8;
@@ -8682,6 +9809,7 @@ export class PhysicsEngine {
         if (this.activeJobStage === 'PICKUP') {
           this.activeJobStage = 'DROPOFF';
           this.activeJobTimeLeft = this.activeJobSpec.timeLimitSec;
+          this.activeJobPeakSpeedKmh = Math.abs(this.playerSpeedKmh);
           this.activeJobCrashesStart = this.cityPursuitStats.trafficCarsHit + this.cityPursuitStats.policeCarsHit;
           soundEngine.playStartLightBeep(false);
           this.cityPursuitStats.activeAlertBanner = `${this.activeJobSpec.icon} PICKED UP! DELIVER TO ${route.dropoffLabel} FOR +$${this.activeJobSpec.basePay.toLocaleString()} + TIP!`;
@@ -8696,11 +9824,29 @@ export class PhysicsEngine {
           const tip = Math.round(this.activeJobSpec.tipBonusMax * speedRatio * cleanlinessFactor);
           this.activeJobStreak += 1;
           const streakBonus = Math.min(1500, (this.activeJobStreak - 1) * 250);
-          const totalPayout = this.activeJobSpec.basePay + tip + streakBonus;
+
+          let skillBonus = 0;
+          let skillTag = '';
+          const chal = this.activeJobSpec.skillChallenge;
+          const maxChalBonus = this.activeJobSpec.skillBonusMax || 700;
+          if (chal === 'precision_stop' && Math.abs(this.playerSpeedKmh) <= 22) {
+            skillBonus = maxChalBonus;
+            skillTag = ' · 🎯 SMOOTH STOP!';
+          } else if (chal === 'high_speed_run' && this.activeJobPeakSpeedKmh >= 115 && crashesDuringOrder === 0) {
+            skillBonus = maxChalBonus;
+            skillTag = ' · ⚡ HIGH-SPEED RUN!';
+          } else if (chal === 'zero_damage_vip' && crashesDuringOrder === 0) {
+            skillBonus = maxChalBonus;
+            skillTag = ' · 🛡️ ZERO-DAMAGE!';
+          }
+
+          const rank = getJobSkillRankInfo(this.citySave.jobSkillXp || 0);
+          const totalPayout = Math.round((this.activeJobSpec.basePay + tip + streakBonus + skillBonus) * rank.payoutMultiplier);
 
           this.activeJobTotalEarned += totalPayout;
           this.citySave.streetCash += totalPayout;
           this.citySave.totalJobsCompleted = (this.citySave.totalJobsCompleted || 0) + 1;
+          this.grantJobSkillXp(skillBonus > 0 ? 45 : 28);
           saveMetroCitySave(this.citySave);
 
           this.cityPursuitStats.streetCash = this.citySave.streetCash;
@@ -8709,17 +9855,54 @@ export class PhysicsEngine {
           this.activeJobRouteIdx = (this.activeJobRouteIdx + 1) % this.activeJobSpec.routes.length;
           this.activeJobStage = 'PICKUP';
           this.activeJobTimeLeft = this.activeJobSpec.timeLimitSec;
+          this.activeJobPeakSpeedKmh = 0;
           const nextRoute = this.activeJobSpec.routes[this.activeJobRouteIdx];
 
           soundEngine.playStartLightBeep(true);
-          this.awardStreetSkillBonus(`${this.activeJobSpec.icon} JOB PAY + $${tip} TIP`, totalPayout);
-          this.cityPursuitStats.activeAlertBanner = `💵 ${this.activeJobSpec.roleLabel.toUpperCase()} COMPLETED (+$${totalPayout.toLocaleString()})! NEXT PICKUP: ${nextRoute.pickupLabel}`;
+          this.awardStreetSkillBonus(`${this.activeJobSpec.icon} JOB PAY + $${tip} TIP${skillTag}`, totalPayout);
+          this.cityPursuitStats.activeAlertBanner = `💵 ${this.activeJobSpec.roleLabel.toUpperCase()} COMPLETED (+$${totalPayout.toLocaleString()}${skillTag})! NEXT: ${nextRoute.pickupLabel}`;
           this.cityPursuitStats.activeAlertTimer = 4.8;
         }
       }
+    } else if (this.activeOutdoorJobSpec) {
+      this.cityPursuitStats.activeMission = null;
+      this.cityPursuitStats.activeRegularJob = null;
+      const site = this.activeOutdoorJobSpec.sites[this.activeOutdoorSiteIdx] || this.activeOutdoorJobSpec.sites[0];
+      if (!activeBeaconSet) {
+        this.missionBeacon?.setWaypoint(site.x, site.z, this.activeOutdoorJobSpec.badgeColor, true, this.raceTimer);
+        activeBeaconSet = true;
+        activeGpsInfo = {
+          x: site.x,
+          z: site.z,
+          label: `${this.activeOutdoorJobSpec.icon} ${site.label}`,
+          color: this.activeOutdoorJobSpec.badgeColor,
+        };
+      }
+      const dxOut = site.x - this.playerPos.x;
+      const dzOut = site.z - this.playerPos.z;
+      const distOut = Math.hypot(dxOut, dzOut);
+      const outAngle = Math.atan2(-dxOut, -dzOut);
+      let relAngleDeg = ((this.playerHeading - outAngle) * 180) / Math.PI;
+      while (relAngleDeg > 180) relAngleDeg -= 360;
+      while (relAngleDeg < -180) relAngleDeg += 360;
+
+      this.cityPursuitStats.activeOutdoorJob = {
+        jobId: this.activeOutdoorJobSpec.id,
+        kind: this.activeOutdoorJobSpec.kind,
+        title: this.activeOutdoorJobSpec.title,
+        roleLabel: this.activeOutdoorJobSpec.roleLabel,
+        icon: this.activeOutdoorJobSpec.icon,
+        mechanicLabel: this.activeOutdoorJobSpec.mechanicLabel,
+        siteLabel: site.label,
+        distMeters: Math.round(distOut),
+        directionDeg: Math.round(relAngleDeg),
+        basePay: this.activeOutdoorJobSpec.basePay,
+        maxSkillBonus: this.activeOutdoorJobSpec.maxSkillBonus,
+      };
     } else if (this.customGpsTarget) {
       this.cityPursuitStats.activeMission = null;
       this.cityPursuitStats.activeRegularJob = null;
+      this.cityPursuitStats.activeOutdoorJob = null;
       if (!activeBeaconSet) {
         this.missionBeacon?.setWaypoint(
           this.customGpsTarget.x,
@@ -8756,89 +9939,106 @@ export class PhysicsEngine {
       }
       this.cityPursuitStats.activeMission = null;
       this.cityPursuitStats.activeRegularJob = null;
+      this.cityPursuitStats.activeOutdoorJob = null;
     }
 
-    // 8. Compute Turn-by-Turn Google Maps GPS Route & Update 3D Road Ribbon + 2D Radar Mini-Map Data
-    const safehouse = this.getPlayerSafehouseTarget();
-    let gpsRoutePts: { x: number; z: number }[] = [];
-    let gpsTargetSummary: {
-      x: number;
-      z: number;
-      label: string;
-      color: string;
-      distMeters: number;
-      routeDistMeters: number;
-      etaSeconds: number;
-      maneuver: GpsManeuverType;
-      nextRoadName: string;
-      currentRoadName: string;
-      thenInstruction: string;
-      distToTurnMeters: number;
-      turnInstruction: string;
-    } | null = null;
+    this.cityPursuitStats.tireLife = Number(this.tireLife.toFixed(1));
 
-    if (activeGpsInfo) {
-      const detailed = computeCityGpsRouteDetailed(
-        this.playerPos.x,
-        this.playerPos.z,
-        activeGpsInfo.x,
-        activeGpsInfo.z,
-        this.playerHeading
-      );
-      gpsRoutePts = detailed.points;
-      this.gpsRouteRibbon?.updateRoute(gpsRoutePts, activeGpsInfo.color, true);
+    // 8. Compute Turn-by-Turn Google Maps GPS Route & Update 3D Road Ribbon + 2D Radar Mini-Map Data (~18Hz HUD cadence)
+    this.minimapSyncAccum += dt;
+    if (this.minimapSyncAccum >= 0.054) {
+      this.minimapSyncAccum = 0;
+      const safehouse = this.getPlayerSafehouseTarget();
+      let gpsRoutePts: { x: number; z: number }[] = [];
+      let gpsTargetSummary: {
+        x: number;
+        z: number;
+        label: string;
+        color: string;
+        distMeters: number;
+        routeDistMeters: number;
+        etaSeconds: number;
+        maneuver: GpsManeuverType;
+        nextRoadName: string;
+        currentRoadName: string;
+        thenInstruction: string;
+        distToTurnMeters: number;
+        turnInstruction: string;
+      } | null = null;
 
-      const directDist = Math.round(
-        Math.hypot(activeGpsInfo.x - this.playerPos.x, activeGpsInfo.z - this.playerPos.z)
-      );
-      const routeDistMeters = Math.max(directDist, detailed.totalRouteMeters);
-      // Google Maps style dynamic ETA (~50 km/h city / 95 km/h highway blend)
-      const currentSpeedMps = Math.max(12.5, Math.abs(this.playerSpeedKmh) / 3.6);
-      const avgCruiseMps = currentSpeedMps * 0.45 + 16.5 * 0.55;
-      const etaSeconds = Math.max(1, Math.round(routeDistMeters / avgCruiseMps));
+      if (activeGpsInfo) {
+        const detailed = computeCityGpsRouteDetailed(
+          this.playerPos.x,
+          this.playerPos.z,
+          activeGpsInfo.x,
+          activeGpsInfo.z,
+          this.playerHeading
+        );
+        gpsRoutePts = detailed.points;
+        this.gpsRouteRibbon?.updateRoute(gpsRoutePts, activeGpsInfo.color, true);
 
-      gpsTargetSummary = {
-        x: activeGpsInfo.x,
-        z: activeGpsInfo.z,
-        label: activeGpsInfo.label,
-        color: activeGpsInfo.color,
-        distMeters: routeDistMeters,
-        routeDistMeters,
-        etaSeconds,
-        maneuver: detailed.maneuver,
-        nextRoadName: detailed.nextRoadName,
-        currentRoadName: detailed.currentRoadName,
-        thenInstruction: detailed.thenInstruction,
-        distToTurnMeters: detailed.distToTurnMeters,
-        turnInstruction: detailed.turnInstruction,
+        const directDist = Math.round(
+          Math.hypot(activeGpsInfo.x - this.playerPos.x, activeGpsInfo.z - this.playerPos.z)
+        );
+        const routeDistMeters = Math.max(directDist, detailed.totalRouteMeters);
+        // Google Maps style dynamic ETA (~50 km/h city / 95 km/h highway blend)
+        const currentSpeedMps = Math.max(12.5, Math.abs(this.playerSpeedKmh) / 3.6);
+        const avgCruiseMps = currentSpeedMps * 0.45 + 16.5 * 0.55;
+        const etaSeconds = Math.max(1, Math.round(routeDistMeters / avgCruiseMps));
+
+        gpsTargetSummary = {
+          x: activeGpsInfo.x,
+          z: activeGpsInfo.z,
+          label: activeGpsInfo.label,
+          color: activeGpsInfo.color,
+          distMeters: routeDistMeters,
+          routeDistMeters,
+          etaSeconds,
+          maneuver: detailed.maneuver,
+          nextRoadName: detailed.nextRoadName,
+          currentRoadName: detailed.currentRoadName,
+          thenInstruction: detailed.thenInstruction,
+          distToTurnMeters: detailed.distToTurnMeters,
+          turnInstruction: detailed.turnInstruction,
+        };
+      } else {
+        this.gpsRouteRibbon?.updateRoute([], '#38bdf8', false);
+      }
+
+      this.cityPursuitStats.minimapData = {
+        playerX: this.playerPos.x,
+        playerZ: this.playerPos.z,
+        playerHeading: this.playerHeading,
+        gpsTarget: gpsTargetSummary,
+        gpsRoute: gpsRoutePts,
+        cops: this.cityPoliceCars.map((c) => ({
+          x: c.pos.x,
+          z: c.pos.z,
+          heading: c.heading,
+          isChasing: this.cityPursuitStats.wantedStars > 0,
+          canSeePlayer:
+            this.cityPursuitStats.wantedStars > 0 &&
+            canCopSeePlayer(c.pos, this.playerPos, this.track.cityBuildings),
+        })),
+        civs: this.cityCivilianCars.map((c) => ({ x: c.pos.x, z: c.pos.z })),
+        roadblocks: this.cityRoadblocks.map((rb) => ({
+          x: rb.pos.x,
+          z: rb.pos.z,
+          heading: rb.heading,
+        })),
+        activeHome: safehouse,
       };
-    } else {
-      this.gpsRouteRibbon?.updateRoute([], '#38bdf8', false);
+    } else if (this.cityPursuitStats.minimapData) {
+      this.cityPursuitStats.minimapData.playerX = this.playerPos.x;
+      this.cityPursuitStats.minimapData.playerZ = this.playerPos.z;
+      this.cityPursuitStats.minimapData.playerHeading = this.playerHeading;
     }
-
-    this.cityPursuitStats.minimapData = {
-      playerX: this.playerPos.x,
-      playerZ: this.playerPos.z,
-      playerHeading: this.playerHeading,
-      gpsTarget: gpsTargetSummary,
-      gpsRoute: gpsRoutePts,
-      cops: this.cityPoliceCars.map((c) => ({
-        x: c.pos.x,
-        z: c.pos.z,
-        heading: c.heading,
-        isChasing: this.cityPursuitStats.wantedStars > 0,
-        canSeePlayer:
-          this.cityPursuitStats.wantedStars > 0 &&
-          canCopSeePlayer(c.pos, this.playerPos, this.track.cityBuildings),
-      })),
-      civs: this.cityCivilianCars.map((c) => ({ x: c.pos.x, z: c.pos.z })),
-      activeHome: safehouse,
-    };
   }
 
   public clearCityGpsTarget() {
     this.customGpsTarget = null;
-    if (!this.pendingHeistLoot && !this.activeMissionTemplate && !this.activeJobSpec) {
+    this.minimapSyncAccum = 999;
+    if (!this.pendingHeistLoot && !this.activeMissionTemplate && !this.activeJobSpec && !this.activeOutdoorJobSpec) {
       this.missionBeacon?.setWaypoint(0, 0, '#10b981', false, 0);
       this.gpsRouteRibbon?.updateRoute([], '#38bdf8', false);
     }
@@ -8903,6 +10103,7 @@ export class PhysicsEngine {
     this.cityPursuitStats.pursuitState = 'CLEAR';
     this.cityPursuitStats.escapeProgress = 0;
     this.cityPursuitStats.bustProgress = 0;
+    this.clearAllCityRoadblocks();
     this.cityPursuitStats.activeAlertBanner = '🛡️ POLICE SCANNER JAMMED — WANTED HEAT CLEARED';
     this.cityPursuitStats.activeAlertTimer = 3.5;
     for (const cop of this.cityPoliceCars) {
@@ -8930,6 +10131,7 @@ export class PhysicsEngine {
     this.ersBattery = 100;
     this.tireLife = 100;
     this.tireCorners = { fl: 100, fr: 100, rl: 100, rr: 100 };
+    this.cityPursuitStats.tireLife = 100;
     this.playerCar.root.position.copy(this.playerPos);
     this.playerCar.root.rotation.y = this.playerHeading;
   }

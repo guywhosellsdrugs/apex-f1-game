@@ -4,7 +4,8 @@ export interface WorldChunkUpdateOptions {
   isDynamicMode: boolean;
   qualityFactor: number; // 0.05..1.0
   baseMaxDistance?: number; // preset cap (e.g. 820 Ultra, 540 Medium, 420 Low)
-  chunkLoadScale?: number; // 0.20..1.0 automatic struggle reduction
+  chunkLoadScale?: number; // 0.14..1.0 automatic struggle reduction
+  aggressiveDynamic?: boolean; // strict 60+ FPS lock mode (Conservative Dynamic)
 }
 
 interface SpatialChunk {
@@ -151,14 +152,17 @@ export class WorldChunkManager {
     opts: WorldChunkUpdateOptions
   ): void {
     const q = Math.max(0.05, Math.min(1.0, opts.qualityFactor));
-    const loadScale = Math.max(0.2, Math.min(1.0, opts.chunkLoadScale ?? 1.0));
+    const loadScale = Math.max(0.14, Math.min(1.0, opts.chunkLoadScale ?? 1.0));
+    const isStrict60 = Boolean(opts.aggressiveDynamic);
 
     let maxDist = opts.isDynamicMode
-      ? 220 + q * 420
+      ? isStrict60
+        ? 145 + q * 395
+        : 220 + q * 420
       : opts.baseMaxDistance ?? 820;
 
     if (loadScale < 0.98) {
-      maxDist = Math.max(150, maxDist * (0.28 + 0.72 * loadScale));
+      maxDist = Math.max(isStrict60 ? 120 : 150, maxDist * (0.25 + 0.75 * loadScale));
     }
 
     const carX = carPos.x;
@@ -168,13 +172,16 @@ export class WorldChunkManager {
     this.projScreenMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     this.frustum.setFromProjectionMatrix(this.projScreenMatrix);
 
-    const baseNear = opts.isDynamicMode ? 36 : 95;
-    const nearKeepRadius = Math.max(20, baseNear * (0.4 + 0.6 * loadScale));
+    const baseNear = opts.isDynamicMode ? (isStrict60 ? 28 : 36) : 95;
+    const nearKeepRadius = Math.max(18, baseNear * (0.4 + 0.6 * loadScale));
 
-    const applyChunkBudget = loadScale < 0.94 || (opts.isDynamicMode && q < 0.75);
-    const budgetFactor = opts.isDynamicMode ? Math.min(loadScale, 0.25 + q * 0.75) : loadScale;
+    const applyChunkBudget =
+      loadScale < 0.96 || (opts.isDynamicMode && q < (isStrict60 ? 0.92 : 0.75));
+    const budgetFactor = opts.isDynamicMode ? Math.min(loadScale, 0.22 + q * 0.78) : loadScale;
     const maxVisibleChunks = applyChunkBudget
-      ? Math.max(10, Math.round(10 + budgetFactor * 46))
+      ? isStrict60
+        ? Math.max(6, Math.round(6 + budgetFactor * 36))
+        : Math.max(10, Math.round(10 + budgetFactor * 46))
       : this.chunks.length;
 
     let candidateCount = 0;
@@ -249,7 +256,9 @@ export class WorldChunkManager {
     }
 
     // Keep major continuous road corridors slightly further than buildings so roads never vanish ahead
-    const wideMaxDist = Math.max(260, maxDist * 1.28 + 110);
+    const wideMaxDist = isStrict60
+      ? Math.max(210, maxDist * 1.2 + 75)
+      : Math.max(260, maxDist * 1.28 + 110);
     for (let i = 0; i < this.wideItems.length; i++) {
       const wi = this.wideItems[i];
       const dist = Math.hypot(wi.centerX - carX, wi.centerZ - carZ) - wi.halfDiag;

@@ -132,6 +132,9 @@ import {
   MetroCitySaveState,
   MetroCitySaveSlot,
   getEffectiveStreetCarSpec,
+  StreetCarFilterBucket,
+  getStreetCarCategoryBucket,
+  getStreetCarOffRoadTier,
 } from '../game/cityTrafficBuilder';
 import { saveMetroCitySlotsToCloud } from '../services/firebase';
 
@@ -237,6 +240,7 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
   const [activeCitySlotId, setActiveCitySlotIdState] = useState<string>(() => getActiveMetroCitySlotId());
   const [showMetroCitySlotsModal, setShowMetroCitySlotsModal] = useState<boolean>(false);
   const [cityHubSubTab, setCityHubSubTab] = useState<'garage' | 'dealership' | 'missions'>('garage');
+  const [cityCarFilter, setCityCarFilter] = useState<StreetCarFilterBucket>('all');
   const [showGoogleMapsModal, setShowGoogleMapsModal] = useState<boolean>(false);
   const [selectedLaps, setSelectedLaps] = useState<number>(season.lapCount || 5);
 
@@ -7840,12 +7844,39 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
                     </button>
                   </div>
 
+                  <div className="flex flex-wrap items-center gap-2">
+                    {([
+                      { id: 'all', label: 'ALL VEHICLES' },
+                      { id: 'pickups', label: 'PICKUPS & 4x4' },
+                      { id: 'suvs', label: 'SUVs' },
+                      { id: 'muscle_jdm', label: 'MUSCLE & JDM' },
+                      { id: 'exotics', label: 'EXOTICS' },
+                    ] as const).map((tab) => (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        onClick={() => setCityCarFilter(tab.id)}
+                        className={`px-3.5 py-1.5 rounded-xl font-black text-[11px] uppercase cursor-pointer border transition-all ${
+                          cityCarFilter === tab.id
+                            ? 'bg-emerald-400 text-black border-emerald-200'
+                            : 'bg-zinc-900 text-zinc-400 border-white/10 hover:text-white'
+                        }`}
+                      >
+                        {tab.label}
+                      </button>
+                    ))}
+                  </div>
+
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {ownedCars.map((car) => {
+                    {ownedCars
+                      .filter((car) => cityCarFilter === 'all' || getStreetCarCategoryBucket(car) === cityCarFilter)
+                      .sort((a, b) => a.price - b.price)
+                      .map((car) => {
                       const isEquipped = citySave.selectedCarId === car.id;
                       const carActiveTrimId = citySave.activeTrimByCar?.[car.id] || car.trims[0]?.id;
                       const carUnlockedTrims = citySave.unlockedTrimsByCar?.[car.id] || (car.trims[0] ? [car.trims[0].id] : []);
                       const eff = getEffectiveStreetCarSpec(car, carActiveTrimId);
+                      const tier = getStreetCarOffRoadTier(eff.offRoadScore);
                       const paintHex = citySave.customPaintByCar?.[car.id] || eff.defaultColor;
                       return (
                         <div
@@ -7881,19 +7912,29 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
                             <p className="text-xs text-zinc-400 leading-relaxed">{eff.description}</p>
 
                             {/* Real-World Spec Badges */}
-                            <div className="grid grid-cols-3 gap-2 bg-black/40 p-3 rounded-xl border border-white/5 text-[11px] font-mono text-center">
+                            <div className="grid grid-cols-4 gap-1.5 bg-black/40 p-3 rounded-xl border border-white/5 text-[11px] font-mono text-center">
                               <div>
-                                <span className="text-zinc-500 block text-[9px]">HORSEPOWER</span>
+                                <span className="text-zinc-500 block text-[9px]">POWER</span>
                                 <span className="text-rose-300 font-black">{eff.horsepower} HP</span>
                               </div>
                               <div>
-                                <span className="text-zinc-500 block text-[9px]">0–60 MPH</span>
+                                <span className="text-zinc-500 block text-[9px]">0–60</span>
                                 <span className="text-amber-300 font-black">{eff.zeroToSixtySec.toFixed(2)}s</span>
                               </div>
                               <div>
-                                <span className="text-zinc-500 block text-[9px]">TOP SPEED</span>
+                                <span className="text-zinc-500 block text-[9px]">TOP SPD</span>
                                 <span className="text-sky-300 font-black">{eff.topSpeedKmh} KM/H</span>
                               </div>
+                              <div>
+                                <span className="text-zinc-500 block text-[9px]">CLEARANCE</span>
+                                <span className="text-teal-300 font-black">{eff.groundClearanceInches}&quot;</span>
+                              </div>
+                            </div>
+                            <div className="flex items-center justify-between text-[10px] font-mono">
+                              <span className="text-zinc-400">Off-Road Capability ({eff.offRoadScore}/100):</span>
+                              <span className={`px-2 py-0.5 rounded bg-black/60 border border-white/10 font-black ${tier.colorClass}`}>
+                                {tier.label}
+                              </span>
                             </div>
 
                             {/* Trim Levels */}
@@ -7987,13 +8028,41 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
                     </div>
                   </div>
 
+                  <div className="flex flex-wrap items-center gap-2">
+                    {([
+                      { id: 'all', label: 'ALL VEHICLES' },
+                      { id: 'pickups', label: 'PICKUPS & 4x4' },
+                      { id: 'suvs', label: 'SUVs' },
+                      { id: 'muscle_jdm', label: 'MUSCLE & JDM' },
+                      { id: 'exotics', label: 'EXOTICS' },
+                    ] as const).map((tab) => (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        onClick={() => setCityCarFilter(tab.id)}
+                        className={`px-3.5 py-1.5 rounded-xl font-black text-[11px] uppercase cursor-pointer border transition-all ${
+                          cityCarFilter === tab.id
+                            ? 'bg-amber-400 text-black border-amber-200'
+                            : 'bg-zinc-900 text-zinc-400 border-white/10 hover:text-white'
+                        }`}
+                      >
+                        {tab.label}
+                      </button>
+                    ))}
+                  </div>
+
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {CITY_STREET_CARS.map((car) => {
+                    {CITY_STREET_CARS.filter(
+                      (car) => cityCarFilter === 'all' || getStreetCarCategoryBucket(car) === cityCarFilter
+                    )
+                      .sort((a, b) => a.price - b.price)
+                      .map((car) => {
                       const isOwned = citySave.ownedCarIds.includes(car.id);
                       const isEquipped = citySave.selectedCarId === car.id;
                       const carActiveTrimId = citySave.activeTrimByCar?.[car.id] || car.trims[0]?.id;
                       const carUnlockedTrims = citySave.unlockedTrimsByCar?.[car.id] || (car.trims[0] ? [car.trims[0].id] : []);
                       const eff = getEffectiveStreetCarSpec(car, carActiveTrimId);
+                      const tier = getStreetCarOffRoadTier(eff.offRoadScore);
                       const canAfford = citySave.streetCash >= car.price;
                       const paintHex = citySave.customPaintByCar?.[car.id] || eff.defaultColor;
 
@@ -8038,19 +8107,29 @@ export const SeasonHub: React.FC<SeasonHubProps> = ({
                             <p className="text-[11px] font-mono text-purple-300 font-bold">{car.engineLayout}</p>
                             <p className="text-xs text-zinc-400 leading-relaxed">{eff.description}</p>
 
-                            <div className="grid grid-cols-3 gap-2 bg-black/40 p-3 rounded-xl border border-white/5 text-[11px] font-mono text-center">
+                            <div className="grid grid-cols-4 gap-1.5 bg-black/40 p-3 rounded-xl border border-white/5 text-[11px] font-mono text-center">
                               <div>
                                 <span className="text-zinc-500 block text-[9px]">POWER</span>
                                 <span className="text-rose-300 font-black">{eff.horsepower} HP</span>
                               </div>
                               <div>
-                                <span className="text-zinc-500 block text-[9px]">0–60 MPH</span>
+                                <span className="text-zinc-500 block text-[9px]">0–60</span>
                                 <span className="text-amber-300 font-black">{eff.zeroToSixtySec.toFixed(2)}s</span>
                               </div>
                               <div>
-                                <span className="text-zinc-500 block text-[9px]">TOP SPEED</span>
+                                <span className="text-zinc-500 block text-[9px]">TOP SPD</span>
                                 <span className="text-sky-300 font-black">{eff.topSpeedKmh} KM/H</span>
                               </div>
+                              <div>
+                                <span className="text-zinc-500 block text-[9px]">CLEARANCE</span>
+                                <span className="text-teal-300 font-black">{eff.groundClearanceInches}&quot;</span>
+                              </div>
+                            </div>
+                            <div className="flex items-center justify-between text-[10px] font-mono">
+                              <span className="text-zinc-400">Off-Road Rating ({eff.offRoadScore}/100):</span>
+                              <span className={`px-2 py-0.5 rounded bg-black/60 border border-white/10 font-black ${tier.colorClass}`}>
+                                {tier.label}
+                              </span>
                             </div>
 
                             {/* Trim Levels */}

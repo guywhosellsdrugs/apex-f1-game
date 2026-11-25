@@ -18,7 +18,7 @@ export interface GrassPatchPlacement {
   x: number;
   z: number;
   s: number;
-  kind?: 'grass' | 'shrub';
+  kind?: 'grass' | 'tall_grass' | 'shrub' | 'rock' | 'pebble';
 }
 
 function normalizeForMerge(g: THREE.BufferGeometry): THREE.BufferGeometry {
@@ -202,6 +202,20 @@ function createGrassTuftGeometry(isRetroPixel: boolean): THREE.BufferGeometry {
   return merged;
 }
 
+function createTallGrassTuftGeometry(isRetroPixel: boolean): THREE.BufferGeometry {
+  const parts: THREE.BufferGeometry[] = [];
+  const planes = isRetroPixel ? 2 : 4;
+  for (let i = 0; i < planes; i++) {
+    const p = new THREE.PlaneGeometry(1.18, 1.32);
+    p.translate(0, 0.66, 0);
+    p.rotateY((i / planes) * Math.PI);
+    parts.push(normalizeForMerge(p));
+  }
+  const merged = mergeGeometries(parts, false);
+  parts.forEach((p) => p.dispose());
+  return merged;
+}
+
 function createShrubGeometry(isRetroPixel: boolean): THREE.BufferGeometry {
   const parts: THREE.BufferGeometry[] = [];
   const lobes: [number, number, number, number][] = [
@@ -215,6 +229,51 @@ function createShrubGeometry(isRetroPixel: boolean): THREE.BufferGeometry {
     const g = new THREE.IcosahedronGeometry(r, isRetroPixel ? 0 : 1);
     g.scale(1.15, 0.85, 1.15);
     g.translate(lx, ly, lz);
+    parts.push(normalizeForMerge(g));
+  }
+  const merged = mergeGeometries(parts, false);
+  parts.forEach((p) => p.dispose());
+  return merged;
+}
+
+function createRockGeometry(isRetroPixel: boolean): THREE.BufferGeometry {
+  const g = new THREE.IcosahedronGeometry(0.46, isRetroPixel ? 0 : 1);
+  const pos = g.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const vx = pos.getX(i);
+    const vy = pos.getY(i);
+    const vz = pos.getZ(i);
+    const warp = 0.82 + 0.32 * Math.abs(Math.sin(vx * 5.3 + vy * 3.7 + vz * 7.1));
+    pos.setXYZ(i, vx * warp * 1.24, vy * warp * 0.66, vz * warp * 1.08);
+  }
+  g.translate(0, 0.12, 0);
+  g.computeVertexNormals();
+  return normalizeForMerge(g);
+}
+
+function createPebbleClusterGeometry(isRetroPixel: boolean): THREE.BufferGeometry {
+  const parts: THREE.BufferGeometry[] = [];
+  const stones: [number, number, number, number][] = isRetroPixel
+    ? [
+        [0, 0.03, 0, 0.14],
+        [0.42, 0.025, 0.28, 0.11],
+        [-0.38, 0.028, -0.26, 0.12],
+      ]
+    : [
+        [0, 0.032, 0, 0.15],
+        [0.45, 0.026, 0.32, 0.12],
+        [-0.41, 0.028, -0.25, 0.13],
+        [0.24, 0.024, -0.44, 0.11],
+        [-0.32, 0.024, 0.39, 0.10],
+        [0.68, 0.022, -0.14, 0.095],
+        [-0.64, 0.022, 0.12, 0.10],
+      ];
+  for (let i = 0; i < stones.length; i++) {
+    const [sx, sy, sz, sr] = stones[i];
+    const g = new THREE.IcosahedronGeometry(sr, 0);
+    g.scale(1.25, 0.48, 1.05);
+    g.rotateY(i * 1.1);
+    g.translate(sx, sy, sz);
     parts.push(normalizeForMerge(g));
   }
   const merged = mergeGeometries(parts, false);
@@ -317,35 +376,54 @@ export function populateInstancedWoodlandTrees(
   const oakLeafTex = getLeafClusterTexture(isRetroPixel);
   const pineLeafTex = getPineNeedleTexture(isRetroPixel);
 
-  const barkMat = new THREE.MeshStandardMaterial({
-    color: 0xffffff,
-    map: barkPBR.map,
-    normalMap: !isRetroPixel ? barkPBR.normalMap : undefined,
-    normalScale: !isRetroPixel ? new THREE.Vector2(1.1, 1.1) : undefined,
-    roughness: 0.93,
-    metalness: 0.0,
-  });
-  const oakMat = new THREE.MeshStandardMaterial({
-    color: 0xffffff,
-    map: oakLeafTex,
-    alphaTest: 0.42,
-    side: THREE.DoubleSide,
-    roughness: 0.85,
-    metalness: 0.01,
-    envMapIntensity: isUltra ? 0.55 : 0.35,
-  });
-  const pineMat = new THREE.MeshStandardMaterial({
-    color: 0xffffff,
-    map: pineLeafTex,
-    alphaTest: 0.38,
-    side: THREE.DoubleSide,
-    roughness: 0.86,
-    metalness: 0.01,
-    envMapIntensity: isUltra ? 0.5 : 0.32,
-  });
+  const barkMat: THREE.Material = isRetroPixel
+    ? new THREE.MeshLambertMaterial({
+        color: 0xffffff,
+        map: barkPBR.map,
+      })
+    : new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        map: barkPBR.map,
+        normalMap: barkPBR.normalMap,
+        normalScale: new THREE.Vector2(1.1, 1.1),
+        roughness: 0.93,
+        metalness: 0.0,
+      });
+  const oakMat: THREE.Material = isRetroPixel
+    ? new THREE.MeshLambertMaterial({
+        color: 0xffffff,
+        map: oakLeafTex,
+        alphaTest: 0.42,
+        side: THREE.DoubleSide,
+      })
+    : new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        map: oakLeafTex,
+        alphaTest: 0.42,
+        side: THREE.DoubleSide,
+        roughness: 0.85,
+        metalness: 0.01,
+        envMapIntensity: isUltra ? 0.55 : 0.35,
+      });
+  const pineMat: THREE.Material = isRetroPixel
+    ? new THREE.MeshLambertMaterial({
+        color: 0xffffff,
+        map: pineLeafTex,
+        alphaTest: 0.38,
+        side: THREE.DoubleSide,
+      })
+    : new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        map: pineLeafTex,
+        alphaTest: 0.38,
+        side: THREE.DoubleSide,
+        roughness: 0.86,
+        metalness: 0.01,
+        envMapIntensity: isUltra ? 0.5 : 0.32,
+      });
   if (!isRetroPixel && isUltra) {
-    attachWindSwayShader(oakMat, 0.065);
-    attachWindSwayShader(pineMat, 0.04);
+    if (oakMat instanceof THREE.MeshStandardMaterial) attachWindSwayShader(oakMat, 0.065);
+    if (pineMat instanceof THREE.MeshStandardMaterial) attachWindSwayShader(pineMat, 0.04);
   }
 
   const oakGeos = createBroadleafGeometries(isRetroPixel);
@@ -470,30 +548,97 @@ export function populateChunkedGrassAndShrubs(
   const grassTex = getGrassTuftTexture(isRetroPixel);
   const shrubLeafTex = getLeafClusterTexture(isRetroPixel);
 
-  const grassMat = new THREE.MeshStandardMaterial({
-    color: 0xffffff,
-    map: grassTex,
-    alphaTest: 0.36,
-    side: THREE.DoubleSide,
-    roughness: 0.9,
-    metalness: 0.0,
-    envMapIntensity: isUltra ? 0.42 : 0.25,
-  });
-  const shrubMat = new THREE.MeshStandardMaterial({
-    color: 0xffffff,
-    map: shrubLeafTex,
-    roughness: 0.85,
-    metalness: 0.01,
-    envMapIntensity: isUltra ? 0.5 : 0.3,
-  });
+  const grassMat: THREE.Material = isRetroPixel
+    ? new THREE.MeshLambertMaterial({
+        color: 0xffffff,
+        map: grassTex,
+        alphaTest: 0.36,
+        side: THREE.DoubleSide,
+      })
+    : new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        map: grassTex,
+        alphaTest: 0.36,
+        side: THREE.DoubleSide,
+        roughness: 0.9,
+        metalness: 0.0,
+        envMapIntensity: isUltra ? 0.42 : 0.25,
+      });
+  const tallGrassMat: THREE.Material = isRetroPixel
+    ? new THREE.MeshLambertMaterial({
+        color: 0xffffff,
+        map: grassTex,
+        alphaTest: 0.34,
+        side: THREE.DoubleSide,
+      })
+    : new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        map: grassTex,
+        alphaTest: 0.34,
+        side: THREE.DoubleSide,
+        roughness: 0.91,
+        metalness: 0.0,
+        envMapIntensity: isUltra ? 0.40 : 0.24,
+      });
+  const shrubMat: THREE.Material = isRetroPixel
+    ? new THREE.MeshLambertMaterial({
+        color: 0xffffff,
+        map: shrubLeafTex,
+      })
+    : new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        map: shrubLeafTex,
+        roughness: 0.85,
+        metalness: 0.01,
+        envMapIntensity: isUltra ? 0.5 : 0.3,
+      });
+  const rockMat: THREE.Material = isRetroPixel
+    ? new THREE.MeshLambertMaterial({
+        color: 0xffffff,
+        flatShading: true,
+      })
+    : new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        roughness: 0.93,
+        metalness: 0.04,
+        flatShading: true,
+        envMapIntensity: isUltra ? 0.35 : 0.2,
+      });
+  const pebbleMat: THREE.Material = isRetroPixel
+    ? new THREE.MeshLambertMaterial({
+        color: 0xffffff,
+        flatShading: true,
+      })
+    : new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        roughness: 0.90,
+        metalness: 0.05,
+        flatShading: true,
+        envMapIntensity: isUltra ? 0.32 : 0.18,
+      });
 
   if (!isRetroPixel && isUltra) {
-    attachWindSwayShader(grassMat, 0.09);
+    if (grassMat instanceof THREE.MeshStandardMaterial) attachWindSwayShader(grassMat, 0.09);
+    if (tallGrassMat instanceof THREE.MeshStandardMaterial) attachWindSwayShader(tallGrassMat, 0.15);
   }
 
   const grassGeo = createGrassTuftGeometry(isRetroPixel);
+  const tallGrassGeo = createTallGrassTuftGeometry(isRetroPixel);
   const shrubGeo = createShrubGeometry(isRetroPixel);
-  disposables.push(grassMat, shrubMat, grassGeo, shrubGeo);
+  const rockGeo = createRockGeometry(isRetroPixel);
+  const pebbleGeo = createPebbleClusterGeometry(isRetroPixel);
+  disposables.push(
+    grassMat,
+    tallGrassMat,
+    shrubMat,
+    rockMat,
+    pebbleMat,
+    grassGeo,
+    tallGrassGeo,
+    shrubGeo,
+    rockGeo,
+    pebbleGeo
+  );
 
   const CHUNK_SIZE = 240;
   const chunks = new Map<string, GrassPatchPlacement[]>();
@@ -511,17 +656,31 @@ export function populateChunkedGrassAndShrubs(
   const dummy = new THREE.Object3D();
   const tint = new THREE.Color();
   const grassTints = [0xc2e0a4, 0xb0d48f, 0xd4e2a1, 0xa2c885];
+  const tallGrassTints = [0x8eb860, 0xa2be64, 0x79a44f, 0xb8bc66];
   const shrubTints = [0x92bc7b, 0xa8cf8d, 0x7da86b];
+  const rockTints = [0x78716c, 0x8c857d, 0x64625e, 0x9ca3af, 0x7c7267];
+  const pebbleTints = [0x94a3b8, 0x78716c, 0xa8a29e, 0x857f74, 0x6b7280];
 
   for (const [, list] of chunks.entries()) {
     const chunkGroup = new THREE.Group();
     chunkGroup.name = 'grass_chunk';
 
     const tufts: GrassPatchPlacement[] = [];
+    const tallTufts: GrassPatchPlacement[] = [];
     const shrubs: GrassPatchPlacement[] = [];
+    const rocks: GrassPatchPlacement[] = [];
+    const pebbles: GrassPatchPlacement[] = [];
     for (let i = 0; i < list.length; i++) {
-      if (list[i].kind === 'shrub') shrubs.push(list[i]);
-      else tufts.push(list[i]);
+      const k = list[i].kind;
+      if (k === 'shrub') shrubs.push(list[i]);
+      else if (k === 'tall_grass') {
+        if (!isRetroPixel || i % 2 === 0) tallTufts.push(list[i]);
+      } else if (k === 'rock') rocks.push(list[i]);
+      else if (k === 'pebble') {
+        if (!isRetroPixel) pebbles.push(list[i]);
+      } else {
+        if (!isRetroPixel || i % 3 === 0) tufts.push(list[i]);
+      }
     }
 
     if (tufts.length > 0) {
@@ -544,6 +703,30 @@ export function populateChunkedGrassAndShrubs(
       chunkGroup.add(inst);
     }
 
+    if (tallTufts.length > 0) {
+      const inst = new THREE.InstancedMesh(tallGrassGeo, tallGrassMat, tallTufts.length);
+      inst.receiveShadow = isUltra;
+      for (let i = 0; i < tallTufts.length; i++) {
+        const g = tallTufts[i];
+        dummy.position.set(g.x, 0.23, g.z);
+        dummy.rotation.set(0, ((i * 2.09) % (Math.PI * 2)), 0);
+        dummy.scale.set(
+          g.s * (1.02 + (i % 3) * 0.15),
+          g.s * (1.05 + (i % 4) * 0.18),
+          g.s * (1.02 + (i % 3) * 0.15)
+        );
+        dummy.updateMatrix();
+        inst.setMatrixAt(i, dummy.matrix);
+        tint.setHex(tallGrassTints[i % tallGrassTints.length]);
+        inst.setColorAt(i, tint);
+      }
+      inst.instanceMatrix.needsUpdate = true;
+      if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
+      inst.computeBoundingBox();
+      inst.computeBoundingSphere();
+      chunkGroup.add(inst);
+    }
+
     if (shrubs.length > 0) {
       const inst = new THREE.InstancedMesh(shrubGeo, shrubMat, shrubs.length);
       inst.castShadow = isUltra;
@@ -556,6 +739,51 @@ export function populateChunkedGrassAndShrubs(
         dummy.updateMatrix();
         inst.setMatrixAt(i, dummy.matrix);
         tint.setHex(shrubTints[i % shrubTints.length]);
+        inst.setColorAt(i, tint);
+      }
+      inst.instanceMatrix.needsUpdate = true;
+      if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
+      inst.computeBoundingBox();
+      inst.computeBoundingSphere();
+      chunkGroup.add(inst);
+    }
+
+    if (rocks.length > 0) {
+      const inst = new THREE.InstancedMesh(rockGeo, rockMat, rocks.length);
+      inst.castShadow = isUltra;
+      inst.receiveShadow = isUltra;
+      for (let i = 0; i < rocks.length; i++) {
+        const rk = rocks[i];
+        dummy.position.set(rk.x, 0.22, rk.z);
+        dummy.rotation.set(((i % 5) - 2) * 0.08, (i * 2.47) % (Math.PI * 2), ((i % 3) - 1) * 0.08);
+        dummy.scale.set(
+          rk.s * (0.9 + (i % 3) * 0.16),
+          rk.s * (0.75 + (i % 4) * 0.12),
+          rk.s * (0.88 + ((i + 1) % 3) * 0.15)
+        );
+        dummy.updateMatrix();
+        inst.setMatrixAt(i, dummy.matrix);
+        tint.setHex(rockTints[i % rockTints.length]);
+        inst.setColorAt(i, tint);
+      }
+      inst.instanceMatrix.needsUpdate = true;
+      if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
+      inst.computeBoundingBox();
+      inst.computeBoundingSphere();
+      chunkGroup.add(inst);
+    }
+
+    if (pebbles.length > 0) {
+      const inst = new THREE.InstancedMesh(pebbleGeo, pebbleMat, pebbles.length);
+      inst.receiveShadow = isUltra;
+      for (let i = 0; i < pebbles.length; i++) {
+        const pb = pebbles[i];
+        dummy.position.set(pb.x, 0.225, pb.z);
+        dummy.rotation.set(0, (i * 1.91) % (Math.PI * 2), 0);
+        dummy.scale.setScalar(pb.s);
+        dummy.updateMatrix();
+        inst.setMatrixAt(i, dummy.matrix);
+        tint.setHex(pebbleTints[i % pebbleTints.length]);
         inst.setColorAt(i, tint);
       }
       inst.instanceMatrix.needsUpdate = true;

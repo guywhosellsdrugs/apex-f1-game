@@ -3,6 +3,9 @@ import {
   MD_LANDMARKS,
   buildPitchedRoofGroup,
   boxWithRoofMat,
+  createRioStyleWaterMaterial,
+  addWaterPerimeterBarriers,
+  buildCircleWaterSegments,
 } from './marylandRoadNetwork';
 import {
   CityBuildingBox,
@@ -72,7 +75,7 @@ export function buildBaltimoreDistrict(ctx: BaltimoreBuilderContext): {
   } = ctx;
 
   // Shared Baltimore Materials
-  const harborWaterMat = makeCityMat({ color: 0x075985, roughness: 0.14, metalness: 0.72 });
+  const harborWaterMat = createRioStyleWaterMaterial(isUltra, isRetroPixel);
   const seawallMat = makeCityMat({ color: 0x475569, roughness: 0.78 });
   const promBrickMat = makeCityMat({ color: 0x7c2d12, roughness: 0.82 });
   const marbleMat = makeCityMat({ color: 0xf1f5f9, roughness: 0.34, metalness: 0.1 });
@@ -119,6 +122,40 @@ export function buildBaltimoreDistrict(ctx: BaltimoreBuilderContext): {
     branchWater.rotation.x = -Math.PI / 2;
     branchWater.position.set(1485, 0.234, -76);
     sceneryGroup.add(branchWater);
+
+    // RIO-style wrought-iron & stone bollard perimeter barriers around Inner Harbor & Patapsco quays (leaving Pier 1 & Pier 3 aprons open from Pratt St)
+    addWaterPerimeterBarriers({
+      sceneryGroup,
+      cityBuildings,
+      makeCityMat,
+      exclusions: [
+        { minX: 1261, maxX: 1299, minZ: -145, maxZ: -93 },
+        { minX: 1318, maxX: 1378, minZ: -145, maxZ: -91 },
+      ],
+      segments: [
+        { x1: 1249.5, z1: -140.5, x2: 1249.5, z2: -31.5, label: 'Inner Harbor West Quay' },
+        { x1: 1249.5, z1: -140.5, x2: 1406.0, z2: -140.5, label: 'Inner Harbor North Promenade' },
+        { x1: 1406.0, z1: -137.5, x2: 1570.5, z2: -137.5, label: 'Fells Point Waterfront' },
+        { x1: 1249.5, z1: -31.5, x2: 1400.0, z2: -31.5, label: 'Inner Harbor South Bulkhead' },
+        { x1: 1400.0, z1: -31.5, x2: 1400.0, z2: -14.5, label: 'Patapsco Harbor Step' },
+        { x1: 1400.0, z1: -14.5, x2: 1570.5, z2: -14.5, label: 'Locust Point Harbor Bulkhead' },
+        { x1: 1570.5, z1: -137.5, x2: 1570.5, z2: -14.5, label: 'Patapsco Channel Breakwater' },
+      ],
+    });
+    // Guardrail perimeter around Pier 1 (WTC) and Pier 3 (Aquarium) water-facing edges
+    addWaterPerimeterBarriers({
+      sceneryGroup,
+      cityBuildings,
+      makeCityMat,
+      segments: [
+        { x1: 1261.8, z1: -138, x2: 1261.8, z2: -94, label: 'Pier 1 West Quay' },
+        { x1: 1261.8, z1: -94, x2: 1298.2, z2: -94, label: 'Pier 1 South Quay' },
+        { x1: 1298.2, z1: -94, x2: 1298.2, z2: -138, label: 'Pier 1 East Quay' },
+        { x1: 1318.8, z1: -140, x2: 1318.8, z2: -91.8, label: 'Pier 3 West Quay' },
+        { x1: 1318.8, z1: -91.8, x2: 1377.2, z2: -91.8, label: 'Pier 3 South Quay' },
+        { x1: 1377.2, z1: -91.8, x2: 1377.2, z2: -140, label: 'Pier 3 East Quay' },
+      ],
+    });
 
     // Light St Brick Promenade (West Edge of Inner Harbor)
     const westProm = new THREE.Mesh(new THREE.BoxGeometry(11, 0.42, 92), promBrickMat);
@@ -902,6 +939,12 @@ export function buildBaltimoreDistrict(ctx: BaltimoreBuilderContext): {
     dhLake.rotation.x = -Math.PI / 2;
     dhLake.position.set(dhX + 12, 0.244, dhZ + 12);
     sceneryGroup.add(dhLake);
+    addWaterPerimeterBarriers({
+      sceneryGroup,
+      cityBuildings,
+      makeCityMat,
+      segments: buildCircleWaterSegments(dhX + 12, dhZ + 12, 36, 36, 20, 'Druid Hill Lake'),
+    });
     const consGlassMat = new THREE.MeshStandardMaterial({
       color: 0xe0f2fe,
       roughness: 0.16,

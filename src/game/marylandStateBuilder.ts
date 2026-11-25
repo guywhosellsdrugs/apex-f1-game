@@ -5,6 +5,11 @@ import {
   distSqPointToSeg,
   buildPitchedRoofGroup,
   boxWithRoofMat,
+  sampleOffRoadTerrainAt,
+  createRioStyleWaterMaterial,
+  addWaterPerimeterBarriers,
+  buildRectWaterSegments,
+  buildCircleWaterSegments,
 } from './marylandRoadNetwork';
 import {
   CityBuildingBox,
@@ -76,10 +81,11 @@ export function buildMarylandStateDistrict(ctx: MarylandStateBuilderContext): vo
     drawParkingLotBay,
   } = ctx;
 
-  // Shared Statewide Landscape & Architectural Materials
-  const bayWaterMat = makeCityMat({ color: 0x0b4f6c, roughness: 0.16, metalness: 0.68 });
-  const atlanticWaterMat = makeCityMat({ color: 0x075985, roughness: 0.15, metalness: 0.72 });
-  const lakeWaterMat = makeCityMat({ color: 0x0e7490, roughness: 0.18, metalness: 0.64 });
+  // Shared Statewide Landscape & Architectural Materials (Unified RIO-style reflective water)
+  const bayWaterMat = createRioStyleWaterMaterial(isUltra, isRetroPixel);
+  const atlanticWaterMat = bayWaterMat;
+  const lakeWaterMat = bayWaterMat;
+  disposables.push(bayWaterMat);
   const sandBeachMat = makeCityMat({ color: 0xe6d2a2, roughness: 0.92, metalness: 0.0 });
   const easternShoreSoilMat = makeCityMat({ color: 0x3b6e32, roughness: 0.9 });
   const brickRedMat = makeBrickFacadeMat('#8b2e24', '#e2e8f0', '#0f172a', 6, 3, false);
@@ -172,6 +178,47 @@ export function buildMarylandStateDistrict(ctx: MarylandStateBuilderContext): vo
     kittamaqundi.rotation.x = -Math.PI / 2;
     kittamaqundi.position.set(335, 0.236, 130);
     sceneryGroup.add(kittamaqundi);
+
+    // Unified RIO-style perimeter & coastal waterfront barriers (bridges & roads automatically stay clear!)
+    addWaterPerimeterBarriers({
+      sceneryGroup,
+      cityBuildings,
+      makeCityMat,
+      disposables,
+      exclusions: [
+        // Kent Island land footprint over Bay water
+        { minX: 2022, maxX: 2238, minZ: 649, maxZ: 841 },
+        // Eastern Shore mainland & Ocean City boardwalk approaches
+        { minX: 2199, maxX: 2551, minZ: 279, maxZ: 1561 },
+      ],
+      segments: [
+        // Chesapeake Bay Western Shore (Sandy Point / Annapolis coast, leaving US-50 Bay Bridge open)
+        { x1: 1539.5, z1: 380, x2: 1539.5, z2: 1020, label: 'Chesapeake Bay West Shore' },
+        // Severn River perimeter
+        ...buildRectWaterSegments(1480, 610, 260, 72, 'Severn River', -0.35),
+        // Potomac River Main & Upper perimeters (Woodrow Wilson Bridge & American Legion Bridge kept open automatically)
+        ...buildRectWaterSegments(-460, 1985, 1100, 160, 'Potomac River', 0.24),
+        ...buildRectWaterSegments(-960, 1780, 600, 95, 'Upper Potomac River', -0.45),
+        // Deep Creek Lake
+        ...buildRectWaterSegments(-2415, -460, 175, 220, 'Deep Creek Lake'),
+        // Lake Kittamaqundi
+        ...buildCircleWaterSegments(335, 130, 38, 38, 20, 'Lake Kittamaqundi'),
+      ],
+    });
+    // Kent Island, Eastern Shore & Ocean City Atlantic / Bayfront Boardwalk seawall railings
+    addWaterPerimeterBarriers({
+      sceneryGroup,
+      cityBuildings,
+      makeCityMat,
+      disposables,
+      segments: [
+        { x1: 2022, z1: 650, x2: 2022, z2: 840, label: 'Kent Island West Seawall' },
+        { x1: 2200, z1: 280, x2: 2200, z2: 649, label: 'Eastern Shore North Bay Wall' },
+        { x1: 2200, z1: 841, x2: 2200, z2: 1560, label: 'Eastern Shore South Bay Wall' },
+        { x1: 2457.5, z1: 840, x2: 2457.5, z2: 1380, label: 'Ocean City Bayside Seawall' },
+        { x1: 2550.5, z1: 840, x2: 2550.5, z2: 1380, label: 'Ocean City Atlantic Boardwalk Rail' },
+      ],
+    });
   }
 
   // =========================================================================
@@ -395,6 +442,14 @@ export function buildMarylandStateDistrict(ctx: MarylandStateBuilderContext): vo
     canalWater.rotation.x = -Math.PI / 2;
     canalWater.position.set(frX - 38, 0.244, frZ + 62);
     sceneryGroup.add(canalWater);
+    addWaterPerimeterBarriers({
+      sceneryGroup,
+      cityBuildings,
+      makeCityMat,
+      disposables,
+      exclusions: [{ minX: frX - 43, maxX: frX - 33, minZ: frZ + 52, maxZ: frZ + 72 }],
+      segments: buildRectWaterSegments(frX - 38, frZ + 62, 78, 12, 'Carroll Creek Canal'),
+    });
 
     // Arched Brick Carroll Creek Footbridge
     const creekBridge = new THREE.Mesh(new THREE.BoxGeometry(8, 1.4, 16), solidBrickMat);
@@ -962,6 +1017,13 @@ export function buildMarylandStateDistrict(ctx: MarylandStateBuilderContext): vo
     dockWater.rotation.x = -Math.PI / 2;
     dockWater.position.set(1492, 0.238, 748);
     sceneryGroup.add(dockWater);
+    addWaterPerimeterBarriers({
+      sceneryGroup,
+      cityBuildings,
+      makeCityMat,
+      disposables,
+      segments: buildRectWaterSegments(1492, 748, 40, 18, 'Annapolis Ego Alley Dock'),
+    });
     for (const bx of [1482, 1500]) {
       const hull = new THREE.Mesh(new THREE.BoxGeometry(3.2, 1.4, 9.5), whiteTrimMat);
       hull.position.set(bx, 0.9, 748);
@@ -1410,19 +1472,32 @@ export function buildMarylandStateDistrict(ctx: MarylandStateBuilderContext): vo
 
     populateInstancedWoodlandTrees(sceneryGroup, treePlacements, { isUltra, isRetroPixel }, disposables);
 
-    for (let i = 0; i < 650; i++) {
+    for (let i = 0; i < 1200; i++) {
       const rx = Math.sin(i * 41.31 + 2.9) * 19384.217;
       const rz = Math.sin(i * 93.17 + 7.1) * 35712.883;
       const ux = rx - Math.floor(rx);
       const uz = rz - Math.floor(rz);
       const tx = -2500 + ux * 4850;
       const tz = -860 + uz * 2760;
-      if (isInvalidStateSpot(tx, tz, 22, 4)) continue;
+      if (isInvalidStateSpot(tx, tz, 22, 4.5)) continue;
+      const terrain = sampleOffRoadTerrainAt(tx, tz);
+      let kind: GrassPatchPlacement['kind'] = terrain.isTallGrass ? 'tall_grass' : 'grass';
+      let scale = terrain.isTallGrass ? 1.08 + (i % 4) * 0.16 : 0.85 + (i % 4) * 0.14;
+      if (i % 12 === 0) {
+        kind = 'shrub';
+        scale = 0.95 + (i % 4) * 0.16;
+      } else if (i % 11 === 0) {
+        kind = 'rock';
+        scale = 0.52 + (i % 5) * 0.12;
+      } else if (i % 6 === 0 || (terrain.pebbleFactor > 0.52 && i % 3 === 0)) {
+        kind = 'pebble';
+        scale = 0.95 + (i % 4) * 0.16;
+      }
       grassPatches.push({
         x: tx,
         z: tz,
-        s: 1.0 + (i % 4) * 0.18,
-        kind: i % 8 === 0 ? 'shrub' : 'grass',
+        s: scale,
+        kind,
       });
     }
     populateChunkedGrassAndShrubs(sceneryGroup, grassPatches, { isUltra, isRetroPixel }, disposables);

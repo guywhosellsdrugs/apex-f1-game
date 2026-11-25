@@ -1,14 +1,21 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import type { InteriorMinigameKind } from '../game/homeFurnishings';
+import {
+  isWorkplaceShiftKind,
+  type InteriorMinigameKind,
+  type WorkplaceShiftKind,
+} from '../game/homeFurnishings';
+import type { CityOutdoorJobSpec } from '../game/cityTrafficBuilder';
 
-export type { InteriorMinigameKind };
+export type { InteriorMinigameKind, WorkplaceShiftKind };
 
 interface InteriorMiniGameModalProps {
-  kind: InteriorMinigameKind;
+  kind: InteriorMinigameKind | WorkplaceShiftKind;
   venueName: string;
+  stationLabel?: string;
   streetCash: number;
   isHomeVenue?: boolean;
   onAwardCash: (delta: number, label: string) => void;
+  onCompleteWorkShift?: (delta: number, label: string) => void;
   onClose: () => void;
 }
 
@@ -69,7 +76,7 @@ interface ParticleSpark {
 }
 
 // ============================================================================
-// 1. 8-BALL CHAMPIONSHIP BILLIARDS (Ghost-Ball Aim + Full 7-Ball Rack + Spin)
+// 1. 8-BALL CHAMPIONSHIP BILLIARDS VS CPU (Solids vs Stripes — First to Clear Wins)
 // ============================================================================
 interface PoolBall {
   id: number;
@@ -78,6 +85,7 @@ interface PoolBall {
   vx: number;
   vy: number;
   color: string;
+  owner: 'player' | 'cpu' | 'cue';
   stripe?: boolean;
   sunk: boolean;
   isCue?: boolean;
@@ -85,7 +93,7 @@ interface PoolBall {
 
 const POOL_W = 540;
 const POOL_H = 290;
-const BALL_R = 9;
+const BALL_R = 8.8;
 const POCKETS = [
   { x: 24, y: 24 },
   { x: POOL_W / 2, y: 20 },
@@ -101,46 +109,65 @@ const PoolMiniGame: React.FC<{
   onClose: () => void;
 }> = ({ venueName, onAwardCash, onClose }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [shotsLeft, setShotsLeft] = useState(7);
-  const [sunkCount, setSunkCount] = useState(0);
-  const [streak, setStreak] = useState(0);
-  const [statusMsg, setStatusMsg] = useState('AIM GHOST-BALL LINE · HOLD & RELEASE CLICK TO SHOOT!');
-  const [finished, setFinished] = useState(false);
+  const [turnOwner, setTurnOwner] = useState<'player' | 'cpu'>('player');
+  const [playerSunk, setPlayerSunk] = useState(0);
+  const [cpuSunk, setCpuSunk] = useState(0);
+  const [winner, setWinner] = useState<'player' | 'cpu' | null>(null);
+  const [statusMsg, setStatusMsg] = useState('YOUR BREAK! YOU ARE SOLIDS (#1–#5) VS CPU STRIPES (#9–#13). FIRST TO CLEAR WINS!');
 
-  const makeRack = (): PoolBall[] => [
-    { id: 0, x: 142, y: POOL_H / 2, vx: 0, vy: 0, color: '#f8fafc', sunk: false, isCue: true },
-    { id: 1, x: 350, y: POOL_H / 2, vx: 0, vy: 0, color: '#facc15', sunk: false },
-    { id: 2, x: 372, y: POOL_H / 2 - 12, vx: 0, vy: 0, color: '#2563eb', sunk: false },
-    { id: 3, x: 372, y: POOL_H / 2 + 12, vx: 0, vy: 0, color: '#ef4444', sunk: false },
-    { id: 8, x: 394, y: POOL_H / 2, vx: 0, vy: 0, color: '#111827', sunk: false },
-    { id: 5, x: 394, y: POOL_H / 2 - 24, vx: 0, vy: 0, color: '#f97316', stripe: true, sunk: false },
-    { id: 6, x: 394, y: POOL_H / 2 + 24, vx: 0, vy: 0, color: '#16a34a', stripe: true, sunk: false },
-    { id: 7, x: 416, y: POOL_H / 2 - 12, vx: 0, vy: 0, color: '#a855f7', stripe: true, sunk: false },
-  ];
+  const makeRack = (): PoolBall[] => {
+    const cx = 368;
+    const cy = POOL_H / 2;
+    const dx = BALL_R * 1.82;
+    const dy = BALL_R * 1.06;
+    return [
+      { id: 0, x: 138, y: POOL_H / 2, vx: 0, vy: 0, color: '#f8fafc', owner: 'cue', sunk: false, isCue: true },
+      // Row 1 (Apex)
+      { id: 1, x: cx, y: cy, vx: 0, vy: 0, color: '#facc15', owner: 'player', sunk: false },
+      // Row 2
+      { id: 9, x: cx + dx, y: cy - dy, vx: 0, vy: 0, color: '#eab308', owner: 'cpu', stripe: true, sunk: false },
+      { id: 2, x: cx + dx, y: cy + dy, vx: 0, vy: 0, color: '#2563eb', owner: 'player', sunk: false },
+      // Row 3
+      { id: 3, x: cx + dx * 2, y: cy - dy * 2, vx: 0, vy: 0, color: '#ef4444', owner: 'player', sunk: false },
+      { id: 10, x: cx + dx * 2, y: cy, vx: 0, vy: 0, color: '#3b82f6', owner: 'cpu', stripe: true, sunk: false },
+      { id: 11, x: cx + dx * 2, y: cy + dy * 2, vx: 0, vy: 0, color: '#f97316', owner: 'cpu', stripe: true, sunk: false },
+      // Row 4
+      { id: 12, x: cx + dx * 3, y: cy - dy * 3, vx: 0, vy: 0, color: '#a855f7', owner: 'cpu', stripe: true, sunk: false },
+      { id: 4, x: cx + dx * 3, y: cy - dy, vx: 0, vy: 0, color: '#7c3aed', owner: 'player', sunk: false },
+      { id: 13, x: cx + dx * 3, y: cy + dy, vx: 0, vy: 0, color: '#16a34a', owner: 'cpu', stripe: true, sunk: false },
+      { id: 5, x: cx + dx * 3, y: cy + dy * 3, vx: 0, vy: 0, color: '#f97316', owner: 'player', sunk: false },
+    ];
+  };
 
   const stateRef = useRef<{
     balls: PoolBall[];
     aimAngle: number;
     charging: boolean;
     power: number;
-    shotsLeft: number;
-    sunkCount: number;
-    streak: number;
-    sunkThisShot: number;
+    turn: 'player' | 'cpu';
+    cpuThinkTimer: number;
+    cpuTargetAngle: number;
+    cpuShotPower: number;
+    cpuAimReady: boolean;
+    sunkOwnThisShot: number;
+    scratchedThisShot: boolean;
     moving: boolean;
-    finished: boolean;
+    winner: 'player' | 'cpu' | null;
     popups: FloatingPopup[];
   }>({
     balls: makeRack(),
     aimAngle: 0,
     charging: false,
     power: 0,
-    shotsLeft: 7,
-    sunkCount: 0,
-    streak: 0,
-    sunkThisShot: 0,
+    turn: 'player',
+    cpuThinkTimer: 0,
+    cpuTargetAngle: 0,
+    cpuShotPower: 0.65,
+    cpuAimReady: false,
+    sunkOwnThisShot: 0,
+    scratchedThisShot: false,
     moving: false,
-    finished: false,
+    winner: null,
     popups: [],
   });
 
@@ -150,19 +177,22 @@ const PoolMiniGame: React.FC<{
       aimAngle: 0,
       charging: false,
       power: 0,
-      shotsLeft: 7,
-      sunkCount: 0,
-      streak: 0,
-      sunkThisShot: 0,
+      turn: 'player',
+      cpuThinkTimer: 0,
+      cpuTargetAngle: 0,
+      cpuShotPower: 0.65,
+      cpuAimReady: false,
+      sunkOwnThisShot: 0,
+      scratchedThisShot: false,
       moving: false,
-      finished: false,
+      winner: null,
       popups: [],
     };
-    setShotsLeft(7);
-    setSunkCount(0);
-    setStreak(0);
-    setFinished(false);
-    setStatusMsg('FRESH 7-BALL RACK! LINE UP THE GHOST BALL & HOLD CLICK!');
+    setTurnOwner('player');
+    setPlayerSunk(0);
+    setCpuSunk(0);
+    setWinner(null);
+    setStatusMsg('NEW VS-CPU MATCH! SINK ALL 5 SOLIDS BEFORE THE CPU SINKS ITS 5 STRIPES!');
   };
 
   useEffect(() => {
@@ -170,6 +200,82 @@ const PoolMiniGame: React.FC<{
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
+
+    const isSegmentClear = (
+      x1: number,
+      y1: number,
+      x2: number,
+      y2: number,
+      balls: PoolBall[],
+      ignoreIds: Set<number>
+    ): boolean => {
+      const dx = x2 - x1;
+      const dy = y2 - y1;
+      const lenSq = dx * dx + dy * dy;
+      if (lenSq < 1) return true;
+      for (const ob of balls) {
+        if (ob.sunk || ignoreIds.has(ob.id)) continue;
+        const t = Math.max(0, Math.min(1, ((ob.x - x1) * dx + (ob.y - y1) * dy) / lenSq));
+        const px = x1 + t * dx;
+        const py = y1 + t * dy;
+        if (Math.hypot(ob.x - px, ob.y - py) < BALL_R * 2.02) return false;
+      }
+      return true;
+    };
+
+    const planCpuShot = (balls: PoolBall[]): { angle: number; power: number } => {
+      const cue = balls[0];
+      const cpuBalls = balls.filter((b) => b.owner === 'cpu' && !b.sunk);
+      if (!cue || cpuBalls.length === 0) return { angle: 0, power: 0.6 };
+
+      let bestScore = -Infinity;
+      let bestAngle = Math.atan2(cpuBalls[0].y - cue.y, cpuBalls[0].x - cue.x);
+      let bestPower = 0.68;
+
+      const ignore = new Set<number>([0]);
+      for (const target of cpuBalls) {
+        ignore.add(target.id);
+        for (const p of POCKETS) {
+          const toPktX = p.x - target.x;
+          const toPktY = p.y - target.y;
+          const pktDist = Math.hypot(toPktX, toPktY);
+          if (pktDist < 4) continue;
+          const ux = toPktX / pktDist;
+          const uy = toPktY / pktDist;
+
+          // Ghost ball impact point behind target ball
+          const ghostX = target.x - ux * (BALL_R * 2);
+          const ghostY = target.y - uy * (BALL_R * 2);
+          if (ghostX < 28 || ghostX > POOL_W - 28 || ghostY < 28 || ghostY > POOL_H - 28) continue;
+
+          const cueToGhostX = ghostX - cue.x;
+          const cueToGhostY = ghostY - cue.y;
+          const cueDist = Math.hypot(cueToGhostX, cueToGhostY);
+          if (cueDist < 4) continue;
+
+          const cutDot = (cueToGhostX / cueDist) * ux + (cueToGhostY / cueDist) * uy;
+          if (cutDot < 0.25) continue; // Skip near-impossible >75deg thin cuts
+
+          const clearCue = isSegmentClear(cue.x, cue.y, ghostX, ghostY, balls, ignore);
+          const clearObj = isSegmentClear(target.x, target.y, p.x, p.y, balls, ignore);
+
+          let score = cutDot * 120 - (cueDist + pktDist) * 0.12;
+          if (clearCue) score += 110;
+          if (clearObj) score += 130;
+
+          if (score > bestScore) {
+            bestScore = score;
+            bestAngle = Math.atan2(cueToGhostY, cueToGhostX);
+            bestPower = Math.max(0.42, Math.min(0.92, 0.36 + (cueDist + pktDist) / 560));
+          }
+        }
+        ignore.delete(target.id);
+      }
+
+      // Slight human-like CPU error so CPU is challenging (~65% pot rate) yet beatable
+      const variance = (Math.random() - 0.5) * 0.055;
+      return { angle: bestAngle + variance, power: bestPower };
+    };
 
     let rafId = 0;
     let last = performance.now();
@@ -179,8 +285,39 @@ const PoolMiniGame: React.FC<{
       last = now;
       const st = stateRef.current;
 
-      if (st.charging && !st.moving && !st.finished) {
+      if (st.turn === 'player' && st.charging && !st.moving && !st.winner) {
         st.power = Math.min(1, st.power + dt * 1.25);
+      }
+
+      // CPU turn decision & telegraph animation
+      if (st.turn === 'cpu' && !st.moving && !st.winner) {
+        if (!st.cpuAimReady) {
+          const plan = planCpuShot(st.balls);
+          st.cpuTargetAngle = plan.angle;
+          st.cpuShotPower = plan.power;
+          st.cpuAimReady = true;
+          st.cpuThinkTimer = 0.85;
+          st.aimAngle = plan.angle;
+          st.power = 0;
+        } else {
+          st.cpuThinkTimer -= dt;
+          // Smooth cue pull-back telegraph during last 0.45s
+          if (st.cpuThinkTimer < 0.45) {
+            st.power = Math.min(st.cpuShotPower, ((0.45 - st.cpuThinkTimer) / 0.45) * st.cpuShotPower);
+          }
+          if (st.cpuThinkTimer <= 0) {
+            const cue = st.balls[0];
+            const spd = 235 + st.cpuShotPower * 610;
+            cue.vx = Math.cos(st.cpuTargetAngle) * spd;
+            cue.vy = Math.sin(st.cpuTargetAngle) * spd;
+            st.moving = true;
+            st.power = 0;
+            st.cpuAimReady = false;
+            st.sunkOwnThisShot = 0;
+            st.scratchedThisShot = false;
+            playArcadeSfx(220, 130, 0.08, 'triangle', 0.065);
+          }
+        }
       }
 
       let anyMoving = false;
@@ -218,25 +355,32 @@ const PoolMiniGame: React.FC<{
           for (const p of POCKETS) {
             if (Math.hypot(b.x - p.x, b.y - p.y) < 16) {
               if (b.isCue) {
-                b.x = 142;
+                b.x = 138;
                 b.y = POOL_H / 2;
                 b.vx = 0;
                 b.vy = 0;
-                st.streak = 0;
-                setStreak(0);
+                st.scratchedThisShot = true;
                 playArcadeSfx(220, 120, 0.16, 'sawtooth', 0.06);
                 st.popups.push({ x: p.x, y: p.y, text: 'SCRATCH!', color: '#f87171', life: 1.0 });
-                setStatusMsg('⚠️ SCRATCH! CUE BALL RESET TO BAULK SPOT.');
               } else {
                 b.sunk = true;
                 b.vx = 0;
                 b.vy = 0;
-                st.sunkCount++;
-                st.sunkThisShot++;
-                setSunkCount(st.sunkCount);
-                playArcadeSfx(520, 880, 0.14, 'triangle', 0.08);
-                st.popups.push({ x: p.x, y: p.y, text: `#${b.id} SUNK!`, color: '#facc15', life: 1.0 });
-                setStatusMsg(`🎱 CLEAN POCKET! BALL #${b.id} SUNK (${st.sunkCount}/7)!`);
+                const pCount = st.balls.filter((x) => x.owner === 'player' && x.sunk).length;
+                const cCount = st.balls.filter((x) => x.owner === 'cpu' && x.sunk).length;
+                setPlayerSunk(pCount);
+                setCpuSunk(cCount);
+                if (b.owner === st.turn) {
+                  st.sunkOwnThisShot++;
+                }
+                playArcadeSfx(b.owner === 'player' ? 540 : 420, b.owner === 'player' ? 920 : 620, 0.14, 'triangle', 0.08);
+                st.popups.push({
+                  x: p.x,
+                  y: p.y,
+                  text: b.owner === 'player' ? `SOLID #${b.id}!` : `STRIPE #${b.id}!`,
+                  color: b.owner === 'player' ? '#4ade80' : '#f43f5e',
+                  life: 1.05,
+                });
               }
             }
           }
@@ -280,34 +424,48 @@ const PoolMiniGame: React.FC<{
 
       if (st.moving && !anyMoving) {
         st.moving = false;
-        if (st.sunkThisShot > 0) {
-          st.streak += st.sunkThisShot;
-          setStreak(st.streak);
-        } else {
-          st.streak = 0;
-          setStreak(0);
-        }
-        st.sunkThisShot = 0;
+        const playerLeft = st.balls.filter((b) => b.owner === 'player' && !b.sunk).length;
+        const cpuLeft = st.balls.filter((b) => b.owner === 'cpu' && !b.sunk).length;
 
-        const remainingObj = st.balls.filter((b) => !b.isCue && !b.sunk).length;
-        if (remainingObj === 0 && !st.finished) {
-          st.finished = true;
-          setFinished(true);
-          const prize = 1400 + st.shotsLeft * 150;
-          onAwardCash(prize, '🎱 TABLE CLEARED CHAMPION');
+        if (playerLeft === 0 && !st.winner) {
+          st.winner = 'player';
+          setWinner('player');
+          const prize = 1600 + cpuLeft * 150;
+          onAwardCash(prize, '🎱 BILLIARDS VS CPU CHAMPION');
           playArcadeSfx(523, 1046, 0.25, 'triangle', 0.09);
-          setStatusMsg(`🏆 FULL TABLE CLEARED! +$${prize.toLocaleString()} BILLIARDS PRIZE!`);
-        } else if (st.shotsLeft <= 0 && !st.finished) {
-          st.finished = true;
-          setFinished(true);
-          const prize = st.sunkCount * 190 + (st.streak >= 2 ? 150 : 0);
-          if (prize > 0) {
-            onAwardCash(prize, '🎱 BILLIARDS MATCH PRIZE');
-            setStatusMsg(`🎱 RACK COMPLETE: ${st.sunkCount}/7 BALLS SUNK (+$${prize})!`);
+          setStatusMsg(`🏆 YOU CLEARED ALL 5 SOLIDS FIRST! +$${prize.toLocaleString()} PRIZE!`);
+        } else if (cpuLeft === 0 && !st.winner) {
+          st.winner = 'cpu';
+          setWinner('cpu');
+          playArcadeSfx(260, 120, 0.28, 'sawtooth', 0.07);
+          setStatusMsg(`🤖 CPU CLEARED ALL 5 STRIPES FIRST! BETTER LUCK NEXT RACK!`);
+        } else {
+          // Turn resolution: keep turn only if player/CPU sunk their own ball without scratching
+          const keepTurn = !st.scratchedThisShot && st.sunkOwnThisShot > 0;
+          if (!keepTurn) {
+            st.turn = st.turn === 'player' ? 'cpu' : 'player';
+            setTurnOwner(st.turn);
+          }
+          if (st.turn === 'player') {
+            setStatusMsg(
+              keepTurn
+                ? `🔥 NICE SHOT! SINK YOUR REMAINING SOLIDS (${5 - playerLeft}/5)!`
+                : st.scratchedThisShot
+                ? '⚠️ CPU SCRATCHED! YOUR TURN ON SOLIDS!'
+                : '🟢 YOUR TURN · AIM AT A SOLID (#1–#5) & HOLD CLICK TO SHOOT!'
+            );
           } else {
-            setStatusMsg('🎱 OUT OF SHOTS! RACK IT UP AGAIN.');
+            setStatusMsg(
+              keepTurn
+                ? `🤖 CPU SUNK A STRIPE & SHOOTS AGAIN (${5 - cpuLeft}/5)...`
+                : st.scratchedThisShot
+                ? '⚠️ YOU SCRATCHED! CPU IS LINING UP A SHOT...'
+                : '🤖 CPU TURN · LINING UP A STRIPE SHOT...'
+            );
           }
         }
+        st.sunkOwnThisShot = 0;
+        st.scratchedThisShot = false;
       }
 
       for (let i = st.popups.length - 1; i >= 0; i--) {
@@ -321,25 +479,22 @@ const PoolMiniGame: React.FC<{
       ctx.fillRect(0, 0, POOL_W, POOL_H);
       ctx.fillStyle = '#78350f';
       ctx.fillRect(10, 10, POOL_W - 20, POOL_H - 20);
-      // Brass diamonds along rails
       ctx.fillStyle = '#fbbf24';
       for (let dx = 95; dx < POOL_W - 60; dx += 88) {
         ctx.fillRect(dx - 2, 14, 4, 4);
         ctx.fillRect(dx - 2, POOL_H - 18, 4, 4);
       }
-      // Tournament Green Felt
       ctx.fillStyle = '#15803d';
       ctx.fillRect(22, 22, POOL_W - 44, POOL_H - 44);
       ctx.strokeStyle = '#166534';
       ctx.lineWidth = 3;
       ctx.strokeRect(23, 23, POOL_W - 46, POOL_H - 46);
 
-      // Baulk line & Rack spot
       ctx.strokeStyle = 'rgba(255,255,255,0.18)';
       ctx.lineWidth = 1.5;
       ctx.beginPath();
-      ctx.moveTo(142, 24);
-      ctx.lineTo(142, POOL_H - 24);
+      ctx.moveTo(138, 24);
+      ctx.lineTo(138, POOL_H - 24);
       ctx.stroke();
 
       for (const p of POCKETS) {
@@ -353,9 +508,9 @@ const PoolMiniGame: React.FC<{
         ctx.fill();
       }
 
-      // Ghost-ball trajectory raycast preview when aiming
+      // Ghost-ball trajectory raycast preview when aiming (player or CPU telegraph)
       const cue = st.balls[0];
-      if (!st.moving && !st.finished && cue) {
+      if (!st.moving && !st.winner && cue) {
         const dirX = Math.cos(st.aimAngle);
         const dirY = Math.sin(st.aimAngle);
         let bestT = 260;
@@ -377,7 +532,6 @@ const PoolMiniGame: React.FC<{
             }
           }
         }
-        // Clamp ray inside table cushions
         if (dirX > 0.001) bestT = Math.min(bestT, (POOL_W - 24 - BALL_R - cue.x) / dirX);
         if (dirX < -0.001) bestT = Math.min(bestT, (24 + BALL_R - cue.x) / dirX);
         if (dirY > 0.001) bestT = Math.min(bestT, (POOL_H - 24 - BALL_R - cue.y) / dirY);
@@ -386,7 +540,7 @@ const PoolMiniGame: React.FC<{
         const gx = cue.x + dirX * bestT;
         const gy = cue.y + dirY * bestT;
 
-        ctx.strokeStyle = 'rgba(255,255,255,0.45)';
+        ctx.strokeStyle = st.turn === 'cpu' ? 'rgba(244,63,94,0.55)' : 'rgba(255,255,255,0.45)';
         ctx.setLineDash([5, 5]);
         ctx.lineWidth = 1.5;
         ctx.beginPath();
@@ -395,14 +549,21 @@ const PoolMiniGame: React.FC<{
         ctx.stroke();
         ctx.setLineDash([]);
 
-        ctx.strokeStyle = hitBall ? 'rgba(250, 204, 21, 0.75)' : 'rgba(255,255,255,0.3)';
+        ctx.strokeStyle =
+          st.turn === 'cpu'
+            ? 'rgba(244,63,94,0.75)'
+            : hitBall
+            ? hitBall.owner === 'player'
+              ? 'rgba(74, 222, 128, 0.85)'
+              : 'rgba(248, 113, 113, 0.8)'
+            : 'rgba(255,255,255,0.3)';
         ctx.beginPath();
         ctx.arc(gx, gy, BALL_R, 0, Math.PI * 2);
         ctx.stroke();
 
         if (hitBall) {
           const defAng = Math.atan2(hitBall.y - gy, hitBall.x - gx);
-          ctx.strokeStyle = '#facc15';
+          ctx.strokeStyle = hitBall.owner === 'player' ? '#4ade80' : '#f87171';
           ctx.lineWidth = 2;
           ctx.beginPath();
           ctx.moveTo(hitBall.x, hitBall.y);
@@ -423,38 +584,42 @@ const PoolMiniGame: React.FC<{
         ctx.fill();
         if (b.stripe) {
           ctx.fillStyle = b.color;
-          ctx.fillRect(b.x - BALL_R + 1.5, b.y - 4.5, BALL_R * 2 - 3, 9);
+          ctx.fillRect(b.x - BALL_R + 1.5, b.y - 4.3, BALL_R * 2 - 3, 8.6);
         }
-        ctx.strokeStyle = 'rgba(255,255,255,0.42)';
-        ctx.lineWidth = 1;
+        ctx.strokeStyle =
+          b.isCue
+            ? 'rgba(255,255,255,0.65)'
+            : b.owner === st.turn && !st.moving && !st.winner
+            ? '#ffffff'
+            : 'rgba(255,255,255,0.35)';
+        ctx.lineWidth = b.owner === st.turn && !b.isCue ? 1.4 : 1;
         ctx.stroke();
         if (!b.isCue) {
           ctx.fillStyle = '#ffffff';
           ctx.beginPath();
-          ctx.arc(b.x, b.y, 4.4, 0, Math.PI * 2);
+          ctx.arc(b.x, b.y, 4.3, 0, Math.PI * 2);
           ctx.fill();
           ctx.fillStyle = '#0f172a';
-          ctx.font = 'bold 7px monospace';
+          ctx.font = 'bold 6.5px monospace';
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
           ctx.fillText(String(b.id), b.x, b.y + 0.5);
         }
       }
 
-      if (!st.moving && !st.finished && cue) {
+      if (!st.moving && !st.winner && cue) {
         const pullBack = 16 + st.power * 38;
         const sx = cue.x - Math.cos(st.aimAngle) * pullBack;
         const sy = cue.y - Math.sin(st.aimAngle) * pullBack;
         const ex = cue.x - Math.cos(st.aimAngle) * (pullBack + 125);
         const ey = cue.y - Math.sin(st.aimAngle) * (pullBack + 125);
-        ctx.strokeStyle = '#f59e0b';
+        ctx.strokeStyle = st.turn === 'cpu' ? '#f43f5e' : '#f59e0b';
         ctx.lineWidth = 4.5;
         ctx.beginPath();
         ctx.moveTo(sx, sy);
         ctx.lineTo(ex, ey);
         ctx.stroke();
 
-        // Cue tip
         ctx.strokeStyle = '#38bdf8';
         ctx.lineWidth = 4.5;
         ctx.beginPath();
@@ -462,8 +627,7 @@ const PoolMiniGame: React.FC<{
         ctx.lineTo(sx - Math.cos(st.aimAngle) * 7, sy - Math.sin(st.aimAngle) * 7);
         ctx.stroke();
 
-        // Power gauge overlay when charging
-        if (st.charging) {
+        if (st.turn === 'player' && st.charging) {
           ctx.fillStyle = 'rgba(9, 13, 22, 0.85)';
           ctx.fillRect(14, POOL_H - 22, 130, 12);
           ctx.fillStyle = st.power > 0.78 ? '#f43f5e' : st.power > 0.45 ? '#facc15' : '#22c55e';
@@ -488,18 +652,20 @@ const PoolMiniGame: React.FC<{
   }, [onAwardCash]);
 
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const st = stateRef.current;
+    if (st.turn !== 'player' || st.moving || st.winner) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const mx = ((e.clientX - rect.left) / rect.width) * POOL_W;
     const my = ((e.clientY - rect.top) / rect.height) * POOL_H;
-    const cue = stateRef.current.balls[0];
+    const cue = st.balls[0];
     if (cue) {
-      stateRef.current.aimAngle = Math.atan2(my - cue.y, mx - cue.x);
+      st.aimAngle = Math.atan2(my - cue.y, mx - cue.x);
     }
   };
 
   const handleMouseDown = () => {
     const st = stateRef.current;
-    if (st.moving || st.finished) return;
+    if (st.turn !== 'player' || st.moving || st.winner) return;
     st.charging = true;
     st.power = 0.22;
   };
@@ -508,39 +674,48 @@ const PoolMiniGame: React.FC<{
     const st = stateRef.current;
     if (!st.charging) return;
     st.charging = false;
-    if (st.moving || st.finished) return;
+    if (st.turn !== 'player' || st.moving || st.winner) return;
     const cue = st.balls[0];
     const spd = 235 + st.power * 640;
     cue.vx = Math.cos(st.aimAngle) * spd;
     cue.vy = Math.sin(st.aimAngle) * spd;
     st.moving = true;
     st.power = 0;
-    st.sunkThisShot = 0;
-    st.shotsLeft = Math.max(0, st.shotsLeft - 1);
-    setShotsLeft(st.shotsLeft);
+    st.sunkOwnThisShot = 0;
+    st.scratchedThisShot = false;
     playArcadeSfx(240, 140, 0.08, 'triangle', 0.07);
   };
 
   return (
     <div className="bg-zinc-950 border-2 border-emerald-400 rounded-2xl p-4 w-full max-w-xl shadow-[0_0_50px_rgba(16,185,129,0.45)] font-mono flex flex-col gap-3">
-      <div className="flex items-center justify-between border-b border-white/10 pb-2">
+      <div className="flex items-center justify-between border-b border-white/10 pb-2 gap-2">
         <div>
           <span className="text-[10px] font-black uppercase text-emerald-400 tracking-widest">
-            🎱 8-BALL CHAMPIONSHIP BILLIARDS · {venueName}
+            🎱 BILLIARDS VS CPU · {venueName}
           </span>
-          <h3 className="text-base font-black text-white">CLEAR ALL 7 BALLS IN 7 SHOTS</h3>
+          <h3 className="text-sm font-black text-white">FIRST TO MAKE ALL 5 SHOTS WINS!</h3>
         </div>
-        <div className="flex items-center gap-2 text-xs font-black">
-          {streak >= 2 && (
-            <span className="px-2 py-1 rounded-lg bg-amber-500/20 border border-amber-400 text-amber-300">
-              🔥 x{streak}
-            </span>
-          )}
-          <span className="px-2.5 py-1 rounded-lg bg-zinc-900 border border-white/10 text-amber-300">
-            SHOTS: {shotsLeft}
+        <div className="flex items-center gap-1.5 text-[11px] font-black shrink-0">
+          <span
+            className={`px-2 py-1 rounded-lg border ${
+              turnOwner === 'player'
+                ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300'
+                : 'bg-rose-500/20 border-rose-400 text-rose-300'
+            }`}
+          >
+            {winner
+              ? winner === 'player'
+                ? '🏆 YOU WIN'
+                : '🤖 CPU WINS'
+              : turnOwner === 'player'
+              ? '🟢 YOUR TURN'
+              : '🤖 CPU TURN'}
           </span>
-          <span className="px-2.5 py-1 rounded-lg bg-zinc-900 border border-white/10 text-emerald-300">
-            SUNK: {sunkCount}/7
+          <span className="px-2 py-1 rounded-lg bg-zinc-900 border border-emerald-500/40 text-emerald-300">
+            YOU (SOLIDS): {playerSunk}/5
+          </span>
+          <span className="px-2 py-1 rounded-lg bg-zinc-900 border border-rose-500/40 text-rose-300">
+            CPU (STRIPES): {cpuSunk}/5
           </span>
         </div>
       </div>
@@ -553,13 +728,15 @@ const PoolMiniGame: React.FC<{
         onMouseDown={handleMouseDown}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
-        className="w-full h-auto rounded-xl border-2 border-amber-700/60 cursor-crosshair select-none"
+        className={`w-full h-auto rounded-xl border-2 border-amber-700/60 select-none ${
+          turnOwner === 'player' && !winner ? 'cursor-crosshair' : 'cursor-wait'
+        }`}
       />
 
       <div className="flex items-center justify-between gap-2 text-xs">
         <span className="text-cyan-300 font-bold truncate">{statusMsg}</span>
         <div className="flex items-center gap-2 shrink-0">
-          {finished && (
+          {winner && (
             <button
               type="button"
               onClick={resetRack}
@@ -1869,21 +2046,25 @@ const ClawMachineMiniGame: React.FC<{
   onClose: () => void;
 }> = ({ venueName, onAwardCash, onClose }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [grabsLeft, setGrabsLeft] = useState(4);
+  const [grabsLeft, setGrabsLeft] = useState(3);
   const [totalWon, setTotalWon] = useState(0);
-  const [statusMsg, setStatusMsg] = useState('EYEBALL YOUR SHOT! NO LASER — WATCH MOMENTUM & CABLE SWAY!');
+  const [statusMsg, setStatusMsg] = useState('EXPERT CLAW! NO LASER — MASTER TROLLEY COAST, SWAY & MICRO HITBOX!');
 
-  const makePrizes = (): ClawPrize[] => [
-    { id: 1, x: 102, y: 244, label: '🧸', color: '#f472b6', value: 250, grabbed: false },
-    { id: 2, x: 156, y: 248, label: '🏎️', color: '#ef4444', value: 450, grabbed: false },
-    { id: 3, x: 210, y: 240, label: '🏆', color: '#facc15', value: 750, grabbed: false },
-    { id: 4, x: 266, y: 247, label: '🎮', color: '#38bdf8', value: 500, grabbed: false },
-    { id: 5, x: 320, y: 241, label: '🍕', color: '#fb923c', value: 300, grabbed: false },
-    { id: 6, x: 374, y: 245, label: '🚀', color: '#22d3ee', value: 650, grabbed: false },
-    { id: 7, x: 130, y: 217, label: '🤖', color: '#a855f7', value: 550, grabbed: false },
-    { id: 8, x: 238, y: 215, label: '👑', color: '#fde047', value: 900, grabbed: false },
-    { id: 9, x: 348, y: 218, label: '🌟', color: '#34d399', value: 700, grabbed: false },
-  ];
+  const makePrizes = (): ClawPrize[] => {
+    const jx = () => Math.round((Math.random() - 0.5) * 14);
+    const jy = () => Math.round((Math.random() - 0.5) * 6);
+    return [
+      { id: 1, x: 102 + jx(), y: 244 + jy(), label: '🧸', color: '#f472b6', value: 250, grabbed: false },
+      { id: 2, x: 156 + jx(), y: 248 + jy(), label: '🏎️', color: '#ef4444', value: 450, grabbed: false },
+      { id: 3, x: 210 + jx(), y: 240 + jy(), label: '🏆', color: '#facc15', value: 750, grabbed: false },
+      { id: 4, x: 266 + jx(), y: 247 + jy(), label: '🎮', color: '#38bdf8', value: 500, grabbed: false },
+      { id: 5, x: 320 + jx(), y: 241 + jy(), label: '🍕', color: '#fb923c', value: 300, grabbed: false },
+      { id: 6, x: 374 + jx(), y: 245 + jy(), label: '🚀', color: '#22d3ee', value: 650, grabbed: false },
+      { id: 7, x: 130 + jx(), y: 217 + jy(), label: '🤖', color: '#a855f7', value: 550, grabbed: false },
+      { id: 8, x: 238 + jx(), y: 215 + jy(), label: '👑', color: '#fde047', value: 900, grabbed: false },
+      { id: 9, x: 348 + jx(), y: 218 + jy(), label: '🌟', color: '#34d399', value: 700, grabbed: false },
+    ];
+  };
 
   const stRef = useRef({
     clawX: 234,
@@ -1898,7 +2079,7 @@ const ClawMachineMiniGame: React.FC<{
     dir: 0,
     carried: null as ClawPrize | null,
     prizes: makePrizes(),
-    grabsLeft: 4,
+    grabsLeft: 3,
     totalWon: 0,
     jawOpen: 1,
     sparks: [] as ParticleSpark[],
@@ -1927,14 +2108,14 @@ const ClawMachineMiniGame: React.FC<{
       dir: 0,
       carried: null,
       prizes: makePrizes(),
-      grabsLeft: 4,
+      grabsLeft: 3,
       totalWon: 0,
       jawOpen: 1,
       sparks: [],
     };
-    setGrabsLeft(4);
+    setGrabsLeft(3);
     setTotalWon(0);
-    setStatusMsg('BIN REFILLED! JUDGE MOMENTUM & SWAY — NO LASER GUIDE!');
+    setStatusMsg('BIN REFILLED! JUDGE MOMENTUM & SWAY — TINY GRAB WINDOW!');
   };
 
   useEffect(() => {
@@ -1983,9 +2164,9 @@ const ClawMachineMiniGame: React.FC<{
       const ropeLen = Math.max(12, st.clawY - 32);
 
       if (st.phase === 'idle') {
-        // Real gantry trolley momentum + overshoot inertia
-        const targetVx = st.dir * 215;
-        const accel = st.dir !== 0 ? 780 : 390; // Slower coast-to-stop
+        // Real gantry trolley momentum + slicker overshoot inertia
+        const targetVx = st.dir * 255;
+        const accel = st.dir !== 0 ? 840 : 250; // Slicker coast-to-stop requires early release
         const diffV = targetVx - st.clawVx;
         const prevVx = st.clawVx;
         st.clawVx += Math.sign(diffV) * Math.min(Math.abs(diffV), accel * dt);
@@ -1993,25 +2174,25 @@ const ClawMachineMiniGame: React.FC<{
         st.clawX = Math.max(78, Math.min(CLAW_W - 44, st.clawX + st.clawVx * dt));
         if (st.clawX <= 78 || st.clawX >= CLAW_W - 44) st.clawVx = 0;
 
-        // Pendulum cable sway driven by trolley acceleration
-        st.swayVel += (-ax * 0.0024 - st.swayAngle * 18.5 - st.swayVel * 2.1) * dt;
-        st.swayAngle = Math.max(-0.34, Math.min(0.34, st.swayAngle + st.swayVel * dt));
+        // Stronger pendulum cable sway driven by trolley acceleration
+        st.swayVel += (-ax * 0.0032 - st.swayAngle * 19.5 - st.swayVel * 1.4) * dt;
+        st.swayAngle = Math.max(-0.44, Math.min(0.44, st.swayAngle + st.swayVel * dt));
         st.jawOpen = Math.min(1, st.jawOpen + dt * 4);
       } else {
         st.clawVx *= Math.max(0, 1 - dt * 8);
-        st.swayVel += (-st.swayAngle * 14.0 - st.swayVel * 1.45) * dt;
-        st.swayAngle = Math.max(-0.36, Math.min(0.36, st.swayAngle + st.swayVel * dt));
+        st.swayVel += (-st.swayAngle * 15.0 - st.swayVel * 1.2) * dt;
+        st.swayAngle = Math.max(-0.44, Math.min(0.44, st.swayAngle + st.swayVel * dt));
       }
 
-      const headX = st.clawX + Math.sin(st.swayAngle) * ropeLen * 0.48;
+      const headX = st.clawX + Math.sin(st.swayAngle) * ropeLen * 0.56;
 
       if (st.phase === 'down') {
-        st.clawY += 230 * dt;
+        st.clawY += 245 * dt;
         let hit: ClawPrize | null = null;
         for (const p of st.prizes) {
           if (p.grabbed) continue;
-          // Much tighter arcade prong alignment window (must be nearly dead-center!)
-          if (Math.abs(p.x - headX) < 12.5 && Math.abs(p.y - (st.clawY + 18)) < 16.5) {
+          // Razor-thin precision prong alignment window (dead-center only!)
+          if (Math.abs(p.x - headX) < 7.2 && Math.abs(p.y - (st.clawY + 18)) < 11.5) {
             hit = p;
             break;
           }
@@ -2019,8 +2200,8 @@ const ClawMachineMiniGame: React.FC<{
         if (hit || st.clawY >= 242) {
           if (hit) {
             const centerErr = Math.abs(hit.x - headX);
-            const weightPenalty = Math.min(0.35, Math.max(0, (hit.value - 250) / 1800));
-            const slipChance = Math.min(0.84, 0.16 + (centerErr / 12.5) * 0.45 + weightPenalty);
+            const weightPenalty = Math.min(0.32, Math.max(0, (hit.value - 250) / 1600));
+            const slipChance = Math.min(0.92, 0.34 + (centerErr / 7.2) * 0.42 + weightPenalty);
             hit.grabbed = true;
             st.carried = hit;
             st.grabOffsetErr = hit.x - headX;
@@ -2068,7 +2249,7 @@ const ClawMachineMiniGame: React.FC<{
           st.clawY = 44;
           st.phase = st.carried ? 'return' : 'idle';
           if (!st.carried) {
-            setStatusMsg(st.grabsLeft > 0 ? 'EMPTY CLAW! ACCOUNT FOR TROLLEY COAST & SWAY!' : 'ALL 4 TRIES USED! REFILL BIN!');
+            setStatusMsg(st.grabsLeft > 0 ? 'EMPTY CLAW! ACCOUNT FOR TROLLEY COAST & SWAY!' : 'ALL 3 TRIES USED! REFILL BIN!');
           }
         }
       } else if (st.phase === 'return') {
@@ -2152,7 +2333,7 @@ const ClawMachineMiniGame: React.FC<{
       ctx.fillStyle = '#cbd5e1';
       ctx.fillRect(st.clawX - 10, 26, 20, 9);
 
-      const drawHeadX = st.clawX + Math.sin(st.swayAngle) * ropeLen * 0.48;
+      const drawHeadX = st.clawX + Math.sin(st.swayAngle) * ropeLen * 0.56;
       ctx.strokeStyle = '#e2e8f0';
       ctx.lineWidth = 2;
       ctx.beginPath();
@@ -4763,17 +4944,1282 @@ const TargetRangeMiniGame: React.FC<{
 };
 
 // ============================================================================
+// WORKPLACE SHIFT MINI-GAME (OFFICE, CLINIC, LAB, BANK, RETAIL, DISPATCH, KITCHEN, MECHANIC, ATC, STUDIO)
+// ============================================================================
+interface ShiftTaskSpec {
+  category: string;
+  prompt: string;
+  detail: string;
+  options: string[];
+  correctIdx: number;
+  taskMode?: 'choice' | 'timing_gauge' | 'dual_balance' | 'code_sequence';
+  gaugeLabel?: string;
+  gaugeTargetCenter?: number;
+  gaugeTargetWidth?: number;
+  gaugeSpeed?: number;
+  balanceParamA?: { label: string; target: number; start: number; unit: string };
+  balanceParamB?: { label: string; target: number; start: number; unit: string };
+  sequenceTarget?: string[];
+}
+
+const SHIFT_THEME_META: Record<
+  WorkplaceShiftKind,
+  {
+    icon: string;
+    title: string;
+    subtitle: string;
+    accentBorder: string;
+    accentBg: string;
+    accentText: string;
+    basePay: number;
+    perCorrect: number;
+    ranks: string[];
+  }
+> = {
+  work_office: {
+    icon: '💼',
+    title: 'CORPORATE OFFICE WORKSTATION',
+    subtitle: 'Clear quarterly audits, inbox triage & timed trade approvals',
+    accentBorder: 'border-blue-400/70',
+    accentBg: 'bg-blue-500/20',
+    accentText: 'text-blue-300',
+    basePay: 1100,
+    perCorrect: 360,
+    ranks: ['Junior Analyst', 'Senior Associate', 'Suite Lead', 'VP of Operations'],
+  },
+  work_clinic: {
+    icon: '🩺',
+    title: 'CLINIC & TRIAGE CHARTING DESK',
+    subtitle: 'Sync patient vitals, review labs & sign treatment charts',
+    accentBorder: 'border-cyan-400/70',
+    accentBg: 'bg-cyan-500/20',
+    accentText: 'text-cyan-300',
+    basePay: 1200,
+    perCorrect: 380,
+    ranks: ['Triage Intern', 'Charge Nurse', 'Resident MD', 'Chief of Medicine'],
+  },
+  work_lab: {
+    icon: '🔬',
+    title: 'RESEARCH & ASSAY BENCH',
+    subtitle: 'Lock centrifuge RPMs, balance pH & clear NIST sample assays',
+    accentBorder: 'border-sky-400/70',
+    accentBg: 'bg-sky-500/20',
+    accentText: 'text-sky-300',
+    basePay: 1300,
+    perCorrect: 400,
+    ranks: ['Lab Tech', 'Research Fellow', 'Lead Scientist', 'Principal Investigator'],
+  },
+  work_bank: {
+    icon: '🏦',
+    title: 'TELLER & WIRE AUDIT CONSOLE',
+    subtitle: 'Lock time-vault seals, balance drawers & authorize wires',
+    accentBorder: 'border-amber-400/70',
+    accentBg: 'bg-amber-500/20',
+    accentText: 'text-amber-300',
+    basePay: 1200,
+    perCorrect: 370,
+    ranks: ['Branch Teller', 'Senior Cashier', 'Auditing Officer', 'Branch VP'],
+  },
+  work_retail: {
+    icon: '🛒',
+    title: 'STORE REGISTER & CLIENT DESK',
+    subtitle: 'Punch rapid SKU sequences, verify stock & balance change',
+    accentBorder: 'border-pink-400/70',
+    accentBg: 'bg-pink-500/20',
+    accentText: 'text-pink-300',
+    basePay: 980,
+    perCorrect: 320,
+    ranks: ['Sales Clerk', 'Shift Lead', 'Floor Manager', 'Store Director'],
+  },
+  work_dispatch: {
+    icon: '📻',
+    title: 'DISPATCH & OPERATIONS CONSOLE',
+    subtitle: 'Lock emergency frequencies & route metro patrol units',
+    accentBorder: 'border-indigo-400/70',
+    accentBg: 'bg-indigo-500/20',
+    accentText: 'text-indigo-300',
+    basePay: 1250,
+    perCorrect: 380,
+    ranks: ['Radio Trainee', 'Senior Dispatcher', 'Watch Supervisor', 'Command Chief'],
+  },
+  work_kitchen: {
+    icon: '👨‍🍳',
+    title: 'BISTRO & CRAB HOUSE KITCHEN LINE',
+    subtitle: 'Time crab-cake sears, balance twin burners & plate orders',
+    accentBorder: 'border-orange-400/70',
+    accentBg: 'bg-orange-500/20',
+    accentText: 'text-orange-300',
+    basePay: 1150,
+    perCorrect: 360,
+    ranks: ['Line Cook', 'Station Sous', 'Executive Chef', 'Culinary Director'],
+  },
+  work_mechanic: {
+    icon: '🔧',
+    title: 'SERVICE BAY & DYNO TUNING LIFT',
+    subtitle: 'Hit exact lug torque specs, equalize EV cells & tune ECU boost',
+    accentBorder: 'border-yellow-400/70',
+    accentBg: 'bg-yellow-500/20',
+    accentText: 'text-yellow-300',
+    basePay: 1350,
+    perCorrect: 410,
+    ranks: ['Lube & Tire Tech', 'Master Mechanic', 'Lead Dyno Tuner', 'Motorsport Chief'],
+  },
+  work_atc: {
+    icon: '✈️',
+    title: 'AIR TRAFFIC & RAMP CONTROL TOWER',
+    subtitle: 'Align ILS glide-slopes, punch squawk codes & clear jet departures',
+    accentBorder: 'border-sky-400/70',
+    accentBg: 'bg-sky-500/20',
+    accentText: 'text-sky-300',
+    basePay: 1500,
+    perCorrect: 440,
+    ranks: ['Ground Trainee', 'Tower Controller', 'TRACON Radar Lead', 'Chief of Operations'],
+  },
+  work_studio: {
+    icon: '🎬',
+    title: 'LIVE BROADCAST & AUDIO MIXING STUDIO',
+    subtitle: 'Balance dual studio faders, cue live cameras & master feeds',
+    accentBorder: 'border-fuchsia-400/70',
+    accentBg: 'bg-fuchsia-500/20',
+    accentText: 'text-fuchsia-300',
+    basePay: 1320,
+    perCorrect: 400,
+    ranks: ['Boom & Tape Tech', 'Sound Engineer', 'Live Switcher', 'Executive Producer'],
+  },
+};
+
+function generateWorkplaceTasks(kind: WorkplaceShiftKind, count = 6): ShiftTaskSpec[] {
+  const randInt = (min: number, max: number) => Math.floor(Math.random() * (max - min + 1)) + min;
+  const shuffleOptions = (correct: string, wrongs: string[]): { options: string[]; correctIdx: number } => {
+    const items = [
+      { text: correct, ok: true },
+      ...wrongs.slice(0, 2).map((w) => ({ text: w, ok: false })),
+    ];
+    for (let i = items.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [items[i], items[j]] = [items[j], items[i]];
+    }
+    return {
+      options: items.map((x) => x.text),
+      correctIdx: items.findIndex((x) => x.ok),
+    };
+  };
+
+  const makeTimingTask = (
+    category: string,
+    prompt: string,
+    detail: string,
+    gaugeLabel: string,
+    speed = 1.45
+  ): ShiftTaskSpec => ({
+    category,
+    prompt,
+    detail,
+    options: [],
+    correctIdx: 0,
+    taskMode: 'timing_gauge',
+    gaugeLabel,
+    gaugeTargetCenter: randInt(28, 72),
+    gaugeTargetWidth: 19,
+    gaugeSpeed: speed,
+  });
+
+  const makeBalanceTask = (
+    category: string,
+    prompt: string,
+    detail: string,
+    labelA: string,
+    targetA: number,
+    unitA: string,
+    labelB: string,
+    targetB: number,
+    unitB: string
+  ): ShiftTaskSpec => ({
+    category,
+    prompt,
+    detail,
+    options: [],
+    correctIdx: 0,
+    taskMode: 'dual_balance',
+    balanceParamA: {
+      label: labelA,
+      target: targetA,
+      start: targetA + (Math.random() < 0.5 ? -3 : 3),
+      unit: unitA,
+    },
+    balanceParamB: {
+      label: labelB,
+      target: targetB,
+      start: targetB + (Math.random() < 0.5 ? 2 : -2),
+      unit: unitB,
+    },
+  });
+
+  const makeCodeSequenceTask = (
+    category: string,
+    prompt: string,
+    detail: string,
+    pool: string[],
+    len = 4
+  ): ShiftTaskSpec => {
+    const seq: string[] = [];
+    for (let k = 0; k < len; k++) {
+      seq.push(pool[randInt(0, pool.length - 1)]);
+    }
+    return {
+      category,
+      prompt,
+      detail,
+      options: [],
+      correctIdx: 0,
+      taskMode: 'code_sequence',
+      sequenceTarget: seq,
+    };
+  };
+
+  const tasks: ShiftTaskSpec[] = [];
+  for (let i = 0; i < count; i++) {
+    // Inject interactive skill gameplay at indices 1 and 4 of every shift!
+    if (i === 1) {
+      if (kind === 'work_office') {
+        tasks.push(
+          makeTimingTask(
+            'EXECUTION TIMING',
+            'Execute Market Trade at Closing Bell Window',
+            'Press [SPACE] or click Lock when the ticker needle enters the green execution zone!',
+            'ORDER TIMING WINDOW',
+            1.5
+          )
+        );
+        continue;
+      } else if (kind === 'work_clinic') {
+        tasks.push(
+          makeTimingTask(
+            'PULSE OX SYNC',
+            'Capture Clean ECG Waveform Peak',
+            'Press [SPACE] or Lock precisely inside the green sinus capture window!',
+            'ECG CAPTURE ZONE',
+            1.45
+          )
+        );
+        continue;
+      } else if (kind === 'work_lab') {
+        tasks.push(
+          makeTimingTask(
+            'CENTRIFUGE LOCK',
+            'Stabilize High-Speed Centrifuge RPM',
+            'Lock rotor speed inside the green NIST resonance band!',
+            'ROTOR RPM BAND',
+            1.55
+          )
+        );
+        continue;
+      } else if (kind === 'work_bank') {
+        tasks.push(
+          makeTimingTask(
+            'VAULT SEAL',
+            'Sync Armored Time-Vault Seal Pin',
+            'Engage deadbolt inside the safe timing zone to verify deposit clearance!',
+            'DEADBOLT SEAL',
+            1.5
+          )
+        );
+        continue;
+      } else if (kind === 'work_retail') {
+        tasks.push(
+          makeCodeSequenceTask(
+            'RAPID SKU SCAN',
+            'Enter Express Inventory Verification Code',
+            'Tap or click the exact sequence tokens below in order!',
+            ['A1', 'B4', 'C7', 'X9'],
+            4
+          )
+        );
+        continue;
+      } else if (kind === 'work_dispatch') {
+        tasks.push(
+          makeTimingTask(
+            'RADIO SQUELCH',
+            'Lock Priority Precinct Dispatch Frequency',
+            'Tap [SPACE] when carrier signal crosses the green clear-channel band!',
+            'VHF CARRIER LOCK',
+            1.5
+          )
+        );
+        continue;
+      } else if (kind === 'work_kitchen') {
+        tasks.push(
+          makeTimingTask(
+            'SEAR PERFECTION',
+            'Flip Lump Maryland Crab Cake at Golden Sear',
+            'Press [SPACE] or Flip inside the golden crust zone without burning!',
+            'SKILLET SEAR TEMP',
+            1.55
+          )
+        );
+        continue;
+      } else if (kind === 'work_mechanic') {
+        tasks.push(
+          makeTimingTask(
+            'TORQUE WRENCH',
+            'Hit Exact 115 lb-ft Wheel Stud Torque',
+            'Release torque bar cleanly inside the green calibration arc!',
+            'TORQUE LB-FT',
+            1.55
+          )
+        );
+        continue;
+      } else if (kind === 'work_atc') {
+        tasks.push(
+          makeTimingTask(
+            'ILS GLIDE-SLOPE',
+            'Align Jet Localizer onto BWI Runway 33L',
+            'Lock approach beam inside the green ILS glide-slope window!',
+            'ILS APPROACH BEAM',
+            1.62
+          )
+        );
+        continue;
+      } else if (kind === 'work_studio') {
+        tasks.push(
+          makeTimingTask(
+            'LIVE CAMERA CUT',
+            'Hit Exact Broadcast Anchor Cue',
+            'Trigger Cam-2 switch cleanly inside the live director sync beat!',
+            'DIRECTOR CUE',
+            1.55
+          )
+        );
+        continue;
+      }
+    }
+
+    if (i === 4) {
+      if (kind === 'work_office') {
+        tasks.push(
+          makeCodeSequenceTask(
+            'SERVER DEPLOY MACRO',
+            'Run Auth Pod Hotfix Command Sequence',
+            'Enter the 4 deployment keys in exact order to scale cluster traffic!',
+            ['AUTH', 'SYNC', 'SCALE', 'PING'],
+            4
+          )
+        );
+        continue;
+      } else if (kind === 'work_lab') {
+        tasks.push(
+          makeBalanceTask(
+            'REAGENT BALANCE',
+            'Balance Dual Assay Chamber Sensors',
+            'Adjust Base Buffer & Temp using - / + until both gauges hit target!',
+            'Solution pH',
+            74,
+            'x0.1',
+            'Chamber °C',
+            24,
+            '°C'
+          )
+        );
+        continue;
+      } else if (kind === 'work_kitchen') {
+        tasks.push(
+          makeBalanceTask(
+            'TWIN BURNER LINE',
+            'Balance Grill Deck & Steamer Temps',
+            'Dial both heat zones cleanly into target service specs before plating!',
+            'Flat-Top Grill',
+            38,
+            '0°F',
+            'Crab Steamer',
+            22,
+            '0°F'
+          )
+        );
+        continue;
+      } else if (kind === 'work_mechanic') {
+        tasks.push(
+          makeBalanceTask(
+            'DYNO & BOOST TUNING',
+            'Dial Air-Fuel & Turbo Boost Targets',
+            'Balance AFR and Peak Boost cleanly for maximum dyno pull!',
+            'Target AFR',
+            12,
+            ':1',
+            'Peak Boost',
+            19,
+            'PSI'
+          )
+        );
+        continue;
+      } else if (kind === 'work_atc') {
+        tasks.push(
+          makeCodeSequenceTask(
+            'TRANSPONDER SQUAWK',
+            'Assign Departure Clearance Sequence',
+            'Punch the 4 beacon codes in order to clear Runway 15R departure!',
+            ['SW4', 'RW15', 'ALT9', 'CLR'],
+            4
+          )
+        );
+        continue;
+      } else if (kind === 'work_studio') {
+        tasks.push(
+          makeBalanceTask(
+            'AUDIO MASTERING',
+            'Balance Studio Mic Gain & Master LUFS',
+            'Tune both studio board channels cleanly into broadcast spec!',
+            'Vocal Gain',
+            18,
+            'dB',
+            'Master Out',
+            14,
+            'LUFS'
+          )
+        );
+        continue;
+      } else {
+        tasks.push(
+          makeBalanceTask(
+            'SYSTEM CALIBRATION',
+            'Calibrate Dual Workstation Channels',
+            'Tune Primary & Backup dials using - / + until both match target!',
+            'Channel A',
+            16,
+            'Hz',
+            'Channel B',
+            28,
+            'V'
+          )
+        );
+        continue;
+      }
+    }
+
+    if (kind === 'work_office') {
+      const mode = i % 3;
+      if (mode === 0) {
+        const rev = randInt(48, 120);
+        const exp = randInt(16, rev - 9);
+        const profit = rev - exp;
+        const { options, correctIdx } = shuffleOptions(`$${profit},000 Net`, [
+          `$${profit + randInt(4, 9)},000 Net`,
+          `$${Math.max(3, profit - randInt(4, 9))},000 Net`,
+        ]);
+        tasks.push({
+          category: 'Q4 LEDGER AUDIT',
+          prompt: `Calculate Department Net Profit`,
+          detail: `Quarterly Revenue: $${rev},000  |  Operating Expense: $${exp},000`,
+          options,
+          correctIdx,
+        });
+      } else if (mode === 1) {
+        const scenarios = [
+          {
+            prompt: 'Inbox Triage: "Wire $85k to external crypto wallet immediately — CEO"',
+            detail: 'Sender domain: ceo-urgent-mail99.biz · Requested bypass of CFO sign-off',
+            ok: 'Flag Phishing & Quarantine',
+            bad: ['Approve Immediate Wire', 'Reply with Bank Routing'],
+          },
+          {
+            prompt: 'Client Brief: "Maryland Lease Renewal #408 expires in 48 hours"',
+            detail: 'Signed by Legal Counsel & Regional VP · Rent unchanged',
+            ok: 'Execute & Forward to Records',
+            bad: ['Discard as Junk Mail', 'Freeze Client Account'],
+          },
+          {
+            prompt: 'IT Alert: "Auth Gateway CPU spiked to 99% during morning login"',
+            detail: 'Latency 1,400ms across 4 Baltimore office pods',
+            ok: 'Scale Auth Replicas x2',
+            bad: ['Shut Down Database', 'Ignore Until Friday'],
+          },
+          {
+            prompt: 'Compliance Memo: "Vendor W-9 tax form missing on Invoice #774"',
+            detail: 'Accounts Payable holds payout pending valid tax ID',
+            ok: 'Hold & Request Vendor W-9',
+            bad: ['Double Payout Anyway', 'Delete Vendor Record'],
+          },
+        ];
+        const s = scenarios[randInt(0, scenarios.length - 1)];
+        const { options, correctIdx } = shuffleOptions(s.ok, s.bad);
+        tasks.push({ category: 'EXECUTIVE INBOX', prompt: s.prompt, detail: s.detail, options, correctIdx });
+      } else {
+        const q1 = randInt(22, 45);
+        const q2 = randInt(22, 45);
+        const q3 = randInt(22, 45);
+        const maxQ = Math.max(q1, q2, q3);
+        const winner = q1 === maxQ ? 'North Suite' : q2 === maxQ ? 'Harbor Team' : 'Bethesda Branch';
+        const { options, correctIdx } = shuffleOptions(
+          winner,
+          ['North Suite', 'Harbor Team', 'Bethesda Branch'].filter((x) => x !== winner)
+        );
+        tasks.push({
+          category: 'PERFORMANCE REVIEW',
+          prompt: 'Which office division hit highest quarterly billings?',
+          detail: `North Suite: $${q1}k  |  Harbor Team: $${q2}k  |  Bethesda Branch: $${q3}k`,
+          options,
+          correctIdx,
+        });
+      }
+    } else if (kind === 'work_clinic') {
+      const cases = [
+        {
+          prompt: 'Patient Vitals: Temp 102.6°F · White Tonsil Exudate',
+          detail: 'No drug allergies · Reports 2 days painful swallowing',
+          ok: 'Rapid Strep Test & Antipyretic',
+          bad: ['Orthopedic Leg Cast', 'Eye Prescription Drops'],
+        },
+        {
+          prompt: 'Triage Alert: BP 174/104 mmHg · Blurred Vision',
+          detail: 'Walk-in adult patient reporting sudden headache',
+          ok: 'Immediate Hypertensive Eval & ECG',
+          bad: ['Send Home Without Check', 'Schedule Dental Cleaning'],
+        },
+        {
+          prompt: 'Orthopedic Exam: Rolled Left Ankle on Stairs',
+          detail: 'Localized lateral swelling · Can bear partial weight',
+          ok: 'Ankle X-Ray & Compression Wrap',
+          bad: ['Prescribe Asthma Inhaler', 'Administer Flu Shot Only'],
+        },
+        {
+          prompt: 'Rx Verification: Patient allergic to Penicillin',
+          detail: 'Needs broad-spectrum antibiotic coverage for sinus infection',
+          ok: 'Substitute Non-Penicillin Rx',
+          bad: ['Dispense Amoxicillin Anyway', 'Skip Allergy Check'],
+        },
+      ];
+      if (i % 2 === 0) {
+        const c = cases[randInt(0, cases.length - 1)];
+        const { options, correctIdx } = shuffleOptions(c.ok, c.bad);
+        tasks.push({ category: 'PATIENT TRIAGE', prompt: c.prompt, detail: c.detail, options, correctIdx });
+      } else {
+        const hr = randInt(52, 132);
+        const status = hr > 100 ? 'Tachycardia (>100 bpm)' : hr < 60 ? 'Bradycardia (<60 bpm)' : 'Normal Sinus (60–100)';
+        const { options, correctIdx } = shuffleOptions(
+          status,
+          ['Tachycardia (>100 bpm)', 'Bradycardia (<60 bpm)', 'Normal Sinus (60–100)'].filter((x) => x !== status)
+        );
+        tasks.push({
+          category: 'VITALS MONITOR',
+          prompt: `Classify Resting Heart Rate: ${hr} BPM`,
+          detail: 'Standard Adult Resting Range: 60–100 BPM',
+          options,
+          correctIdx,
+        });
+      }
+    } else if (kind === 'work_lab') {
+      if (i % 2 === 0) {
+        const curPh = Number((6.2 + randInt(0, 18) * 0.1).toFixed(1));
+        const targetPh = 7.4;
+        const delta = Number((targetPh - curPh).toFixed(1));
+        const ok =
+          Math.abs(delta) < 0.05
+            ? 'Hold — Sample Calibrated'
+            : delta > 0
+            ? `Add +${delta.toFixed(1)} Base Buffer`
+            : `Add ${delta.toFixed(1)} Acid Buffer`;
+        const { options, correctIdx } = shuffleOptions(ok, [
+          `Add +${(Math.abs(delta) + 0.8).toFixed(1)} Base Buffer`,
+          `Add -${(Math.abs(delta) + 0.9).toFixed(1)} Acid Buffer`,
+        ]);
+        tasks.push({
+          category: 'pH CALIBRATION',
+          prompt: `Adjust Assay Solution to Target pH ${targetPh}`,
+          detail: `Current Sensor Probe Readout: pH ${curPh.toFixed(1)}`,
+          options,
+          correctIdx,
+        });
+      } else {
+        const targetMv = randInt(220, 480);
+        const { options, correctIdx } = shuffleOptions(`${targetMv} mV (Verified)`, [
+          `${targetMv + 45} mV (Drift)`,
+          `${targetMv - 55} mV (Noise)`,
+        ]);
+        tasks.push({
+          category: 'SPECTROMETER LOCK',
+          prompt: `Select Exact Reference Peak: ${targetMv} mV`,
+          detail: 'Match NIST calibration frequency within ±0 mV tolerance',
+          options,
+          correctIdx,
+        });
+      }
+    } else if (kind === 'work_bank') {
+      if (i % 2 === 0) {
+        const hundreds = randInt(2, 6);
+        const twenties = randInt(1, 5);
+        const tens = randInt(1, 4);
+        const total = hundreds * 100 + twenties * 20 + tens * 10;
+        const { options, correctIdx } = shuffleOptions(`$${total.toLocaleString()}`, [
+          `$${(total + 40).toLocaleString()}`,
+          `$${(total - 30).toLocaleString()}`,
+        ]);
+        tasks.push({
+          category: 'CASH DRAWER AUDIT',
+          prompt: 'Count Teller Vault Deposit Bundle',
+          detail: `${hundreds}×$100 bills  +  ${twenties}×$20 bills  +  ${tens}×$10 bills`,
+          options,
+          correctIdx,
+        });
+      } else {
+        const isValid = i % 4 === 1;
+        const written = '$1,450.00';
+        const numeric = isValid ? '$1,450.00' : '$14,500.00';
+        const ok = isValid ? 'Approve & Clear Check' : 'Hold — Amount Mismatch';
+        const { options, correctIdx } = shuffleOptions(ok, [
+          isValid ? 'Hold — Amount Mismatch' : 'Approve & Clear Check',
+          'Waive Verification & Pay Cash',
+        ]);
+        tasks.push({
+          category: 'CHECK & WIRE AUDIT',
+          prompt: `Written Line: "${written}"  |  Numeric Box: "${numeric}"`,
+          detail: 'Verify written legal amount matches numeric box before clearing',
+          options,
+          correctIdx,
+        });
+      }
+    } else if (kind === 'work_retail') {
+      const price = randInt(12, 46);
+      const paid = price <= 20 ? 20 : price <= 50 ? 50 : 100;
+      const change = paid - price;
+      const { options, correctIdx } = shuffleOptions(`$${change}.00 Change`, [
+        `$${change + randInt(2, 6)}.00 Change`,
+        `$${Math.max(1, change - randInt(2, 5))}.00 Change`,
+      ]);
+      tasks.push({
+        category: 'REGISTER CHECKOUT',
+        prompt: `Customer Pays $${paid}.00 for $${price}.00 Order`,
+        detail: 'Select exact register change to keep drawer balanced',
+        options,
+        correctIdx,
+      });
+    } else if (kind === 'work_kitchen') {
+      const orders = [
+        {
+          prompt: 'Table 6 Ticket: Jumbo Lump Maryland Crab Cakes (No Filler)',
+          detail: 'Finish with Old Bay aioli + charred lemon on warm plate',
+          ok: 'Sauté Golden & Plate w/ Old Bay',
+          bad: ['Boil 20 Mins in Plain Water', 'Serve Frozen Without Heat'],
+        },
+        {
+          prompt: 'Allergy Flag: Ticket #19 — Severe Shellfish Allergy',
+          detail: 'Guest ordered Grilled Rockfish · Sauté pan shared crab line',
+          ok: 'Use Clean Sanitized Pan & Gloves',
+          bad: ['Rinse Old Pan Quickly', 'Swap Sauce Only'],
+        },
+        {
+          prompt: 'Morning Barista Rush: Double Espresso Pull Running Too Fast (11s)',
+          detail: 'Shot tastes sour & watery at 6 bar pressure',
+          ok: 'Finely Grind & Tamp to 9 Bar',
+          bad: ['Add Cold Tap Water', 'Coarsen Grind Further'],
+        },
+      ];
+      const o = orders[randInt(0, orders.length - 1)];
+      const { options, correctIdx } = shuffleOptions(o.ok, o.bad);
+      tasks.push({ category: 'KITCHEN TICKET', prompt: o.prompt, detail: o.detail, options, correctIdx });
+    } else if (kind === 'work_mechanic') {
+      const specs = [
+        {
+          prompt: 'Brake Service: Soft Spongy Pedal & Low Fluid Reservoir',
+          detail: 'Front calipers just replaced on Dodge Hellcat bay #2',
+          ok: 'Pressure-Bleed Brake Lines & Top DOT4',
+          bad: ['Grease Brake Rotors', 'Lower Tire Pressure to 14 PSI'],
+        },
+        {
+          prompt: 'Dyno Diagnostics: Knock Sensor Pulls Timing Above 5,500 RPM',
+          detail: 'Customer filled 87 octane on high-boost twin-turbo tune',
+          ok: 'Drain Tank & Flash 93 Octane Map',
+          bad: ['Advance Spark Timing +8°', 'Disconnect Knock Sensor'],
+        },
+        {
+          prompt: 'EV Pack Fault: Module #4 Reads 0.45V Higher Than Rest',
+          detail: 'BMS triggered charge current limiter at 72% SoC',
+          ok: 'Run Active Cell Balance Cycle',
+          bad: ['Jump Directly With 12V Alternator', 'Bypass Coolant Pump'],
+        },
+      ];
+      const s = specs[randInt(0, specs.length - 1)];
+      const { options, correctIdx } = shuffleOptions(s.ok, s.bad);
+      tasks.push({ category: 'GARAGE DIAGNOSTICS', prompt: s.prompt, detail: s.detail, options, correctIdx });
+    } else if (kind === 'work_atc') {
+      const calls = [
+        {
+          prompt: 'BWI Final: Two jets converging at 2.1 NM separation on Runway 33L',
+          detail: 'Trailing heavy 767 closing 35 kts faster than regional turboprop',
+          ok: 'Instruct Trailing Jet: Go Around',
+          bad: ['Turn Off Runway Lights', 'Clear Both to Land Simultaneously'],
+        },
+        {
+          prompt: 'KGAI Tower: Crosswind 24 kts from 320° · Cessna Requesting Touchdown',
+          detail: 'Active runway options: RWY 14 vs RWY 32',
+          ok: 'Assign Headwind Runway 32',
+          bad: ['Assign Tailwind Runway 14', 'Close Airspace Indefinitely'],
+        },
+        {
+          prompt: 'Storm Cell Alert: Severe Microburst Crossing South Approach Corridor',
+          detail: 'Visibility dropping below 1/2 mile near Chesapeake Bay',
+          ok: 'Hold Departures & Divert Vectors East',
+          bad: ['Expedite Low-Altitude Takeoffs', 'Disable Radar Altimeter'],
+        },
+      ];
+      const c = calls[randInt(0, calls.length - 1)];
+      const { options, correctIdx } = shuffleOptions(c.ok, c.bad);
+      tasks.push({ category: 'ATC TRAFFIC VECTOR', prompt: c.prompt, detail: c.detail, options, correctIdx });
+    } else if (kind === 'work_studio') {
+      const cues = [
+        {
+          prompt: 'Audio Feed Check: Harbor Field Reporter Mic Peaking at +3 dB Clipping',
+          detail: 'Harbor wind noise saturating live pre-amp input',
+          ok: 'Engage High-Pass Filter & Trim -6 dB',
+          bad: ['Boost Compressor Gain +12 dB', 'Mute Master Studio Out'],
+        },
+        {
+          prompt: 'Live Switcher: Satellite Feed #2 Dropping Frames 10s Before Package',
+          detail: 'Backup fiber link B from WTC roof is 100% locked',
+          ok: 'Cut to Backup Fiber Link B',
+          bad: ['Roll Dead Air Until Tomorrow', 'Cut Power to Control Room'],
+        },
+        {
+          prompt: 'Color Grade Check: Outdoor Waterfront Cam Overexposed in Sun Glare',
+          detail: 'Waveforms hitting 105 IRE highlights on Bay Bridge shot',
+          ok: 'Drop ND Filter & Pull Exposure 1.5 Stops',
+          bad: ['Max ISO Gain to 12800', 'Unplug SDI Monitor'],
+        },
+      ];
+      const c = cues[randInt(0, cues.length - 1)];
+      const { options, correctIdx } = shuffleOptions(c.ok, c.bad);
+      tasks.push({ category: 'BROADCAST CONTROL', prompt: c.prompt, detail: c.detail, options, correctIdx });
+    } else {
+      // work_dispatch
+      const calls = [
+        {
+          prompt: '911 Call: Two-car collision blocking I-270 Southbound Lane 2',
+          detail: 'Minor injuries reported · Traffic backing up toward Shady Grove',
+          ok: 'Dispatch State Trooper + Tow',
+          bad: ['Dispatch Harbor Tugboat', 'Ignore Highway Call'],
+        },
+        {
+          prompt: 'Silent Alarm: Baltimore Federal Reserve Motion Sensor',
+          detail: 'Vault Zone 1 triggered after hours · Perimeter locked',
+          ok: 'Dispatch Priority Armed Units',
+          bad: ['Send Parking Meter Clerk', 'Cancel Alarm Without Check'],
+        },
+        {
+          prompt: 'Transit Alert: Signal Outage at Pratt St & Light St',
+          detail: 'Heavy downtown rush hour cross-traffic',
+          ok: 'Send Traffic Control & Tech Crew',
+          bad: ['Close All Bay Bridges', 'Deploy Coast Guard Cutter'],
+        },
+      ];
+      const c = calls[randInt(0, calls.length - 1)];
+      const { options, correctIdx } = shuffleOptions(c.ok, c.bad);
+      tasks.push({ category: 'DISPATCH CONSOLE', prompt: c.prompt, detail: c.detail, options, correctIdx });
+    }
+  }
+  return tasks;
+}
+
+const WorkplaceShiftMiniGame: React.FC<{
+  kind: WorkplaceShiftKind;
+  venueName: string;
+  stationLabel?: string;
+  onCompleteShift: (delta: number, label: string) => void;
+  onClose: () => void;
+}> = ({ kind, venueName, stationLabel, onCompleteShift, onClose }) => {
+  const meta = SHIFT_THEME_META[kind];
+  const [tasks, setTasks] = useState<ShiftTaskSpec[]>(() => generateWorkplaceTasks(kind, 6));
+  const [stepIdx, setStepIdx] = useState(0);
+  const [correctCount, setCorrectCount] = useState(0);
+  const [streak, setStreak] = useState(0);
+  const [bestStreak, setBestStreak] = useState(0);
+  const [shiftsCompletedSession, setShiftsCompletedSession] = useState(0);
+  const [sessionCashEarned, setSessionCashEarned] = useState(0);
+  const [lastFeedback, setLastFeedback] = useState<{ ok: boolean; text: string } | null>(null);
+  const [phase, setPhase] = useState<'working' | 'summary'>('working');
+  const [lastPayout, setLastPayout] = useState(0);
+  const lockedRef = useRef(false);
+
+  // Interactive skill task states (Timing Gauge / Dual Balance / Code Sequence)
+  const [gaugePos, setGaugePos] = useState(50);
+  const gaugePosRef = useRef(50);
+  const gaugeDirRef = useRef(1);
+  const [balA, setBalA] = useState(0);
+  const [balB, setBalB] = useState(0);
+  const [seqEntered, setSeqEntered] = useState<string[]>([]);
+
+  const rankName = meta.ranks[Math.min(meta.ranks.length - 1, shiftsCompletedSession)];
+  const currentTask = tasks[stepIdx];
+  const taskMode = currentTask?.taskMode || 'choice';
+
+  useEffect(() => {
+    if (!currentTask) return;
+    if (currentTask.taskMode === 'dual_balance') {
+      setBalA(currentTask.balanceParamA?.start ?? 0);
+      setBalB(currentTask.balanceParamB?.start ?? 0);
+    } else if (currentTask.taskMode === 'code_sequence') {
+      setSeqEntered([]);
+    } else if (currentTask.taskMode === 'timing_gauge') {
+      gaugePosRef.current = 10;
+      gaugeDirRef.current = 1;
+      setGaugePos(10);
+    }
+  }, [stepIdx, currentTask]);
+
+  // Animate timing_gauge needle smoothly at 60Hz
+  useEffect(() => {
+    if (phase !== 'working' || taskMode !== 'timing_gauge') return;
+    let rafId = 0;
+    let lastT = performance.now();
+    const speedMult = (currentTask?.gaugeSpeed || 1.45) * 92;
+    const tick = (now: number) => {
+      const dt = Math.min(0.05, Math.max(0.001, (now - lastT) / 1000));
+      lastT = now;
+      if (!lockedRef.current) {
+        let next = gaugePosRef.current + gaugeDirRef.current * speedMult * dt;
+        if (next >= 98) {
+          next = 98;
+          gaugeDirRef.current = -1;
+        } else if (next <= 2) {
+          next = 2;
+          gaugeDirRef.current = 1;
+        }
+        gaugePosRef.current = next;
+        setGaugePos(next);
+      }
+      rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
+  }, [phase, taskMode, currentTask]);
+
+  const resolveTaskResult = useCallback(
+    (isCorrect: boolean, failHint?: string) => {
+      if (phase !== 'working' || lockedRef.current || !currentTask) return;
+      lockedRef.current = true;
+      const nextCorrect = isCorrect ? correctCount + 1 : correctCount;
+      const nextStreak = isCorrect ? streak + 1 : 0;
+      const nextBestStreak = Math.max(bestStreak, nextStreak);
+
+      if (isCorrect) {
+        playArcadeSfx(540 + nextStreak * 45, 820 + nextStreak * 45, 0.11, 'triangle', 0.075);
+        setLastFeedback({ ok: true, text: `✓ SKILL EXECUTED (+${nextStreak} STREAK)` });
+      } else {
+        playArcadeSfx(240, 140, 0.14, 'sawtooth', 0.06);
+        setLastFeedback({
+          ok: false,
+          text: failHint || `✖ MISTAKE — Needed: ${currentTask.options[currentTask.correctIdx] || 'Exact Target'}`,
+        });
+      }
+
+      setCorrectCount(nextCorrect);
+      setStreak(nextStreak);
+      setBestStreak(nextBestStreak);
+
+      window.setTimeout(() => {
+        lockedRef.current = false;
+        setLastFeedback(null);
+        if (stepIdx + 1 >= tasks.length) {
+          const rankMult = 1 + Math.min(0.6, shiftsCompletedSession * 0.2);
+          const streakBonus = nextBestStreak * 110;
+          const accuracyBonus = nextCorrect === tasks.length ? 420 : 0;
+          const payout = Math.round(
+            (meta.basePay + nextCorrect * meta.perCorrect + streakBonus + accuracyBonus) * rankMult
+          );
+          setLastPayout(payout);
+          setSessionCashEarned((prev) => prev + payout);
+          setShiftsCompletedSession((prev) => prev + 1);
+          setPhase('summary');
+          playArcadeSfx(587, 987, 0.22, 'triangle', 0.09);
+          onCompleteShift(payout, `${meta.icon} ${venueName} Shift (${nextCorrect}/${tasks.length})`);
+        } else {
+          setStepIdx((prev) => prev + 1);
+        }
+      }, 450);
+    },
+    [
+      bestStreak,
+      correctCount,
+      currentTask,
+      meta.basePay,
+      meta.icon,
+      meta.perCorrect,
+      onCompleteShift,
+      phase,
+      shiftsCompletedSession,
+      stepIdx,
+      streak,
+      tasks.length,
+      venueName,
+    ]
+  );
+
+  const handleChoose = useCallback(
+    (optIdx: number) => {
+      if (!currentTask || (currentTask.taskMode && currentTask.taskMode !== 'choice')) return;
+      resolveTaskResult(optIdx === currentTask.correctIdx);
+    },
+    [currentTask, resolveTaskResult]
+  );
+
+  const handleLockGauge = useCallback(() => {
+    if (!currentTask || currentTask.taskMode !== 'timing_gauge') return;
+    const center = currentTask.gaugeTargetCenter ?? 50;
+    const halfW = (currentTask.gaugeTargetWidth ?? 18) * 0.5;
+    const hit = Math.abs(gaugePosRef.current - center) <= halfW + 1.5;
+    resolveTaskResult(hit, `✖ MISSED ZONE — Needed ${Math.round(center - halfW)}–${Math.round(center + halfW)}%`);
+  }, [currentTask, resolveTaskResult]);
+
+  const handleConfirmBalance = useCallback(() => {
+    if (!currentTask || currentTask.taskMode !== 'dual_balance') return;
+    const tA = currentTask.balanceParamA?.target ?? 0;
+    const tB = currentTask.balanceParamB?.target ?? 0;
+    const hit = balA === tA && balB === tB;
+    resolveTaskResult(hit, `✖ OFF SPEC — Needed ${tA} & ${tB}`);
+  }, [balA, balB, currentTask, resolveTaskResult]);
+
+  const handlePressSequenceToken = useCallback(
+    (tok: string) => {
+      if (!currentTask || currentTask.taskMode !== 'code_sequence' || lockedRef.current) return;
+      const target = currentTask.sequenceTarget || [];
+      const nextIdx = seqEntered.length;
+      if (target[nextIdx] !== tok) {
+        resolveTaskResult(false, `✖ WRONG SEQUENCE KEY — Expected ${target[nextIdx]}`);
+        return;
+      }
+      playArcadeSfx(620 + nextIdx * 80, 740 + nextIdx * 80, 0.07, 'triangle', 0.06);
+      const nextArr = [...seqEntered, tok];
+      setSeqEntered(nextArr);
+      if (nextArr.length >= target.length) {
+        resolveTaskResult(true);
+      }
+    },
+    [currentTask, resolveTaskResult, seqEntered]
+  );
+
+  const startNextShift = useCallback(() => {
+    setTasks(generateWorkplaceTasks(kind, 6));
+    setStepIdx(0);
+    setCorrectCount(0);
+    setStreak(0);
+    setBestStreak(0);
+    setLastFeedback(null);
+    setPhase('working');
+  }, [kind]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose();
+        return;
+      }
+      if (phase === 'working') {
+        if (taskMode === 'choice') {
+          if (e.key === '1' || e.key === '2' || e.key === '3') {
+            e.preventDefault();
+            handleChoose(Number(e.key) - 1);
+          }
+        } else if (taskMode === 'timing_gauge') {
+          if (e.key === ' ' || e.key === 'Enter') {
+            e.preventDefault();
+            handleLockGauge();
+          }
+        } else if (taskMode === 'dual_balance') {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            handleConfirmBalance();
+          }
+        }
+      } else if (phase === 'summary' && (e.key === 'Enter' || e.key === ' ')) {
+        e.preventDefault();
+        startNextShift();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [handleChoose, handleConfirmBalance, handleLockGauge, onClose, phase, startNextShift, taskMode]);
+
+  const uniqueSeqTokens = Array.from(new Set(currentTask?.sequenceTarget || []));
+  if (taskMode === 'code_sequence' && uniqueSeqTokens.length < 4) {
+    for (const fallback of ['A1', 'B4', 'C7', 'X9']) {
+      if (!uniqueSeqTokens.includes(fallback) && uniqueSeqTokens.length < 4) uniqueSeqTokens.push(fallback);
+    }
+  }
+
+  return (
+    <div
+      className={`w-full max-w-2xl bg-zinc-950 border-2 ${meta.accentBorder} rounded-2xl shadow-2xl overflow-hidden flex flex-col font-mono`}
+    >
+      {/* Header */}
+      <div className="px-5 py-3.5 bg-zinc-900 border-b border-white/10 flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className={`text-[10px] font-black uppercase tracking-widest ${meta.accentText}`}>
+            {meta.icon} {meta.title} · {rankName.toUpperCase()}
+          </div>
+          <h3 className="text-sm font-black text-white truncate">
+            {stationLabel || venueName} — {venueName}
+          </h3>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <span className="px-2.5 py-1 rounded-lg bg-emerald-500/20 border border-emerald-400/50 text-emerald-300 text-xs font-black tabular-nums">
+            SHIFT EARNED: +${sessionCashEarned.toLocaleString()}
+          </span>
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-3 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-black cursor-pointer"
+          >
+            Clock Out [ESC]
+          </button>
+        </div>
+      </div>
+
+      {/* Body */}
+      <div className="p-5 flex flex-col gap-4">
+        {phase === 'working' && currentTask ? (
+          <>
+            <div className="flex items-center justify-between gap-2 text-xs">
+              <div className="flex items-center gap-2">
+                <span className={`px-2 py-0.5 rounded ${meta.accentBg} ${meta.accentText} font-black text-[10px]`}>
+                  {currentTask.category}
+                </span>
+                <span className="text-zinc-400 font-bold">
+                  Task {stepIdx + 1} / {tasks.length}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-emerald-300 font-black">✓ {correctCount}</span>
+                {streak >= 2 && (
+                  <span className="px-2 py-0.5 rounded bg-amber-500/20 border border-amber-400/50 text-amber-300 text-[10px] font-black">
+                    🔥 {streak}x STREAK
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Progress Bar */}
+            <div className="w-full h-2 bg-zinc-900 rounded-full overflow-hidden border border-white/10">
+              <div
+                className="h-full bg-gradient-to-r from-sky-400 to-emerald-400 transition-all duration-200"
+                style={{ width: `${((stepIdx + 1) / tasks.length) * 100}%` }}
+              />
+            </div>
+
+            {/* Task Card */}
+            <div className="bg-zinc-900/90 border border-white/10 rounded-xl p-4 flex flex-col gap-1.5">
+              <div className="text-sm font-black text-white leading-snug">{currentTask.prompt}</div>
+              <div className="text-xs text-zinc-300">{currentTask.detail}</div>
+            </div>
+
+            {/* Interactive Skill Mode 1: Timing Gauge */}
+            {taskMode === 'timing_gauge' && (
+              <div className="flex flex-col gap-3 p-4 rounded-xl bg-zinc-900 border border-emerald-400/35">
+                <div className="flex items-center justify-between text-[10px] font-black uppercase text-zinc-400">
+                  <span>{currentTask.gaugeLabel || 'PRECISION TARGET'}</span>
+                  <span className="text-emerald-300">PRESS [SPACE] IN GREEN ZONE</span>
+                </div>
+                <div className="relative h-8 bg-black rounded-lg border border-white/15 overflow-hidden">
+                  <div
+                    className="absolute top-0 bottom-0 bg-emerald-500/45 border-x-2 border-emerald-300"
+                    style={{
+                      left: `${(currentTask.gaugeTargetCenter ?? 50) - (currentTask.gaugeTargetWidth ?? 18) * 0.5}%`,
+                      width: `${currentTask.gaugeTargetWidth ?? 18}%`,
+                    }}
+                  />
+                  <div
+                    className="absolute top-0 bottom-0 w-1.5 bg-white shadow-[0_0_12px_#ffffff]"
+                    style={{ left: `calc(${gaugePos}% - 3px)` }}
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={handleLockGauge}
+                  className="w-full py-2.5 rounded-xl bg-emerald-400 hover:bg-emerald-300 text-black font-black text-xs uppercase tracking-wider cursor-pointer"
+                >
+                  🎯 Lock Target Now [SPACE]
+                </button>
+              </div>
+            )}
+
+            {/* Interactive Skill Mode 2: Dual Balance */}
+            {taskMode === 'dual_balance' && currentTask.balanceParamA && currentTask.balanceParamB && (
+              <div className="flex flex-col gap-3 p-4 rounded-xl bg-zinc-900 border border-sky-400/35">
+                {[
+                  { spec: currentTask.balanceParamA, val: balA, setVal: setBalA },
+                  { spec: currentTask.balanceParamB, val: balB, setVal: setBalB },
+                ].map((ch, idx) => {
+                  const isMatched = ch.val === ch.spec.target;
+                  return (
+                    <div key={idx} className="flex items-center justify-between gap-3 bg-black/40 p-2.5 rounded-lg border border-white/10">
+                      <div>
+                        <div className="text-xs font-black text-white">{ch.spec.label}</div>
+                        <div className="text-[10px] text-zinc-400">
+                          Target: <strong className="text-sky-300">{ch.spec.target}{ch.spec.unit}</strong>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => ch.setVal((v) => v - 1)}
+                          className="w-8 h-8 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-white font-black cursor-pointer"
+                        >
+                          -
+                        </button>
+                        <span
+                          className={`min-w-[68px] text-center text-sm font-black tabular-nums ${
+                            isMatched ? 'text-emerald-300' : 'text-amber-300'
+                          }`}
+                        >
+                          {ch.val}{ch.spec.unit}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => ch.setVal((v) => v + 1)}
+                          className="w-8 h-8 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-white font-black cursor-pointer"
+                        >
+                          +
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+                <button
+                  type="button"
+                  onClick={handleConfirmBalance}
+                  className="w-full py-2.5 rounded-xl bg-sky-400 hover:bg-sky-300 text-black font-black text-xs uppercase tracking-wider cursor-pointer"
+                >
+                  ✓ Apply Calibration [ENTER]
+                </button>
+              </div>
+            )}
+
+            {/* Interactive Skill Mode 3: Code Sequence */}
+            {taskMode === 'code_sequence' && (
+              <div className="flex flex-col gap-3 p-4 rounded-xl bg-zinc-900 border border-indigo-400/35">
+                <div className="flex flex-wrap items-center justify-center gap-2">
+                  {(currentTask.sequenceTarget || []).map((tok, idx) => {
+                    const done = idx < seqEntered.length;
+                    return (
+                      <span
+                        key={idx}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-black border ${
+                          done
+                            ? 'bg-emerald-500/25 border-emerald-400 text-emerald-300'
+                            : idx === seqEntered.length
+                            ? 'bg-indigo-500/30 border-indigo-300 text-white animate-pulse'
+                            : 'bg-black/40 border-white/15 text-zinc-400'
+                        }`}
+                      >
+                        {tok}
+                      </span>
+                    );
+                  })}
+                </div>
+                <div className="grid grid-cols-4 gap-2">
+                  {uniqueSeqTokens.map((tok) => (
+                    <button
+                      key={tok}
+                      type="button"
+                      onClick={() => handlePressSequenceToken(tok)}
+                      className="py-2.5 rounded-xl bg-zinc-800 hover:bg-indigo-500 text-white font-black text-xs border border-white/15 cursor-pointer transition-colors"
+                    >
+                      {tok}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Standard Decision Mode */}
+            {taskMode === 'choice' && (
+              <div className="grid grid-cols-1 gap-2.5">
+                {currentTask.options.map((opt, idx) => (
+                  <button
+                    key={`${stepIdx}_${idx}`}
+                    type="button"
+                    onClick={() => handleChoose(idx)}
+                    className="w-full px-4 py-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-white/15 hover:border-sky-400 text-left flex items-center justify-between gap-3 transition-all cursor-pointer group"
+                  >
+                    <span className="text-xs font-black text-white group-hover:text-sky-200">{opt}</span>
+                    <span className="px-2 py-0.5 rounded bg-zinc-800 text-zinc-400 text-[10px] font-black shrink-0">
+                      [{idx + 1}]
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <div className="min-h-[22px] text-center text-xs font-black">
+              {lastFeedback ? (
+                <span className={lastFeedback.ok ? 'text-emerald-300' : 'text-rose-400'}>
+                  {lastFeedback.text}
+                </span>
+              ) : (
+                <span className="text-zinc-500">
+                  {taskMode === 'timing_gauge'
+                    ? 'Hit [SPACE] or click Lock Target inside the green bar'
+                    : taskMode === 'dual_balance'
+                    ? 'Match both readings to their targets, then click Apply'
+                    : taskMode === 'code_sequence'
+                    ? 'Click the sequence tokens from left to right'
+                    : 'Click an action or press [1], [2], [3] to complete task'}
+                </span>
+              )}
+            </div>
+          </>
+        ) : (
+          <div className="py-3 flex flex-col items-center text-center gap-4">
+            <div className="text-4xl">{meta.icon}</div>
+            <div>
+              <div className="text-xs font-black uppercase tracking-widest text-emerald-400">
+                SHIFT SPRINT COMPLETE · +1 JOB COMPLETED
+              </div>
+              <h4 className="text-xl font-black text-white mt-1">
+                +${lastPayout.toLocaleString()} Direct Deposit!
+              </h4>
+              <p className="text-xs text-zinc-400 mt-1">
+                Accuracy: {correctCount}/{tasks.length} · Best Streak: {bestStreak}x · Next Rank:{' '}
+                <span className="text-amber-300 font-black">
+                  {meta.ranks[Math.min(meta.ranks.length - 1, shiftsCompletedSession)]}
+                </span>
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-center gap-3 w-full">
+              <button
+                type="button"
+                onClick={startNextShift}
+                className="px-5 py-2.5 rounded-xl bg-emerald-400 hover:bg-emerald-300 text-black font-black text-xs uppercase tracking-wider cursor-pointer shadow-lg"
+              >
+                💼 Work Another Shift (+Rank Bonus) [ENTER]
+              </button>
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-5 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-black text-xs uppercase tracking-wider cursor-pointer border border-white/10"
+              >
+                🚪 Clock Out & Return [ESC]
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ============================================================================
 // MODAL SWITCHER
 // ============================================================================
 export const InteriorMiniGameModal: React.FC<InteriorMiniGameModalProps> = ({
   kind,
   venueName,
+  stationLabel,
   isHomeVenue = false,
   onAwardCash,
+  onCompleteWorkShift,
   onClose,
 }) => {
-  const awardRef = useRef({ onAwardCash, isHomeVenue });
-  awardRef.current = { onAwardCash, isHomeVenue };
+  const awardRef = useRef({ onAwardCash, onCompleteWorkShift, isHomeVenue });
+  awardRef.current = { onAwardCash, onCompleteWorkShift, isHomeVenue };
 
   const handleAward = useCallback((delta: number, label: string) => {
     const { onAwardCash: awardCb, isHomeVenue: home } = awardRef.current;
@@ -4782,8 +6228,26 @@ export const InteriorMiniGameModal: React.FC<InteriorMiniGameModalProps> = ({
     awardCb(finalDelta, finalLabel);
   }, []);
 
+  const handleWorkShift = useCallback((delta: number, label: string) => {
+    const { onCompleteWorkShift: shiftCb, onAwardCash: awardCb } = awardRef.current;
+    if (shiftCb) {
+      shiftCb(delta, label);
+    } else {
+      awardCb(delta, label);
+    }
+  }, []);
+
   return (
     <div className="absolute inset-0 z-30 bg-black/82 backdrop-blur-sm flex items-center justify-center p-4">
+      {isWorkplaceShiftKind(kind) && (
+        <WorkplaceShiftMiniGame
+          kind={kind}
+          venueName={venueName}
+          stationLabel={stationLabel}
+          onCompleteShift={handleWorkShift}
+          onClose={onClose}
+        />
+      )}
       {kind === 'pool_8ball' && (
         <PoolMiniGame venueName={venueName} onAwardCash={handleAward} onClose={onClose} />
       )}
@@ -4823,6 +6287,640 @@ export const InteriorMiniGameModal: React.FC<InteriorMiniGameModalProps> = ({
       {kind === 'target_range' && (
         <TargetRangeMiniGame venueName={venueName} onAwardCash={handleAward} onClose={onClose} />
       )}
+    </div>
+  );
+};
+
+// ============================================================================
+// OUTDOOR FIELD JOB INTERACTIVE SKILL MODAL (CANVAS ACTION / TIMING / GRID / SEQUENCE)
+// ============================================================================
+export interface OutdoorFieldJobModalProps {
+  job: CityOutdoorJobSpec;
+  siteLabel: string;
+  skillRankTitle: string;
+  payoutMultiplier: number;
+  onComplete: (cashEarned: number, tierLabel: string, xpEarned: number) => void;
+  onAbort: () => void;
+}
+
+export const OutdoorFieldJobModal: React.FC<OutdoorFieldJobModalProps> = ({
+  job,
+  siteLabel,
+  skillRankTitle,
+  payoutMultiplier,
+  onComplete,
+  onAbort,
+}) => {
+  const [phase, setPhase] = useState<'active' | 'result'>('active');
+  const [resultSummary, setResultSummary] = useState<{
+    cash: number;
+    tier: 'BRONZE' | 'SILVER' | 'GOLD' | 'MASTER';
+    xp: number;
+    scorePct: number;
+    detail: string;
+  } | null>(null);
+
+  const finishJob = useCallback(
+    (scoreFraction: number, detail: string) => {
+      const clamped = Math.max(0, Math.min(1, scoreFraction));
+      const tier: 'BRONZE' | 'SILVER' | 'GOLD' | 'MASTER' =
+        clamped >= 0.9 ? 'MASTER' : clamped >= 0.72 ? 'GOLD' : clamped >= 0.45 ? 'SILVER' : 'BRONZE';
+      const rawPay = job.basePay + job.maxSkillBonus * clamped;
+      const finalCash = Math.max(300, Math.round(rawPay * Math.max(1, payoutMultiplier)));
+      const finalXp = Math.max(10, Math.round(job.skillXpReward * (0.55 + clamped * 0.75)));
+      setResultSummary({
+        cash: finalCash,
+        tier,
+        xp: finalXp,
+        scorePct: Math.round(clamped * 100),
+        detail,
+      });
+      setPhase('result');
+      playArcadeSfx(587, 987, 0.24, 'triangle', 0.09);
+    },
+    [job.basePay, job.maxSkillBonus, job.skillXpReward, payoutMultiplier]
+  );
+
+  // ---------------- 1) CANVAS ACTION MECHANIC ----------------
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [canvasScore, setCanvasScore] = useState(0);
+  const [canvasTimeLeft, setCanvasTimeLeft] = useState(20);
+  const keysRef = useRef<Record<string, boolean>>({});
+  const pointerPosRef = useRef<{ x: number; y: number } | null>(null);
+  const actionTriggerRef = useRef(false);
+
+  useEffect(() => {
+    if (phase !== 'active' || job.mechanic !== 'canvas_action') return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const W = 640;
+    const H = 330;
+    let playerX = W * 0.5;
+    let playerY = H * 0.65;
+    let score = 0;
+    let hits = 0;
+    let misses = 0;
+    let timeLeft = 20.0;
+    let lastT = performance.now();
+    let rafId = 0;
+
+    interface TargetObj {
+      x: number;
+      y: number;
+      vx: number;
+      vy: number;
+      r: number;
+      good: boolean;
+      value: number;
+    }
+    const items: TargetObj[] = [];
+    const spawnItem = (forceGood = false) => {
+      const good = forceGood || Math.random() < 0.74;
+      items.push({
+        x: 36 + Math.random() * (W - 72),
+        y: 36 + Math.random() * (H - 86),
+        vx: (Math.random() - 0.5) * (good ? 75 : 105),
+        vy: (Math.random() - 0.5) * (good ? 55 : 85),
+        r: good ? 17 : 15,
+        good,
+        value: good && Math.random() < 0.25 ? 200 : 120,
+      });
+    };
+    for (let i = 0; i < 6; i++) spawnItem(i < 4);
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      keysRef.current[e.code] = true;
+      if (e.code === 'Space') {
+        e.preventDefault();
+        actionTriggerRef.current = true;
+      }
+      if (e.code === 'Escape') {
+        e.preventDefault();
+        onAbort();
+      }
+    };
+    const onKeyUp = (e: KeyboardEvent) => {
+      keysRef.current[e.code] = false;
+    };
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+
+    const step = (now: number) => {
+      const dt = Math.min(0.05, Math.max(0.001, (now - lastT) / 1000));
+      lastT = now;
+      timeLeft = Math.max(0, timeLeft - dt);
+
+      // Movement via keys or mouse
+      const speed = 310;
+      let dx = 0;
+      let dy = 0;
+      if (keysRef.current['ArrowLeft'] || keysRef.current['KeyA']) dx -= 1;
+      if (keysRef.current['ArrowRight'] || keysRef.current['KeyD']) dx += 1;
+      if (keysRef.current['ArrowUp'] || keysRef.current['KeyW']) dy -= 1;
+      if (keysRef.current['ArrowDown'] || keysRef.current['KeyS']) dy += 1;
+      if (dx !== 0 || dy !== 0) {
+        const len = Math.hypot(dx, dy) || 1;
+        playerX += (dx / len) * speed * dt;
+        playerY += (dy / len) * speed * dt;
+        pointerPosRef.current = null;
+      } else if (pointerPosRef.current) {
+        playerX += (pointerPosRef.current.x - playerX) * Math.min(1, dt * 14);
+        playerY += (pointerPosRef.current.y - playerY) * Math.min(1, dt * 14);
+      }
+      playerX = Math.max(24, Math.min(W - 24, playerX));
+      playerY = Math.max(24, Math.min(H - 24, playerY));
+
+      // Move items & handle proximity / Space action
+      const triggerPulse = actionTriggerRef.current;
+      actionTriggerRef.current = false;
+      const collectRadius = triggerPulse ? 48 : 28;
+
+      for (let i = items.length - 1; i >= 0; i--) {
+        const it = items[i];
+        it.x += it.vx * dt;
+        it.y += it.vy * dt;
+        if (it.x < 24 || it.x > W - 24) it.vx *= -1;
+        if (it.y < 24 || it.y > H - 24) it.vy *= -1;
+
+        const d = Math.hypot(it.x - playerX, it.y - playerY);
+        if (d <= collectRadius) {
+          if (it.good) {
+            score += it.value;
+            hits += 1;
+            playArcadeSfx(620, 880, 0.08, 'triangle', 0.06);
+          } else {
+            score = Math.max(0, score - 110);
+            misses += 1;
+            playArcadeSfx(190, 110, 0.12, 'sawtooth', 0.06);
+          }
+          items.splice(i, 1);
+          spawnItem(it.good);
+        }
+      }
+      while (items.filter((x) => x.good).length < 4) spawnItem(true);
+
+      // Draw background theme by kind
+      const bgColors: Record<string, string> = {
+        harbor_crane: '#0f172a',
+        crab_fishing: '#083344',
+        wildfire_drop: '#1c1917',
+        stadium_turf: '#14532d',
+        drone_survey: '#0c4a6e',
+      };
+      ctx.fillStyle = bgColors[job.kind] || '#0f172a';
+      ctx.fillRect(0, 0, W, H);
+
+      // Grid lines
+      ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+      ctx.lineWidth = 1;
+      for (let gx = 40; gx < W; gx += 40) {
+        ctx.beginPath();
+        ctx.moveTo(gx, 0);
+        ctx.lineTo(gx, H);
+        ctx.stroke();
+      }
+      for (let gy = 40; gy < H; gy += 40) {
+        ctx.beginPath();
+        ctx.moveTo(0, gy);
+        ctx.lineTo(W, gy);
+        ctx.stroke();
+      }
+
+      // Items
+      for (const it of items) {
+        ctx.beginPath();
+        ctx.arc(it.x, it.y, it.r, 0, Math.PI * 2);
+        ctx.fillStyle = it.good ? (it.value > 150 ? '#fbbf24' : '#34d399') : '#ef4444';
+        ctx.fill();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = '#ffffff';
+        ctx.stroke();
+        ctx.fillStyle = '#090d16';
+        ctx.font = 'bold 12px monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(it.good ? (it.value > 150 ? '★' : '✓') : '✕', it.x, it.y + 0.5);
+      }
+
+      // Player Tool Reticle
+      ctx.beginPath();
+      ctx.arc(playerX, playerY, 24, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(56, 189, 248, 0.25)';
+      ctx.fill();
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = '#38bdf8';
+      ctx.stroke();
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '18px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(job.icon, playerX, playerY + 1);
+
+      setCanvasScore(score);
+      setCanvasTimeLeft(Math.ceil(timeLeft));
+
+      if (timeLeft <= 0) {
+        const frac = Math.min(1, score / 1600);
+        finishJob(frac, `Field Ops Score: ${score} pts · Targets: ${hits} · Hazards Hit: ${misses}`);
+        return;
+      }
+      rafId = requestAnimationFrame(step);
+    };
+    rafId = requestAnimationFrame(step);
+    return () => {
+      cancelAnimationFrame(rafId);
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+    };
+  }, [finishJob, job.icon, job.kind, job.mechanic, onAbort, phase]);
+
+  // ---------------- 2) TIMING STRIKE MECHANIC ----------------
+  const [strikeRound, setStrikeRound] = useState(0);
+  const [strikeHits, setStrikeHits] = useState(0);
+  const [strikeBarPos, setStrikeBarPos] = useState(50);
+  const strikeBarRef = useRef(50);
+  const strikeDirRef = useRef(1);
+  const [strikeTargetCenter, setStrikeTargetCenter] = useState(52);
+  const [strikeFeedback, setStrikeFeedback] = useState<string>('Press [SPACE] or Strike inside green zone!');
+
+  useEffect(() => {
+    if (phase !== 'active' || job.mechanic !== 'timing_strike') return;
+    let rafId = 0;
+    let lastT = performance.now();
+    const speed = 118 + strikeRound * 22;
+    const tick = (now: number) => {
+      const dt = Math.min(0.05, Math.max(0.001, (now - lastT) / 1000));
+      lastT = now;
+      let next = strikeBarRef.current + strikeDirRef.current * speed * dt;
+      if (next >= 98) {
+        next = 98;
+        strikeDirRef.current = -1;
+      } else if (next <= 2) {
+        next = 2;
+        strikeDirRef.current = 1;
+      }
+      strikeBarRef.current = next;
+      setStrikeBarPos(next);
+      rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
+  }, [job.mechanic, phase, strikeRound]);
+
+  const handleTriggerTimingStrike = useCallback(() => {
+    if (phase !== 'active' || job.mechanic !== 'timing_strike') return;
+    const halfW = Math.max(6.5, 11.5 - strikeRound * 1.1);
+    const delta = Math.abs(strikeBarRef.current - strikeTargetCenter);
+    const hit = delta <= halfW;
+    const nextHits = strikeHits + (delta <= halfW * 0.45 ? 1.2 : hit ? 1.0 : 0);
+    setStrikeHits(nextHits);
+    if (hit) {
+      playArcadeSfx(620, 920, 0.1, 'triangle', 0.08);
+      setStrikeFeedback(delta <= halfW * 0.45 ? '🌟 PERFECT STRIKE!' : '✓ CLEAN LOCK!');
+    } else {
+      playArcadeSfx(210, 120, 0.14, 'sawtooth', 0.06);
+      setStrikeFeedback('✖ OFF TARGET!');
+    }
+    if (strikeRound + 1 >= 5) {
+      finishJob(Math.min(1, nextHits / 5), `Completed 5 precision field strikes (${nextHits.toFixed(1)}/5.0 rating)`);
+    } else {
+      setStrikeRound((r) => r + 1);
+      setStrikeTargetCenter(25 + Math.floor(Math.random() * 52));
+    }
+  }, [finishJob, job.mechanic, phase, strikeHits, strikeRound, strikeTargetCenter]);
+
+  // ---------------- 3) WIRE GRID PUZZLE MECHANIC ----------------
+  const [gridRound, setGridRound] = useState(0);
+  const [gridSuccesses, setGridSuccesses] = useState(0);
+  const [gridSwitches, setGridSwitches] = useState<[boolean, boolean, boolean, boolean]>([true, false, true, false]);
+  const gridTargets = useRef<Array<{ weights: [number, number, number, number]; targetVolts: number }>>([
+    { weights: [120, 80, 40, 240], targetVolts: 320 },
+    { weights: [150, 90, 60, 180], targetVolts: 330 },
+    { weights: [220, 110, 55, 165], targetVolts: 385 },
+  ]).current;
+
+  const currentGridSpec = gridTargets[gridRound % gridTargets.length];
+  const currentGridSum = gridSwitches.reduce(
+    (sum, on, idx) => (on ? sum + currentGridSpec.weights[idx] : sum),
+    0
+  );
+
+  const handleLockWireGrid = useCallback(() => {
+    if (phase !== 'active' || job.mechanic !== 'wire_grid') return;
+    const ok = currentGridSum === currentGridSpec.targetVolts;
+    const nextOk = gridSuccesses + (ok ? 1 : 0);
+    setGridSuccesses(nextOk);
+    if (ok) {
+      playArcadeSfx(580, 860, 0.12, 'triangle', 0.08);
+    } else {
+      playArcadeSfx(220, 130, 0.14, 'sawtooth', 0.06);
+    }
+    if (gridRound + 1 >= 3) {
+      finishJob(nextOk / 3, `Stabilized ${nextOk}/3 Live High-Voltage Field Buses`);
+    } else {
+      setGridRound((r) => r + 1);
+      setGridSwitches([false, false, false, false]);
+    }
+  }, [currentGridSpec.targetVolts, currentGridSum, finishJob, gridRound, gridSuccesses, job.mechanic, phase]);
+
+  // ---------------- 4) SEQUENCE CALIBRATION MECHANIC ----------------
+  const [calRound, setCalRound] = useState(0);
+  const [calCorrectRounds, setCalCorrectRounds] = useState(0);
+  const [calTargetSeq, setCalTargetSeq] = useState<string[]>(() => ['UP', 'LEFT', 'RIGHT', 'DOWN']);
+  const [calInputSeq, setCalInputSeq] = useState<string[]>([]);
+
+  const calSymbols: Record<string, string> = {
+    UP: '⬆️ UP',
+    DOWN: '⬇️ DOWN',
+    LEFT: '⬅️ LEFT',
+    RIGHT: '➡️ RIGHT',
+  };
+
+  const handleCalPress = useCallback(
+    (dir: string) => {
+      if (phase !== 'active' || job.mechanic !== 'sequence_cal') return;
+      const idx = calInputSeq.length;
+      const expected = calTargetSeq[idx];
+      if (dir !== expected) {
+        playArcadeSfx(210, 120, 0.14, 'sawtooth', 0.06);
+        if (calRound + 1 >= 4) {
+          finishJob(calCorrectRounds / 4, `Completed ${calCorrectRounds}/4 calibration sequences cleanly`);
+        } else {
+          setCalRound((r) => r + 1);
+          const dirs = ['UP', 'DOWN', 'LEFT', 'RIGHT'];
+          setCalTargetSeq(Array.from({ length: 4 }, () => dirs[Math.floor(Math.random() * 4)]));
+          setCalInputSeq([]);
+        }
+        return;
+      }
+      playArcadeSfx(560 + idx * 75, 760 + idx * 75, 0.08, 'triangle', 0.07);
+      const next = [...calInputSeq, dir];
+      setCalInputSeq(next);
+      if (next.length >= calTargetSeq.length) {
+        const nextWins = calCorrectRounds + 1;
+        setCalCorrectRounds(nextWins);
+        if (calRound + 1 >= 4) {
+          finishJob(nextWins / 4, `Completed ${nextWins}/4 calibration sequences cleanly`);
+        } else {
+          setCalRound((r) => r + 1);
+          const dirs = ['UP', 'DOWN', 'LEFT', 'RIGHT'];
+          setCalTargetSeq(Array.from({ length: 4 }, () => dirs[Math.floor(Math.random() * 4)]));
+          setCalInputSeq([]);
+        }
+      }
+    },
+    [calCorrectRounds, calInputSeq, calRound, calTargetSeq, finishJob, job.mechanic, phase]
+  );
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        if (phase === 'result' && resultSummary) {
+          onComplete(resultSummary.cash, resultSummary.tier, resultSummary.xp);
+        } else {
+          onAbort();
+        }
+        return;
+      }
+      if (phase === 'active') {
+        if (job.mechanic === 'timing_strike' && (e.key === ' ' || e.key === 'Enter')) {
+          e.preventDefault();
+          handleTriggerTimingStrike();
+        } else if (job.mechanic === 'sequence_cal') {
+          if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') {
+            e.preventDefault();
+            handleCalPress('UP');
+          } else if (e.key === 'ArrowDown' || e.key === 's' || e.key === 'S') {
+            e.preventDefault();
+            handleCalPress('DOWN');
+          } else if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') {
+            e.preventDefault();
+            handleCalPress('LEFT');
+          } else if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') {
+            e.preventDefault();
+            handleCalPress('RIGHT');
+          }
+        }
+      } else if (phase === 'result' && resultSummary && e.key === 'Enter') {
+        e.preventDefault();
+        onComplete(resultSummary.cash, resultSummary.tier, resultSummary.xp);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [handleCalPress, handleTriggerTimingStrike, job.mechanic, onAbort, onComplete, phase, resultSummary]);
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4 font-mono">
+      <div className="w-full max-w-2xl bg-zinc-950 border-2 border-emerald-400/70 rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+        {/* Header */}
+        <div className="px-5 py-3.5 bg-zinc-900 border-b border-white/10 flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-[10px] font-black uppercase tracking-widest text-emerald-300">
+              {job.icon} OUTDOOR FIELD CONTRACT · {job.mechanicLabel.toUpperCase()}
+            </div>
+            <h3 className="text-sm font-black text-white truncate">
+              {job.title} — {siteLabel}
+            </h3>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="px-2.5 py-1 rounded-lg bg-amber-500/20 border border-amber-400/40 text-amber-300 text-[10px] font-black">
+              {skillRankTitle} (x{payoutMultiplier.toFixed(2)})
+            </span>
+            <button
+              type="button"
+              onClick={onAbort}
+              className="px-3 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-black cursor-pointer"
+            >
+              Exit [ESC]
+            </button>
+          </div>
+        </div>
+
+        {/* Body */}
+        <div className="p-5 flex flex-col gap-4">
+          {phase === 'active' ? (
+            <>
+              {job.mechanic === 'canvas_action' && (
+                <div className="flex flex-col gap-3">
+                  <div className="flex items-center justify-between text-xs font-black">
+                    <span className="text-emerald-300">FIELD SCORE: {canvasScore} PTS</span>
+                    <span className="text-zinc-400">WASD/Arrows or Drag Mouse · [SPACE] Pulse</span>
+                    <span className={canvasTimeLeft <= 5 ? 'text-rose-400 animate-pulse' : 'text-cyan-300'}>
+                      ⏱️ {canvasTimeLeft}s
+                    </span>
+                  </div>
+                  <canvas
+                    ref={canvasRef}
+                    width={640}
+                    height={330}
+                    onMouseMove={(e) => {
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      pointerPosRef.current = {
+                        x: ((e.clientX - rect.left) / rect.width) * 640,
+                        y: ((e.clientY - rect.top) / rect.height) * 330,
+                      };
+                    }}
+                    onClick={() => {
+                      actionTriggerRef.current = true;
+                    }}
+                    className="w-full h-auto rounded-xl border border-white/15 cursor-crosshair bg-zinc-900"
+                  />
+                  <div className="text-[11px] text-zinc-400 text-center">
+                    Collect green ✓ and gold ★ field targets · Avoid red ✕ hazards!
+                  </div>
+                </div>
+              )}
+
+              {job.mechanic === 'timing_strike' && (
+                <div className="flex flex-col gap-4 p-4 rounded-xl bg-zinc-900 border border-amber-400/40">
+                  <div className="flex items-center justify-between text-xs font-black">
+                    <span className="text-amber-300">STAGE {strikeRound + 1} / 5</span>
+                    <span className="text-emerald-300">RATING: {strikeHits.toFixed(1)} / 5.0</span>
+                  </div>
+                  <div className="relative h-10 bg-black rounded-xl border border-white/15 overflow-hidden">
+                    <div
+                      className="absolute top-0 bottom-0 bg-emerald-500/45 border-x-2 border-emerald-300"
+                      style={{
+                        left: `${strikeTargetCenter - Math.max(6.5, 11.5 - strikeRound * 1.1)}%`,
+                        width: `${Math.max(6.5, 11.5 - strikeRound * 1.1) * 2}%`,
+                      }}
+                    />
+                    <div
+                      className="absolute top-0 bottom-0 w-2 bg-white shadow-[0_0_12px_#ffffff]"
+                      style={{ left: `calc(${strikeBarPos}% - 4px)` }}
+                    />
+                  </div>
+                  <div className="text-center text-xs font-black text-sky-300">{strikeFeedback}</div>
+                  <button
+                    type="button"
+                    onClick={handleTriggerTimingStrike}
+                    className="w-full py-3 rounded-xl bg-amber-400 hover:bg-amber-300 text-black font-black text-xs uppercase tracking-wider cursor-pointer"
+                  >
+                    ⚡ EXECUTE FIELD STRIKE [SPACE]
+                  </button>
+                </div>
+              )}
+
+              {job.mechanic === 'wire_grid' && (
+                <div className="flex flex-col gap-4 p-4 rounded-xl bg-zinc-900 border border-yellow-400/40">
+                  <div className="flex items-center justify-between text-xs font-black">
+                    <span className="text-yellow-300">BUS PANEL {gridRound + 1} / 3</span>
+                    <span className="text-emerald-300">STABILIZED: {gridSuccesses}</span>
+                  </div>
+                  <div className="bg-black/50 p-3 rounded-xl border border-white/10 flex items-center justify-between">
+                    <span className="text-xs text-zinc-300">Target Bus Load:</span>
+                    <span className="text-base font-black text-sky-300">{currentGridSpec.targetVolts}V</span>
+                    <span className="text-xs text-zinc-300">Current Output:</span>
+                    <span
+                      className={`text-base font-black ${
+                        currentGridSum === currentGridSpec.targetVolts ? 'text-emerald-300' : 'text-amber-300'
+                      }`}
+                    >
+                      {currentGridSum}V
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                    {currentGridSpec.weights.map((w, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() =>
+                          setGridSwitches((prev) => {
+                            const copy: [boolean, boolean, boolean, boolean] = [...prev] as [boolean, boolean, boolean, boolean];
+                            copy[idx] = !copy[idx];
+                            return copy;
+                          })
+                        }
+                        className={`p-3 rounded-xl border text-center cursor-pointer transition-all ${
+                          gridSwitches[idx]
+                            ? 'bg-emerald-500/25 border-emerald-400 text-emerald-200'
+                            : 'bg-zinc-950 border-white/15 text-zinc-400 hover:border-white/30'
+                        }`}
+                      >
+                        <div className="text-[10px] font-black">BREAKER {idx + 1}</div>
+                        <div className="text-base font-black mt-1">+{w}V</div>
+                        <div className="text-[10px] mt-1 font-bold">{gridSwitches[idx] ? '● CLOSED' : '○ OPEN'}</div>
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleLockWireGrid}
+                    className="w-full py-3 rounded-xl bg-yellow-400 hover:bg-yellow-300 text-black font-black text-xs uppercase tracking-wider cursor-pointer"
+                  >
+                    ⚡ ENERGIZE & VERIFY GRID
+                  </button>
+                </div>
+              )}
+
+              {job.mechanic === 'sequence_cal' && (
+                <div className="flex flex-col gap-4 p-4 rounded-xl bg-zinc-900 border border-sky-400/40">
+                  <div className="flex items-center justify-between text-xs font-black">
+                    <span className="text-sky-300">SEQUENCE {calRound + 1} / 4</span>
+                    <span className="text-emerald-300">CLEARED: {calCorrectRounds}</span>
+                  </div>
+                  <div className="flex flex-wrap items-center justify-center gap-2">
+                    {calTargetSeq.map((dir, idx) => (
+                      <span
+                        key={idx}
+                        className={`px-3.5 py-2 rounded-xl text-xs font-black border ${
+                          idx < calInputSeq.length
+                            ? 'bg-emerald-500/25 border-emerald-400 text-emerald-300'
+                            : idx === calInputSeq.length
+                            ? 'bg-sky-500/30 border-sky-300 text-white animate-pulse'
+                            : 'bg-black/40 border-white/15 text-zinc-400'
+                        }`}
+                      >
+                        {calSymbols[dir]}
+                      </span>
+                    ))}
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {(['LEFT', 'UP', 'DOWN', 'RIGHT'] as const).map((dir) => (
+                      <button
+                        key={dir}
+                        type="button"
+                        onClick={() => handleCalPress(dir)}
+                        className="py-3 rounded-xl bg-zinc-800 hover:bg-sky-500 text-white font-black text-xs border border-white/15 cursor-pointer"
+                      >
+                        {calSymbols[dir]}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="text-[11px] text-zinc-400 text-center">
+                    Match each command from left to right using buttons or Arrow / WASD keys!
+                  </div>
+                </div>
+              )}
+            </>
+          ) : resultSummary ? (
+            <div className="py-4 flex flex-col items-center text-center gap-4">
+              <div className="text-4xl">{job.icon}</div>
+              <div>
+                <span className="px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-400 text-emerald-300 text-xs font-black uppercase">
+                  🏆 {resultSummary.tier} FIELD PERFORMANCE ({resultSummary.scorePct}%)
+                </span>
+                <h4 className="text-2xl font-black text-white mt-2">
+                  +${resultSummary.cash.toLocaleString()} Earned · +{resultSummary.xp} Skill XP!
+                </h4>
+                <p className="text-xs text-zinc-400 mt-1">{resultSummary.detail}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => onComplete(resultSummary.cash, resultSummary.tier, resultSummary.xp)}
+                className="px-6 py-3 rounded-xl bg-emerald-400 hover:bg-emerald-300 text-black font-black text-xs uppercase tracking-wider cursor-pointer shadow-lg"
+              >
+                💵 Collect Payout & Return [ENTER]
+              </button>
+            </div>
+          ) : null}
+        </div>
+      </div>
     </div>
   );
 };

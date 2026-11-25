@@ -8,6 +8,8 @@ import {
   getLawnPBRTextures,
   getLeafClusterTexture,
 } from './pbrTextures';
+import { getGraphicsPresetConfig } from '../utils/graphicsSettings';
+import type { WorkplaceShiftKind } from './homeFurnishings';
 import {
   buildSculptedStreetCarBody,
   buildSculptedCivilianHull,
@@ -224,6 +226,8 @@ export type StreetCarBodyStyle =
   | 'tuner_coupe'
   | 'muscle_v8'
   | 'armored_suv'
+  | 'pickup_truck'
+  | 'offroad_suv'
   | 'supercar_wedge'
   | 'hypercar_gt'
   | 'f1_street';
@@ -251,7 +255,10 @@ export type StreetCarModelArchetype =
   | 'koenigsegg_agera_rs'
   | 'bugatti_chiron_pur_sport'
   | 'bugatti_chiron_super_sport'
-  | 'koenigsegg_jesko';
+  | 'koenigsegg_jesko'
+  | 'pickup_crew'
+  | 'suv_offroad'
+  | 'suv_sport';
 
 export interface StreetCarTrimSpec {
   id: string;
@@ -262,6 +269,8 @@ export interface StreetCarTrimSpec {
   topSpeedKmh: number;
   drivetrain: 'FWD' | 'RWD' | 'AWD';
   groundClearance?: 'low' | 'medium' | 'high';
+  groundClearanceInches?: number;
+  offRoadScore?: number; // 0-100 realistic off-road capability (tires, suspension travel, lockers, geometry)
   engineLayout: string;
   accelerationScore: number;
   handlingScore: number;
@@ -281,6 +290,8 @@ export interface StreetCarSpec {
   topSpeedKmh: number;
   drivetrain: 'FWD' | 'RWD' | 'AWD';
   groundClearance?: 'low' | 'medium' | 'high';
+  groundClearanceInches?: number;
+  offRoadScore?: number; // 0-100 realistic off-road capability
   engineLayout: string;
   enginePowerRating: number;
   accelerationScore: number;
@@ -609,7 +620,7 @@ export const CITY_STREET_CARS: StreetCarSpec[] = [
     engineLayout: '6.4L 392 HEMI V8',
     enginePowerRating: 88,
     accelerationScore: 88,
-    handlingScore: 82,
+    handlingScore: 77,
     brakesScore: 86,
     defaultColor: '#dc2626',
     accentColor: '#18181b',
@@ -628,7 +639,7 @@ export const CITY_STREET_CARS: StreetCarSpec[] = [
         drivetrain: 'RWD',
         engineLayout: '6.4L 392 Naturally Aspirated HEMI V8',
         accelerationScore: 88,
-        handlingScore: 83,
+        handlingScore: 78,
         brakesScore: 86,
         aeroStyle: 'sport_spoiler',
       },
@@ -642,7 +653,7 @@ export const CITY_STREET_CARS: StreetCarSpec[] = [
         drivetrain: 'RWD',
         engineLayout: '6.2L High-Output Supercharged HEMI V8',
         accelerationScore: 96,
-        handlingScore: 85,
+        handlingScore: 80,
         brakesScore: 90,
         aeroStyle: 'widebody_gt',
         accentColorOverride: '#18181b',
@@ -657,7 +668,7 @@ export const CITY_STREET_CARS: StreetCarSpec[] = [
         drivetrain: 'RWD',
         engineLayout: '6.2L 3.0L-Blower E85 Supercharged HEMI V8',
         accelerationScore: 112,
-        handlingScore: 86,
+        handlingScore: 79,
         brakesScore: 92,
         aeroStyle: 'widebody_gt',
         accentColorOverride: '#facc15',
@@ -677,7 +688,7 @@ export const CITY_STREET_CARS: StreetCarSpec[] = [
     engineLayout: '6.4L 392 HEMI V8',
     enginePowerRating: 88,
     accelerationScore: 88,
-    handlingScore: 84,
+    handlingScore: 79,
     brakesScore: 87,
     defaultColor: '#ea580c',
     accentColor: '#18181b',
@@ -696,7 +707,7 @@ export const CITY_STREET_CARS: StreetCarSpec[] = [
         drivetrain: 'RWD',
         engineLayout: '6.4L 392 HEMI V8',
         accelerationScore: 88,
-        handlingScore: 84,
+        handlingScore: 79,
         brakesScore: 87,
         aeroStyle: 'sport_spoiler',
       },
@@ -710,7 +721,7 @@ export const CITY_STREET_CARS: StreetCarSpec[] = [
         drivetrain: 'RWD',
         engineLayout: '6.2L Supercharged HEMI V8',
         accelerationScore: 96,
-        handlingScore: 86,
+        handlingScore: 81,
         brakesScore: 91,
         aeroStyle: 'widebody_gt',
       },
@@ -724,7 +735,7 @@ export const CITY_STREET_CARS: StreetCarSpec[] = [
         drivetrain: 'RWD',
         engineLayout: '6.2L Jailbreak Supercharged HEMI V8',
         accelerationScore: 97,
-        handlingScore: 88,
+        handlingScore: 83,
         brakesScore: 93,
         aeroStyle: 'widebody_gt',
         accentColorOverride: '#18181b',
@@ -1823,22 +1834,1320 @@ export const CITY_STREET_CARS: StreetCarSpec[] = [
       },
     ],
   },
+
+  // =========================================================================
+  // PICKUP TRUCKS & OFF-ROAD 4x4 SUVs (HIGH GROUND CLEARANCE -> FAST ON GRASS!)
+  // =========================================================================
+  {
+    id: 'ford_maverick_tremor',
+    name: 'Ford Maverick Tremor AWD',
+    manufacturer: 'Ford',
+    category: 'Compact Off-Road Pickup',
+    price: 34500,
+    horsepower: 250,
+    zeroToSixtySec: 6.2,
+    topSpeedKmh: 185,
+    drivetrain: 'AWD',
+    groundClearance: 'high',
+    groundClearanceInches: 9.4,
+    engineLayout: '2.0L EcoBoost Turbo I4 + Twin-Clutch Rear Drive Unit',
+    enginePowerRating: 80,
+    accelerationScore: 81,
+    handlingScore: 83,
+    brakesScore: 84,
+    defaultColor: '#ea580c',
+    accentColor: '#18181b',
+    bodyStyle: 'pickup_truck',
+    modelArchetype: 'pickup_crew',
+    description:
+      'Nimble Tremor-package pickup with 9.4" ground clearance, skid plates, and torque-vectoring AWD that slices across lawns faster than sedans.',
+    trims: [
+      {
+        id: 'maverick_fx4',
+        name: 'XLT FX4 Off-Road (8.6" Clearance)',
+        upgradePrice: 0,
+        horsepower: 250,
+        zeroToSixtySec: 6.3,
+        topSpeedKmh: 180,
+        drivetrain: 'AWD',
+        groundClearance: 'high',
+        groundClearanceInches: 8.6,
+        engineLayout: '2.0L EcoBoost Turbo I4',
+        accelerationScore: 80,
+        handlingScore: 82,
+        brakesScore: 83,
+        aeroStyle: 'stock',
+      },
+      {
+        id: 'maverick_tremor_pack',
+        name: 'Tremor Advanced 4WD (9.4" Clearance)',
+        upgradePrice: 4500,
+        horsepower: 275,
+        zeroToSixtySec: 5.9,
+        topSpeedKmh: 192,
+        drivetrain: 'AWD',
+        groundClearance: 'high',
+        groundClearanceInches: 9.4,
+        engineLayout: '2.0L Tuned EcoBoost + Locking Rear Diff',
+        accelerationScore: 83,
+        handlingScore: 85,
+        brakesScore: 85,
+        aeroStyle: 'stock',
+        accentColorOverride: '#f97316',
+      },
+    ],
+  },
+  {
+    id: 'jeep_gladiator_mojave',
+    name: 'Jeep Gladiator Mojave / Rubicon',
+    manufacturer: 'Jeep',
+    category: 'Desert Off-Road Pickup',
+    price: 53000,
+    horsepower: 285,
+    zeroToSixtySec: 7.1,
+    topSpeedKmh: 182,
+    drivetrain: 'AWD',
+    groundClearance: 'high',
+    groundClearanceInches: 11.6,
+    engineLayout: '3.6L Pentastar V6 + FOX Internal Bypass Shocks',
+    enginePowerRating: 82,
+    accelerationScore: 78,
+    handlingScore: 81,
+    brakesScore: 82,
+    defaultColor: '#65a30d',
+    accentColor: '#f97316',
+    bodyStyle: 'pickup_truck',
+    modelArchetype: 'pickup_crew',
+    description:
+      'Desert-rated Jeep Gladiator with 11.6 inches of ground clearance, solid axles, and optional 392 HEMI swap for effortless grass escapes.',
+    trims: [
+      {
+        id: 'gladiator_mojave_v6',
+        name: 'Mojave 3.6L V6 (11.6" Clearance)',
+        upgradePrice: 0,
+        horsepower: 285,
+        zeroToSixtySec: 7.1,
+        topSpeedKmh: 182,
+        drivetrain: 'AWD',
+        groundClearance: 'high',
+        groundClearanceInches: 11.6,
+        engineLayout: '3.6L Pentastar V6 + FOX 2.5" Reservoir Shocks',
+        accelerationScore: 78,
+        handlingScore: 81,
+        brakesScore: 82,
+        aeroStyle: 'stock',
+      },
+      {
+        id: 'gladiator_392_swap',
+        name: 'Gladiator 392 V8 Swap (12.2" Lift)',
+        upgradePrice: 28000,
+        horsepower: 470,
+        zeroToSixtySec: 4.7,
+        topSpeedKmh: 196,
+        drivetrain: 'AWD',
+        groundClearance: 'high',
+        groundClearanceInches: 12.2,
+        engineLayout: '6.4L HEMI 392 V8 + 37" Mud-Terrain Tires',
+        accelerationScore: 89,
+        handlingScore: 82,
+        brakesScore: 85,
+        aeroStyle: 'stock',
+        accentColorOverride: '#ca8a04',
+      },
+    ],
+  },
+  {
+    id: 'ford_ranger_raptor',
+    name: 'Ford Ranger Raptor 4x4',
+    manufacturer: 'Ford',
+    category: 'Mid-Size Baja Pickup',
+    price: 57500,
+    horsepower: 405,
+    zeroToSixtySec: 5.3,
+    topSpeedKmh: 195,
+    drivetrain: 'AWD',
+    groundClearance: 'high',
+    groundClearanceInches: 10.7,
+    engineLayout: '3.0L Twin-Turbo EcoBoost V6',
+    enginePowerRating: 87,
+    accelerationScore: 86,
+    handlingScore: 87,
+    brakesScore: 87,
+    defaultColor: '#38bdf8',
+    accentColor: '#18181b',
+    bodyStyle: 'pickup_truck',
+    modelArchetype: 'pickup_crew',
+    description:
+      'Ford Performance Ranger Raptor with 405 HP, 10.7" clearance, Fox Live Valve coilovers, and front/rear locking diffs.',
+    trims: [
+      {
+        id: 'ranger_raptor_stock',
+        name: 'Ranger Raptor 3.0L V6 (10.7" Clearance)',
+        upgradePrice: 0,
+        horsepower: 405,
+        zeroToSixtySec: 5.3,
+        topSpeedKmh: 195,
+        drivetrain: 'AWD',
+        groundClearance: 'high',
+        groundClearanceInches: 10.7,
+        engineLayout: '3.0L Twin-Turbo V6 + Anti-Lag Baja Mode',
+        accelerationScore: 86,
+        handlingScore: 87,
+        brakesScore: 87,
+        aeroStyle: 'stock',
+      },
+      {
+        id: 'ranger_raptor_hennessey',
+        name: 'VelociRaptor 500 Twin-Turbo (11.5" Lift)',
+        upgradePrice: 22000,
+        horsepower: 500,
+        zeroToSixtySec: 4.5,
+        topSpeedKmh: 212,
+        drivetrain: 'AWD',
+        groundClearance: 'high',
+        groundClearanceInches: 11.5,
+        engineLayout: '3.0L Upgraded Twin-Turbo + High-Clearance Lift',
+        accelerationScore: 91,
+        handlingScore: 88,
+        brakesScore: 89,
+        aeroStyle: 'stock',
+        accentColorOverride: '#ef4444',
+      },
+    ],
+  },
+  {
+    id: 'toyota_tacoma_trd_pro',
+    name: 'Toyota Tacoma TRD Pro i-FORCE MAX',
+    manufacturer: 'Toyota',
+    category: 'Mid-Size Off-Road Pickup',
+    price: 63900,
+    horsepower: 326,
+    zeroToSixtySec: 6.9,
+    topSpeedKmh: 182,
+    drivetrain: 'AWD',
+    groundClearance: 'high',
+    groundClearanceInches: 11.0,
+    engineLayout: '2.4L Turbo Hybrid i-FORCE MAX (465 lb-ft)',
+    enginePowerRating: 84,
+    accelerationScore: 81,
+    handlingScore: 85,
+    brakesScore: 85,
+    defaultColor: '#f97316',
+    accentColor: '#111827',
+    bodyStyle: 'pickup_truck',
+    modelArchetype: 'pickup_crew',
+    description:
+      'Iconic Terra orange Tacoma TRD Pro with 11.0" ground clearance, IsoDynamic seats, steel ARB rear bumper, and Old Man Emu/FOX suspension.',
+    trims: [
+      {
+        id: 'tacoma_trd_offroad',
+        name: 'TRD Off-Road 4x4 (9.5" Clearance)',
+        upgradePrice: 0,
+        horsepower: 278,
+        zeroToSixtySec: 7.2,
+        topSpeedKmh: 178,
+        drivetrain: 'AWD',
+        groundClearance: 'high',
+        groundClearanceInches: 9.5,
+        engineLayout: '2.4L i-FORCE Turbo I4',
+        accelerationScore: 78,
+        handlingScore: 83,
+        brakesScore: 83,
+        aeroStyle: 'stock',
+      },
+      {
+        id: 'tacoma_trd_pro_trim',
+        name: 'TRD Pro i-FORCE MAX (11.0" Clearance)',
+        upgradePrice: 14500,
+        horsepower: 326,
+        zeroToSixtySec: 6.6,
+        topSpeedKmh: 188,
+        drivetrain: 'AWD',
+        groundClearance: 'high',
+        groundClearanceInches: 11.0,
+        engineLayout: '2.4L Hybrid 465 lb-ft + FOX QS3 Bypass',
+        accelerationScore: 82,
+        handlingScore: 86,
+        brakesScore: 86,
+        aeroStyle: 'stock',
+        accentColorOverride: '#ea580c',
+      },
+    ],
+  },
+  {
+    id: 'chevy_silverado_zr2',
+    name: 'Chevrolet Silverado 1500 ZR2 Bison',
+    manufacturer: 'Chevrolet',
+    category: 'Full-Size Off-Road Pickup',
+    price: 71500,
+    horsepower: 420,
+    zeroToSixtySec: 5.4,
+    topSpeedKmh: 185,
+    drivetrain: 'AWD',
+    groundClearance: 'high',
+    groundClearanceInches: 11.2,
+    engineLayout: '6.2L EcoTec3 V8 + Multimatic DSSV Dampers',
+    enginePowerRating: 88,
+    accelerationScore: 86,
+    handlingScore: 83,
+    brakesScore: 85,
+    defaultColor: '#cbd5e1',
+    accentColor: '#dc2626',
+    bodyStyle: 'pickup_truck',
+    modelArchetype: 'pickup_crew',
+    description:
+      'AEV Bison armor-plated Silverado ZR2 with 11.2" clearance, front/rear e-lockers, and naturally aspirated 6.2L V8 power.',
+    trims: [
+      {
+        id: 'silverado_zr2_62',
+        name: 'Silverado ZR2 6.2L V8 (11.2" Clearance)',
+        upgradePrice: 0,
+        horsepower: 420,
+        zeroToSixtySec: 5.4,
+        topSpeedKmh: 185,
+        drivetrain: 'AWD',
+        groundClearance: 'high',
+        groundClearanceInches: 11.2,
+        engineLayout: '6.2L V8 + Multimatic DSSV Spool-Valve',
+        accelerationScore: 86,
+        handlingScore: 83,
+        brakesScore: 85,
+        aeroStyle: 'stock',
+      },
+      {
+        id: 'silverado_zr2_bison_sc',
+        name: 'ZR2 Bison Supercharged (11.8" Clearance)',
+        upgradePrice: 26000,
+        horsepower: 650,
+        zeroToSixtySec: 4.0,
+        topSpeedKmh: 205,
+        drivetrain: 'AWD',
+        groundClearance: 'high',
+        groundClearanceInches: 11.8,
+        engineLayout: '6.2L Whipple Supercharged V8 + AEV Steel Armor',
+        accelerationScore: 95,
+        handlingScore: 84,
+        brakesScore: 87,
+        aeroStyle: 'stock',
+        accentColorOverride: '#ef4444',
+      },
+    ],
+  },
+  {
+    id: 'ram_1500_trx',
+    name: 'RAM 1500 TRX Final Edition',
+    manufacturer: 'RAM',
+    category: 'Supercharged Baja Truck',
+    price: 96500,
+    horsepower: 702,
+    zeroToSixtySec: 3.7,
+    topSpeedKmh: 190,
+    drivetrain: 'AWD',
+    groundClearance: 'high',
+    groundClearanceInches: 11.8,
+    engineLayout: '6.2L Supercharged HEMI V8 Hellcat',
+    enginePowerRating: 95,
+    accelerationScore: 95,
+    handlingScore: 84,
+    brakesScore: 87,
+    defaultColor: '#b91c1c',
+    accentColor: '#18181b',
+    bodyStyle: 'pickup_truck',
+    modelArchetype: 'pickup_crew',
+    description:
+      'Apex predator 702 HP supercharged Hellcat pickup with 11.8" clearance and Bilstein Black Hawk e2 adaptive shocks that thunder across fields.',
+    trims: [
+      {
+        id: 'trx_702',
+        name: 'TRX 702 HP Hellcat (11.8" Clearance)',
+        upgradePrice: 0,
+        horsepower: 702,
+        zeroToSixtySec: 3.7,
+        topSpeedKmh: 190,
+        drivetrain: 'AWD',
+        groundClearance: 'high',
+        groundClearanceInches: 11.8,
+        engineLayout: '6.2L Supercharged HEMI V8',
+        accelerationScore: 95,
+        handlingScore: 84,
+        brakesScore: 87,
+        aeroStyle: 'stock',
+      },
+      {
+        id: 'trx_mammoth_1000',
+        name: 'TRX Mammoth 1000 Overlander (12.4" Lift)',
+        upgradePrice: 38000,
+        horsepower: 1012,
+        zeroToSixtySec: 3.1,
+        topSpeedKmh: 238,
+        drivetrain: 'AWD',
+        groundClearance: 'high',
+        groundClearanceInches: 12.4,
+        engineLayout: '6.2L High-Boost 2.65L Supercharged V8',
+        accelerationScore: 104,
+        handlingScore: 85,
+        brakesScore: 90,
+        aeroStyle: 'stock',
+        accentColorOverride: '#f59e0b',
+      },
+    ],
+  },
+  {
+    id: 'ford_f150_raptor_r',
+    name: 'Ford F-150 Raptor R',
+    manufacturer: 'Ford',
+    category: 'Trophy Desert Supertruck',
+    price: 111500,
+    horsepower: 720,
+    zeroToSixtySec: 3.6,
+    topSpeedKmh: 215,
+    drivetrain: 'AWD',
+    groundClearance: 'high',
+    groundClearanceInches: 13.1,
+    engineLayout: '5.2L Supercharged Predator V8',
+    enginePowerRating: 97,
+    accelerationScore: 96,
+    handlingScore: 86,
+    brakesScore: 88,
+    defaultColor: '#0284c7',
+    accentColor: '#f97316',
+    bodyStyle: 'pickup_truck',
+    modelArchetype: 'pickup_crew',
+    description:
+      '720 HP Predator V8 Raptor R riding on 37-inch tires with 13.1 inches of ground clearance—built to outrun police cruisers effortlessly across Maryland fields.',
+    trims: [
+      {
+        id: 'raptor_35_v6',
+        name: 'F-150 Raptor 3.5L EcoBoost (12.0" Clearance)',
+        upgradePrice: 0,
+        horsepower: 450,
+        zeroToSixtySec: 5.1,
+        topSpeedKmh: 185,
+        drivetrain: 'AWD',
+        groundClearance: 'high',
+        groundClearanceInches: 12.0,
+        engineLayout: '3.5L High-Output EcoBoost V6',
+        accelerationScore: 88,
+        handlingScore: 85,
+        brakesScore: 86,
+        aeroStyle: 'stock',
+      },
+      {
+        id: 'raptor_r_v8',
+        name: 'Raptor R 5.2L Supercharged V8 (13.1" Clearance)',
+        upgradePrice: 32000,
+        horsepower: 720,
+        zeroToSixtySec: 3.6,
+        topSpeedKmh: 215,
+        drivetrain: 'AWD',
+        groundClearance: 'high',
+        groundClearanceInches: 13.1,
+        engineLayout: '5.2L Predator Supercharged V8 + 37" KO2s',
+        accelerationScore: 97,
+        handlingScore: 87,
+        brakesScore: 89,
+        aeroStyle: 'stock',
+        accentColorOverride: '#f97316',
+      },
+    ],
+  },
+  {
+    id: 'rivian_r1t_quad',
+    name: 'Rivian R1T Quad-Motor Max',
+    manufacturer: 'Rivian',
+    category: 'Electric Adventure Pickup',
+    price: 94000,
+    horsepower: 1025,
+    zeroToSixtySec: 2.5,
+    topSpeedKmh: 218,
+    drivetrain: 'AWD',
+    groundClearance: 'high',
+    groundClearanceInches: 14.9,
+    engineLayout: 'Quad-Motor Independent Torque-Vectoring EV + Air Suspension',
+    enginePowerRating: 104,
+    accelerationScore: 107,
+    handlingScore: 90,
+    brakesScore: 92,
+    defaultColor: '#eab308',
+    accentColor: '#38bdf8',
+    bodyStyle: 'pickup_truck',
+    modelArchetype: 'pickup_crew',
+    description:
+      'Active air suspension raises the Rivian R1T to an enormous 14.9 inches of clearance while 1,025 HP quad motors launch 0-60 in 2.5s on dirt or pavement.',
+    trims: [
+      {
+        id: 'r1t_dual_perf',
+        name: 'Dual-Motor Performance (14.4" Clearance)',
+        upgradePrice: 0,
+        horsepower: 665,
+        zeroToSixtySec: 3.5,
+        topSpeedKmh: 201,
+        drivetrain: 'AWD',
+        groundClearance: 'high',
+        groundClearanceInches: 14.4,
+        engineLayout: 'Dual-Motor AWD + 14.4" Air Ride',
+        accelerationScore: 96,
+        handlingScore: 88,
+        brakesScore: 90,
+        aeroStyle: 'stock',
+      },
+      {
+        id: 'r1t_quad_ascend',
+        name: 'Ascend Quad-Motor 1,025 HP (14.9" Clearance)',
+        upgradePrice: 18000,
+        horsepower: 1025,
+        zeroToSixtySec: 2.5,
+        topSpeedKmh: 218,
+        drivetrain: 'AWD',
+        groundClearance: 'high',
+        groundClearanceInches: 14.9,
+        engineLayout: 'Quad-Motor 1,198 lb-ft + Launch Mode',
+        accelerationScore: 107,
+        handlingScore: 90,
+        brakesScore: 92,
+        aeroStyle: 'stock',
+        accentColorOverride: '#facc15',
+      },
+    ],
+  },
+  {
+    id: 'gmc_hummer_ev_pickup',
+    name: 'GMC Hummer EV 3X Pickup',
+    manufacturer: 'GMC',
+    category: 'Electric Supertruck',
+    price: 106900,
+    horsepower: 1000,
+    zeroToSixtySec: 3.0,
+    topSpeedKmh: 175,
+    drivetrain: 'AWD',
+    groundClearance: 'high',
+    groundClearanceInches: 15.9,
+    engineLayout: 'Tri-Motor Ultium EV + Extract Mode (15.9" Lift)',
+    enginePowerRating: 102,
+    accelerationScore: 103,
+    handlingScore: 82,
+    brakesScore: 86,
+    defaultColor: '#f8fafc',
+    accentColor: '#38bdf8',
+    bodyStyle: 'pickup_truck',
+    modelArchetype: 'pickup_crew',
+    description:
+      'Extract Mode jacks this 1,000 HP Ultium supertruck up to 15.9 inches of ground clearance with 4-wheel steer and 35" Goodyear Territory M/Ts.',
+    trims: [
+      {
+        id: 'hummer_ev_2x',
+        name: 'Hummer EV 2X (11.9" Standard Ride)',
+        upgradePrice: 0,
+        horsepower: 570,
+        zeroToSixtySec: 4.4,
+        topSpeedKmh: 171,
+        drivetrain: 'AWD',
+        groundClearance: 'high',
+        groundClearanceInches: 11.9,
+        engineLayout: 'Dual-Motor Ultium EV + 4-Wheel Steer',
+        accelerationScore: 90,
+        handlingScore: 81,
+        brakesScore: 85,
+        aeroStyle: 'stock',
+      },
+      {
+        id: 'hummer_ev_3x_extract',
+        name: '3X Watts-To-Freedom Extract (15.9" Clearance)',
+        upgradePrice: 12000,
+        horsepower: 1000,
+        zeroToSixtySec: 3.0,
+        topSpeedKmh: 185,
+        drivetrain: 'AWD',
+        groundClearance: 'high',
+        groundClearanceInches: 15.9,
+        engineLayout: 'Tri-Motor 1,000 HP + Extract Air Suspension',
+        accelerationScore: 103,
+        handlingScore: 83,
+        brakesScore: 87,
+        aeroStyle: 'stock',
+        accentColorOverride: '#0284c7',
+      },
+    ],
+  },
+  {
+    id: 'toyota_land_cruiser',
+    name: 'Toyota Land Cruiser 1958 / First Edition',
+    manufacturer: 'Toyota',
+    category: 'Heritage 4x4 SUV',
+    price: 57500,
+    horsepower: 326,
+    zeroToSixtySec: 7.4,
+    topSpeedKmh: 182,
+    drivetrain: 'AWD',
+    groundClearance: 'high',
+    groundClearanceInches: 8.7,
+    engineLayout: '2.4L i-FORCE MAX Hybrid + Full-Time 4WD',
+    enginePowerRating: 82,
+    accelerationScore: 79,
+    handlingScore: 84,
+    brakesScore: 85,
+    defaultColor: '#64748b',
+    accentColor: '#f59e0b',
+    bodyStyle: 'offroad_suv',
+    modelArchetype: 'suv_offroad',
+    description:
+      'Trail-tested Toyota Land Cruiser (J250) with center/rear locking differentials, stabilizer bar disconnect, and 8.7" ground clearance.',
+    trims: [
+      {
+        id: 'land_cruiser_1958',
+        name: 'Land Cruiser 1958 (8.7" Clearance)',
+        upgradePrice: 0,
+        horsepower: 326,
+        zeroToSixtySec: 7.4,
+        topSpeedKmh: 182,
+        drivetrain: 'AWD',
+        groundClearance: 'high',
+        groundClearanceInches: 8.7,
+        engineLayout: '2.4L Hybrid 465 lb-ft + Full-Time 4WD',
+        accelerationScore: 79,
+        handlingScore: 84,
+        brakesScore: 85,
+        aeroStyle: 'stock',
+      },
+      {
+        id: 'land_cruiser_first_ed',
+        name: 'First Edition Overland (9.6" Lift)',
+        upgradePrice: 17500,
+        horsepower: 365,
+        zeroToSixtySec: 6.7,
+        topSpeedKmh: 190,
+        drivetrain: 'AWD',
+        groundClearance: 'high',
+        groundClearanceInches: 9.6,
+        engineLayout: 'Tuned Hybrid + Roof Rack & Skid Armor',
+        accelerationScore: 82,
+        handlingScore: 86,
+        brakesScore: 86,
+        aeroStyle: 'stock',
+        accentColorOverride: '#d97706',
+      },
+    ],
+  },
+  {
+    id: 'chevy_tahoe_z71',
+    name: 'Chevrolet Tahoe Z71 4x4',
+    manufacturer: 'Chevrolet',
+    category: 'Full-Size Off-Road SUV',
+    price: 66500,
+    horsepower: 420,
+    zeroToSixtySec: 5.7,
+    topSpeedKmh: 202,
+    drivetrain: 'AWD',
+    groundClearance: 'high',
+    groundClearanceInches: 10.1,
+    engineLayout: '6.2L V8 + Four-Corner Air Ride Adaptive Suspension',
+    enginePowerRating: 87,
+    accelerationScore: 84,
+    handlingScore: 82,
+    brakesScore: 85,
+    defaultColor: '#1e293b',
+    accentColor: '#dc2626',
+    bodyStyle: 'offroad_suv',
+    modelArchetype: 'suv_offroad',
+    description:
+      'High-approach Chevy Tahoe Z71 with 10.1" Air Ride max clearance, red recovery hooks, and 420 HP V8 authority on streets and fields.',
+    trims: [
+      {
+        id: 'tahoe_z71_53',
+        name: 'Tahoe Z71 5.3L V8 (8.0" Standard)',
+        upgradePrice: 0,
+        horsepower: 355,
+        zeroToSixtySec: 6.8,
+        topSpeedKmh: 190,
+        drivetrain: 'AWD',
+        groundClearance: 'high',
+        groundClearanceInches: 8.0,
+        engineLayout: '5.3L EcoTec3 V8 + 2-Speed 4WD',
+        accelerationScore: 80,
+        handlingScore: 80,
+        brakesScore: 83,
+        aeroStyle: 'stock',
+      },
+      {
+        id: 'tahoe_z71_62_air',
+        name: 'Tahoe Z71 6.2L Air Ride (10.1" Lift)',
+        upgradePrice: 9500,
+        horsepower: 420,
+        zeroToSixtySec: 5.7,
+        topSpeedKmh: 202,
+        drivetrain: 'AWD',
+        groundClearance: 'high',
+        groundClearanceInches: 10.1,
+        engineLayout: '6.2L V8 + 10.1" Adaptive Air Suspension',
+        accelerationScore: 85,
+        handlingScore: 83,
+        brakesScore: 86,
+        aeroStyle: 'stock',
+        accentColorOverride: '#ef4444',
+      },
+    ],
+  },
+  {
+    id: 'ford_bronco_raptor',
+    name: 'Ford Bronco Raptor 4x4',
+    manufacturer: 'Ford',
+    category: 'Ultra4 Off-Road SUV',
+    price: 90035,
+    horsepower: 418,
+    zeroToSixtySec: 5.6,
+    topSpeedKmh: 184,
+    drivetrain: 'AWD',
+    groundClearance: 'high',
+    groundClearanceInches: 13.1,
+    engineLayout: '3.0L Twin-Turbo V6 + HOSS 4.0 FOX Live Valve',
+    enginePowerRating: 89,
+    accelerationScore: 86,
+    handlingScore: 86,
+    brakesScore: 87,
+    defaultColor: '#f97316',
+    accentColor: '#18181b',
+    bodyStyle: 'offroad_suv',
+    modelArchetype: 'suv_offroad',
+    description:
+      'Factory 37-inch tires and 13.1" ground clearance make this widebody Bronco Raptor an unstoppable grass and highway cruiser.',
+    trims: [
+      {
+        id: 'bronco_raptor_stock',
+        name: 'Bronco Raptor 3.0L (13.1" Clearance)',
+        upgradePrice: 0,
+        horsepower: 418,
+        zeroToSixtySec: 5.6,
+        topSpeedKmh: 184,
+        drivetrain: 'AWD',
+        groundClearance: 'high',
+        groundClearanceInches: 13.1,
+        engineLayout: '3.0L Twin-Turbo V6 + 37" BFGoodrich KO2',
+        accelerationScore: 86,
+        handlingScore: 86,
+        brakesScore: 87,
+        aeroStyle: 'stock',
+      },
+      {
+        id: 'bronco_raptor_r',
+        name: 'Bronco Velociraptor 500 (13.6" Clearance)',
+        upgradePrice: 24000,
+        horsepower: 500,
+        zeroToSixtySec: 4.8,
+        topSpeedKmh: 198,
+        drivetrain: 'AWD',
+        groundClearance: 'high',
+        groundClearanceInches: 13.6,
+        engineLayout: '3.0L Tuned Twin-Turbo + Heavy Baja Tune',
+        accelerationScore: 91,
+        handlingScore: 88,
+        brakesScore: 88,
+        aeroStyle: 'stock',
+        accentColorOverride: '#ef4444',
+      },
+    ],
+  },
+  {
+    id: 'jeep_wrangler_392',
+    name: 'Jeep Wrangler Rubicon 392',
+    manufacturer: 'Jeep',
+    category: 'V8 Rock Crawler SUV',
+    price: 91500,
+    horsepower: 470,
+    zeroToSixtySec: 4.4,
+    topSpeedKmh: 185,
+    drivetrain: 'AWD',
+    groundClearance: 'high',
+    groundClearanceInches: 12.9,
+    engineLayout: '6.4L HEMI 392 V8 + Xtreme 35 Tire Package',
+    enginePowerRating: 91,
+    accelerationScore: 90,
+    handlingScore: 83,
+    brakesScore: 85,
+    defaultColor: '#facc15',
+    accentColor: '#991b1b',
+    bodyStyle: 'offroad_suv',
+    modelArchetype: 'suv_offroad',
+    description:
+      'A 470 HP naturally aspirated 6.4L HEMI shoehorned into a 12.9"-clearance Rubicon 392—climbs curbs and flies across lawns.',
+    trims: [
+      {
+        id: 'wrangler_rubicon_392_std',
+        name: 'Rubicon 392 Xtreme 35 (11.6" Clearance)',
+        upgradePrice: 0,
+        horsepower: 470,
+        zeroToSixtySec: 4.4,
+        topSpeedKmh: 180,
+        drivetrain: 'AWD',
+        groundClearance: 'high',
+        groundClearanceInches: 11.6,
+        engineLayout: '6.4L HEMI V8 + Full-Time Selec-Trac 4WD',
+        accelerationScore: 90,
+        handlingScore: 83,
+        brakesScore: 85,
+        aeroStyle: 'stock',
+      },
+      {
+        id: 'wrangler_392_final',
+        name: '392 Final Edition AEV 37s (12.9" Clearance)',
+        upgradePrice: 18500,
+        horsepower: 620,
+        zeroToSixtySec: 3.8,
+        topSpeedKmh: 198,
+        drivetrain: 'AWD',
+        groundClearance: 'high',
+        groundClearanceInches: 12.9,
+        engineLayout: '6.4L Supercharged HEMI + 12.9" AEV Lift',
+        accelerationScore: 95,
+        handlingScore: 85,
+        brakesScore: 87,
+        aeroStyle: 'stock',
+        accentColorOverride: '#dc2626',
+      },
+    ],
+  },
+  {
+    id: 'land_rover_defender_v8',
+    name: 'Land Rover Defender 110 V8 / OCTA',
+    manufacturer: 'Land Rover',
+    category: 'Expedition Super-SUV',
+    price: 111500,
+    horsepower: 518,
+    zeroToSixtySec: 4.9,
+    topSpeedKmh: 240,
+    drivetrain: 'AWD',
+    groundClearance: 'high',
+    groundClearanceInches: 11.5,
+    engineLayout: '5.0L Supercharged V8 + Terrain Response 2',
+    enginePowerRating: 93,
+    accelerationScore: 91,
+    handlingScore: 88,
+    brakesScore: 90,
+    defaultColor: '#3f6212',
+    accentColor: '#18181b',
+    bodyStyle: 'offroad_suv',
+    modelArchetype: 'suv_offroad',
+    description:
+      'British expedition icon combining 11.5"-12.7" air suspension clearance with a 518 HP Supercharged V8 (or 626 HP OCTA Twin-Turbo V8).',
+    trims: [
+      {
+        id: 'defender_110_v8',
+        name: 'Defender 110 Carpathian V8 (11.5" Clearance)',
+        upgradePrice: 0,
+        horsepower: 518,
+        zeroToSixtySec: 4.9,
+        topSpeedKmh: 240,
+        drivetrain: 'AWD',
+        groundClearance: 'high',
+        groundClearanceInches: 11.5,
+        engineLayout: '5.0L Supercharged AJ-V8 + Electronic Air',
+        accelerationScore: 91,
+        handlingScore: 88,
+        brakesScore: 90,
+        aeroStyle: 'stock',
+      },
+      {
+        id: 'defender_octa',
+        name: 'Defender OCTA 6D Dynamics (12.7" Clearance)',
+        upgradePrice: 41000,
+        horsepower: 626,
+        zeroToSixtySec: 3.8,
+        topSpeedKmh: 250,
+        drivetrain: 'AWD',
+        groundClearance: 'high',
+        groundClearanceInches: 12.7,
+        engineLayout: '4.4L Twin-Turbo MHEV V8 + 6D Pitch Control',
+        accelerationScore: 96,
+        handlingScore: 92,
+        brakesScore: 93,
+        aeroStyle: 'stock',
+        accentColorOverride: '#ca8a04',
+      },
+    ],
+  },
+  {
+    id: 'rivian_r1s_quad',
+    name: 'Rivian R1S Quad-Motor Max SUV',
+    manufacturer: 'Rivian',
+    category: 'Electric 3-Row Off-Road SUV',
+    price: 96000,
+    horsepower: 1025,
+    zeroToSixtySec: 2.6,
+    topSpeedKmh: 218,
+    drivetrain: 'AWD',
+    groundClearance: 'high',
+    groundClearanceInches: 14.9,
+    engineLayout: 'Quad-Motor Independent Torque-Vectoring EV + Air Ride',
+    enginePowerRating: 104,
+    accelerationScore: 106,
+    handlingScore: 90,
+    brakesScore: 92,
+    defaultColor: '#15803d',
+    accentColor: '#facc15',
+    bodyStyle: 'offroad_suv',
+    modelArchetype: 'suv_offroad',
+    description:
+      '7-passenger electric SUV delivering 1,025 HP and 14.9 inches of ground clearance in Highest mode—faster on grass than supercars on slicks.',
+    trims: [
+      {
+        id: 'r1s_dual_perf',
+        name: 'R1S Dual-Motor Perf (14.4" Clearance)',
+        upgradePrice: 0,
+        horsepower: 665,
+        zeroToSixtySec: 3.5,
+        topSpeedKmh: 201,
+        drivetrain: 'AWD',
+        groundClearance: 'high',
+        groundClearanceInches: 14.4,
+        engineLayout: 'Dual-Motor AWD EV + 14.4" Air Lift',
+        accelerationScore: 96,
+        handlingScore: 89,
+        brakesScore: 90,
+        aeroStyle: 'stock',
+      },
+      {
+        id: 'r1s_quad_ascend',
+        name: 'R1S Ascend Quad-Motor (14.9" Clearance)',
+        upgradePrice: 18500,
+        horsepower: 1025,
+        zeroToSixtySec: 2.6,
+        topSpeedKmh: 218,
+        drivetrain: 'AWD',
+        groundClearance: 'high',
+        groundClearanceInches: 14.9,
+        engineLayout: 'Quad-Motor 1,025 HP + Hydraulic Roll Control',
+        accelerationScore: 106,
+        handlingScore: 91,
+        brakesScore: 93,
+        aeroStyle: 'stock',
+        accentColorOverride: '#eab308',
+      },
+    ],
+  },
+  {
+    id: 'porsche_cayenne_turbo_gt',
+    name: 'Porsche Cayenne Turbo GT',
+    manufacturer: 'Porsche',
+    category: 'Nürburgring Performance SUV',
+    price: 197950,
+    horsepower: 650,
+    zeroToSixtySec: 3.1,
+    topSpeedKmh: 305,
+    drivetrain: 'AWD',
+    groundClearance: 'high',
+    groundClearanceInches: 7.4,
+    offRoadScore: 46,
+    engineLayout: '4.0L Twin-Turbo V8 + Track-Tuned Air Ride & 22" Corsa Tires',
+    enginePowerRating: 98,
+    accelerationScore: 99,
+    handlingScore: 97,
+    brakesScore: 97,
+    defaultColor: '#64748b',
+    accentColor: '#eab308',
+    bodyStyle: 'offroad_suv',
+    modelArchetype: 'suv_sport',
+    description:
+      'Arctic Grey Cayenne Turbo GT tuned for 305 km/h Nürburgring lap times on 22" Pirelli Corsa street-track rubber—clears curbs better than a supercar, but stiff for deep off-roading.',
+    trims: [
+      {
+        id: 'cayenne_turbo_gt_650',
+        name: 'Cayenne Turbo GT (7.4" Track Ride)',
+        upgradePrice: 0,
+        horsepower: 650,
+        zeroToSixtySec: 3.1,
+        topSpeedKmh: 305,
+        drivetrain: 'AWD',
+        groundClearance: 'high',
+        groundClearanceInches: 7.4,
+        offRoadScore: 46,
+        engineLayout: '4.0L Twin-Turbo V8 + PDCC Active Roll',
+        accelerationScore: 99,
+        handlingScore: 97,
+        brakesScore: 97,
+        aeroStyle: 'sport_spoiler',
+      },
+      {
+        id: 'cayenne_turbo_ehyb',
+        name: 'Cayenne Turbo E-Hybrid GT (8.0" Lift)',
+        upgradePrice: 22000,
+        horsepower: 729,
+        zeroToSixtySec: 2.9,
+        topSpeedKmh: 312,
+        drivetrain: 'AWD',
+        groundClearance: 'high',
+        groundClearanceInches: 8.0,
+        offRoadScore: 49,
+        engineLayout: '4.0L Twin-Turbo V8 + E-Motor (700 lb-ft)',
+        accelerationScore: 102,
+        handlingScore: 96,
+        brakesScore: 97,
+        aeroStyle: 'sport_spoiler',
+        accentColorOverride: '#facc15',
+      },
+    ],
+  },
+  {
+    id: 'range_rover_sv',
+    name: 'Range Rover Sport SV Edition',
+    manufacturer: 'Land Rover',
+    category: 'Ultra-Luxury Super-SUV',
+    price: 210000,
+    horsepower: 626,
+    zeroToSixtySec: 3.6,
+    topSpeedKmh: 290,
+    drivetrain: 'AWD',
+    groundClearance: 'high',
+    groundClearanceInches: 10.7,
+    offRoadScore: 60,
+    engineLayout: '4.4L Twin-Turbo Mild-Hybrid V8 + 6D Air Suspension',
+    enginePowerRating: 97,
+    accelerationScore: 96,
+    handlingScore: 94,
+    brakesScore: 95,
+    defaultColor: '#92400e',
+    accentColor: '#fbbf24',
+    bodyStyle: 'offroad_suv',
+    modelArchetype: 'suv_sport',
+    description:
+      'Carbon-ceramic 626 HP Range Rover SV combining 290 km/h poise with Terrain Response air lift, limited slightly off-road by heavy weight and 23" street performance tires.',
+    trims: [
+      {
+        id: 'range_rover_p615',
+        name: 'Range Rover SV P615 (11.6" Air Lift)',
+        upgradePrice: 0,
+        horsepower: 606,
+        zeroToSixtySec: 4.3,
+        topSpeedKmh: 261,
+        drivetrain: 'AWD',
+        groundClearance: 'high',
+        groundClearanceInches: 11.6,
+        offRoadScore: 64,
+        engineLayout: '4.4L Twin-Turbo V8 + Long-Travel Air',
+        accelerationScore: 92,
+        handlingScore: 90,
+        brakesScore: 93,
+        aeroStyle: 'stock',
+      },
+      {
+        id: 'range_rover_sport_sv',
+        name: 'Sport SV Carbon Ceramic (10.7" Street Tune)',
+        upgradePrice: 28000,
+        horsepower: 626,
+        zeroToSixtySec: 3.6,
+        topSpeedKmh: 290,
+        drivetrain: 'AWD',
+        groundClearance: 'high',
+        groundClearanceInches: 10.7,
+        offRoadScore: 58,
+        engineLayout: '4.4L Twin-Turbo V8 + Carbon Wheels & 6D Ride',
+        accelerationScore: 97,
+        handlingScore: 95,
+        brakesScore: 96,
+        aeroStyle: 'stock',
+        accentColorOverride: '#ef4444',
+      },
+    ],
+  },
+  {
+    id: 'lamborghini_urus_performante',
+    name: 'Lamborghini Urus Performante',
+    manufacturer: 'Lamborghini',
+    category: 'Exotic Super-SUV',
+    price: 273000,
+    horsepower: 657,
+    zeroToSixtySec: 3.1,
+    topSpeedKmh: 306,
+    drivetrain: 'AWD',
+    groundClearance: 'high',
+    groundClearanceInches: 8.1,
+    offRoadScore: 49,
+    engineLayout: '4.0L Twin-Turbo V8 + Lowered Steel Springs + Torsen AWD',
+    enginePowerRating: 99,
+    accelerationScore: 100,
+    handlingScore: 96,
+    brakesScore: 97,
+    defaultColor: '#84cc16',
+    accentColor: '#18181b',
+    bodyStyle: 'offroad_suv',
+    modelArchetype: 'suv_sport',
+    description:
+      'Lowered steel-spring exotic Super-SUV on 22"/23" Pirelli P Zero Trofeo track rubber—far more capable over grass than low supercars like a Jesko, but far behind true 4x4 pickups.',
+    trims: [
+      {
+        id: 'urus_performante',
+        name: 'Urus Performante (8.1" Lowered Coil)',
+        upgradePrice: 0,
+        horsepower: 657,
+        zeroToSixtySec: 3.1,
+        topSpeedKmh: 306,
+        drivetrain: 'AWD',
+        groundClearance: 'high',
+        groundClearanceInches: 8.1,
+        offRoadScore: 49,
+        engineLayout: '4.0L Twin-Turbo V8 + Rally Mode',
+        accelerationScore: 100,
+        handlingScore: 96,
+        brakesScore: 97,
+        aeroStyle: 'sport_spoiler',
+      },
+      {
+        id: 'urus_se_hybrid',
+        name: 'Urus SE Twin-Turbo Hybrid (8.5" Air Lift)',
+        upgradePrice: 35000,
+        horsepower: 789,
+        zeroToSixtySec: 2.85,
+        topSpeedKmh: 318,
+        drivetrain: 'AWD',
+        groundClearance: 'high',
+        groundClearanceInches: 8.5,
+        offRoadScore: 52,
+        engineLayout: '4.0L Twin-Turbo V8 + Electric Torque Fill',
+        accelerationScore: 104,
+        handlingScore: 97,
+        brakesScore: 98,
+        aeroStyle: 'sport_spoiler',
+        accentColorOverride: '#f97316',
+      },
+    ],
+  },
+  {
+    id: 'mercedes_g63_4x4',
+    name: 'Mercedes-AMG G 63 4x4 Squared',
+    manufacturer: 'Mercedes-AMG',
+    category: 'Portal-Axle Super-SUV',
+    price: 349000,
+    horsepower: 577,
+    zeroToSixtySec: 4.5,
+    topSpeedKmh: 210,
+    drivetrain: 'AWD',
+    groundClearance: 'high',
+    groundClearanceInches: 13.8,
+    engineLayout: '4.0L Handcrafted Biturbo V8 + Portal Axles (3 Locks)',
+    enginePowerRating: 95,
+    accelerationScore: 92,
+    handlingScore: 87,
+    brakesScore: 90,
+    defaultColor: '#10b981',
+    accentColor: '#18181b',
+    bodyStyle: 'offroad_suv',
+    modelArchetype: 'suv_offroad',
+    description:
+      'Portal-axle AMG G 63 4x4² boasting 13.8" of rigid ground clearance, triple locking differentials, roof lightbar, and optional Brabus 800 Widestar power.',
+    trims: [
+      {
+        id: 'g63_4x4_squared',
+        name: 'AMG G 63 4x4² Portal Axle (13.8" Clearance)',
+        upgradePrice: 0,
+        horsepower: 577,
+        zeroToSixtySec: 4.5,
+        topSpeedKmh: 210,
+        drivetrain: 'AWD',
+        groundClearance: 'high',
+        groundClearanceInches: 13.8,
+        engineLayout: '4.0L Biturbo V8 + Portal Axles',
+        accelerationScore: 92,
+        handlingScore: 87,
+        brakesScore: 90,
+        aeroStyle: 'stock',
+      },
+      {
+        id: 'g63_brabus_800',
+        name: 'Brabus 800 4x4² Superblack (14.2" Lift)',
+        upgradePrice: 95000,
+        horsepower: 800,
+        zeroToSixtySec: 3.7,
+        topSpeedKmh: 235,
+        drivetrain: 'AWD',
+        groundClearance: 'high',
+        groundClearanceInches: 14.2,
+        engineLayout: '4.0L Biturbo Brabus 800 HP + Carbon Fender Flares',
+        accelerationScore: 98,
+        handlingScore: 88,
+        brakesScore: 92,
+        aeroStyle: 'stock',
+        accentColorOverride: '#ef4444',
+      },
+    ],
+  },
 ];
+
+// Keep Metro City dealership & catalog strictly ordered from least expensive to most expensive
+CITY_STREET_CARS.sort((a, b) => {
+  if (a.price !== b.price) return a.price - b.price;
+  return a.name.localeCompare(b.name);
+});
+
+const DEFAULT_CLEARANCE_INCHES_BY_CAR: Record<string, number> = {
+  honda_civic: 5.3,
+  toyota_camry: 5.7,
+  chevy_camaro: 5.0,
+  chevy_corvette: 5.3,
+  toyota_supra_mk5: 4.7,
+  dodge_challenger: 5.2,
+  dodge_charger: 5.2,
+  bmw_m4: 4.7,
+  cadillac_escalade: 8.0,
+  toyota_supra_mk4: 5.1,
+  nissan_gtr_r35: 4.3,
+  porsche_911: 4.9,
+  cadillac_escalade_v: 8.0,
+  nissan_gtr_r34: 5.5,
+  lamborghini_huracan: 5.3,
+  nissan_gtr_r34_ztune: 5.1,
+  mcmurtry_speirling: 3.2,
+  rimac_nevera: 4.3,
+  koenigsegg_regera: 4.1,
+  koenigsegg_agera_rs: 4.1,
+  bugatti_chiron_pur_sport: 4.3,
+  bugatti_chiron_super_sport: 4.3,
+  koenigsegg_jesko: 3.9,
+};
+
+// Realistic 0-100 off-road capability scores (considering tire compound/sidewall, suspension travel,
+// differential lockers, weight & approach/breakover geometry — not just height!)
+const DEFAULT_OFFROAD_SCORE_BY_CAR: Record<string, number> = {
+  mcmurtry_speirling: 12,
+  koenigsegg_jesko: 16,
+  koenigsegg_agera_rs: 18,
+  koenigsegg_regera: 18,
+  bugatti_chiron_pur_sport: 21,
+  bugatti_chiron_super_sport: 22,
+  rimac_nevera: 24,
+  chevy_corvette: 25,
+  toyota_supra_mk5: 25,
+  porsche_911: 26,
+  bmw_m4: 27,
+  toyota_supra_mk4: 27,
+  nissan_gtr_r35: 28,
+  lamborghini_huracan: 29,
+  chevy_camaro: 23,
+  nissan_gtr_r34_ztune: 30,
+  nissan_gtr_r34: 33,
+  dodge_challenger: 22,
+  dodge_charger: 24,
+  honda_civic: 38,
+  toyota_camry: 40,
+  porsche_cayenne_turbo_gt: 46,
+  lamborghini_urus_performante: 49,
+  cadillac_escalade_v: 50,
+  cadillac_escalade: 54,
+  range_rover_sv: 60,
+  chevy_tahoe_z71: 75,
+  ford_maverick_tremor: 76,
+  toyota_land_cruiser: 81,
+  land_rover_defender_v8: 82,
+  rivian_r1s_quad: 85,
+  jeep_wrangler_392: 88,
+  toyota_tacoma_trd_pro: 89,
+  ford_ranger_raptor: 91,
+  ford_bronco_raptor: 91,
+  jeep_gladiator_mojave: 92,
+  mercedes_g63_4x4: 92,
+  chevy_silverado_zr2: 93,
+  gmc_hummer_ev_pickup: 93,
+  rivian_r1t_quad: 95,
+  ram_1500_trx: 96,
+  ford_f150_raptor_r: 98,
+};
+
+const DEFAULT_OFFROAD_SCORE_BY_TRIM: Record<string, number> = {
+  camaro_lt1: 23,
+  camaro_ss_1le: 21,
+  camaro_zl1: 19,
+  camaro_zl1_1le: 18,
+  challenger_scat_pack: 22,
+  challenger_hellcat_redeye: 19,
+  challenger_demon_170: 17,
+  charger_scat_pack: 24,
+  charger_hellcat_redeye: 20,
+  charger_king_daytona: 19,
+  civic_type_r: 31,
+  camry_trd_v6: 33,
+  bmw_m3_comp_xdrive: 32,
+  bmw_m4_csl: 24,
+  corvette_z06_z07: 21,
+  huracan_sto: 24,
+  huracan_tecnica: 26,
+  porsche_911_gt3_rs: 22,
+  tahoe_z71_62_air: 79,
+  land_cruiser_first_ed: 84,
+  defender_octa: 86,
+  r1s_quad_ascend: 88,
+  wrangler_392_final: 91,
+  bronco_raptor_r: 93,
+  g63_brabus_800: 94,
+  tacoma_trailhunter_baja: 92,
+  ranger_raptor_baja: 93,
+  gladiator_rubicon_392: 94,
+  silverado_zr2_bison: 95,
+  hummer_ev_3x_extract: 96,
+  r1t_quad_ascend: 97,
+  ram_trx_mammoth: 98,
+  f150_velociraptor_1000: 99,
+};
+
+export type StreetCarFilterBucket = 'all' | 'pickups' | 'suvs' | 'muscle_jdm' | 'exotics';
+
+export function getStreetCarCategoryBucket(car: StreetCarSpec): Exclude<StreetCarFilterBucket, 'all'> {
+  if (car.bodyStyle === 'pickup_truck') return 'pickups';
+  if (car.bodyStyle === 'armored_suv' || car.bodyStyle === 'offroad_suv') return 'suvs';
+  if (
+    car.bodyStyle === 'hatchback' ||
+    car.bodyStyle === 'tuner_coupe' ||
+    car.bodyStyle === 'muscle_v8'
+  ) {
+    return 'muscle_jdm';
+  }
+  return 'exotics';
+}
+
+export function getStreetCarOffRoadTier(offRoadScore: number): { label: string; colorClass: string } {
+  if (offRoadScore >= 90) return { label: 'BAJA / EXTREME 4x4', colorClass: 'text-emerald-300' };
+  if (offRoadScore >= 74) return { label: 'TRAIL RATED 4x4', colorClass: 'text-lime-300' };
+  if (offRoadScore >= 45) return { label: 'LIGHT OFF-ROAD', colorClass: 'text-teal-300' };
+  if (offRoadScore >= 30) return { label: 'STREET', colorClass: 'text-amber-300' };
+  return { label: 'TRACK ONLY', colorClass: 'text-rose-300' };
+}
 
 export function getEffectiveStreetCarSpec(
   car: StreetCarSpec,
   trimId?: string
-): StreetCarSpec & { activeTrim: StreetCarTrimSpec } {
+): StreetCarSpec & { activeTrim: StreetCarTrimSpec; groundClearanceInches: number; offRoadScore: number } {
   const activeTrim =
     (trimId ? car.trims.find((t) => t.id === trimId) : undefined) || car.trims[0];
+  const resolvedInches =
+    activeTrim.groundClearanceInches ??
+    car.groundClearanceInches ??
+    DEFAULT_CLEARANCE_INCHES_BY_CAR[car.id] ??
+    (car.bodyStyle === 'armored_suv'
+      ? 8.0
+      : car.bodyStyle === 'pickup_truck' || car.bodyStyle === 'offroad_suv'
+      ? 10.5
+      : car.bodyStyle === 'hatchback' || car.bodyStyle === 'tuner_coupe'
+      ? 5.3
+      : 4.5);
+  const resolvedOffRoadScore = Math.max(
+    10,
+    Math.min(
+      100,
+      Math.round(
+        activeTrim.offRoadScore ??
+          DEFAULT_OFFROAD_SCORE_BY_TRIM[activeTrim.id] ??
+          car.offRoadScore ??
+          DEFAULT_OFFROAD_SCORE_BY_CAR[car.id] ??
+          (car.bodyStyle === 'pickup_truck'
+            ? 88
+            : car.bodyStyle === 'offroad_suv'
+            ? 74
+            : car.bodyStyle === 'armored_suv'
+            ? 52
+            : 30)
+      )
+    )
+  );
   const clearance: 'low' | 'medium' | 'high' =
     activeTrim.groundClearance ||
     car.groundClearance ||
-    (car.id.includes('escalade') || car.bodyStyle === 'armored_suv'
-      ? 'high'
-      : car.id.includes('civic') || car.id.includes('camry') || car.id.includes('charger') || car.bodyStyle === 'hatchback'
-      ? 'medium'
-      : 'low');
+    (resolvedInches >= 7.5 ? 'high' : resolvedInches >= 5.2 ? 'medium' : 'low');
   return {
     ...car,
     horsepower: activeTrim.horsepower,
@@ -1846,6 +3155,8 @@ export function getEffectiveStreetCarSpec(
     topSpeedKmh: activeTrim.topSpeedKmh,
     drivetrain: activeTrim.drivetrain,
     groundClearance: clearance,
+    groundClearanceInches: Number(resolvedInches.toFixed(1)),
+    offRoadScore: resolvedOffRoadScore,
     engineLayout: activeTrim.engineLayout,
     accelerationScore: activeTrim.accelerationScore,
     handlingScore: activeTrim.handlingScore,
@@ -1874,6 +3185,52 @@ export interface MetroCitySaveState {
   totalJobsCompleted: number;
   totalHeistsCompleted: number;
   bankRobberyBustCount: number;
+  jobSkillXp?: number;
+  outdoorJobsCompleted?: number;
+}
+
+export interface JobSkillRankInfo {
+  level: number;
+  title: string;
+  xp: number;
+  nextLevelXp: number;
+  progressPct: number;
+  payoutMultiplier: number;
+}
+
+export function getJobSkillRankInfo(rawXp: number = 0): JobSkillRankInfo {
+  const xp = Math.max(0, Math.round(rawXp));
+  const thresholds = [0, 80, 200, 380, 620, 950, 1380, 1920, 2600, 3450, 4500];
+  const titles = [
+    'Apprentice',
+    'Journeyman',
+    'Specialist',
+    'Senior Pro',
+    'Lead Craftsman',
+    'Master Tech',
+    'Chief Operator',
+    'Elite Contractor',
+    'Maryland Legend',
+    'Grandmaster',
+    'Apex Tycoon',
+  ];
+  let idx = 0;
+  for (let i = 0; i < thresholds.length; i++) {
+    if (xp >= thresholds[i]) idx = i;
+  }
+  const curMin = thresholds[idx];
+  const nextXp = thresholds[Math.min(thresholds.length - 1, idx + 1)];
+  const span = Math.max(1, nextXp - curMin);
+  const progressPct =
+    idx >= thresholds.length - 1 ? 100 : Math.min(100, Math.round(((xp - curMin) / span) * 100));
+  return {
+    level: idx + 1,
+    title: titles[idx],
+    xp,
+    nextLevelXp: nextXp,
+    progressPct,
+    payoutMultiplier: Number((1 + idx * 0.06).toFixed(2)),
+  };
 }
 
 export interface CityJobRoute {
@@ -1889,6 +3246,7 @@ export interface CityRegularJobSpec {
   id: string;
   title: string;
   roleLabel: string;
+  jobCategory: 'Delivery & Freight' | 'Passenger & VIP' | 'Utility & Specialty';
   icon: string;
   basePay: number;
   maxTipBonus: number;
@@ -1896,6 +3254,9 @@ export interface CityRegularJobSpec {
   timeLimitSec: number;
   badgeColor: string;
   description: string;
+  skillChallenge?: 'precision_stop' | 'high_speed_run' | 'zero_damage_vip';
+  skillBadgeLabel?: string;
+  skillBonusMax?: number;
   fixedPickup?: { x: number; z: number; label: string };
   routes: CityJobRoute[];
 }
@@ -1905,6 +3266,7 @@ export const CITY_REGULAR_JOBS_CATALOG: CityRegularJobSpec[] = [
     id: 'job_taxi',
     title: 'Maryland Express Cab & Rideshare',
     roleLabel: 'TAXI DISPATCH',
+    jobCategory: 'Passenger & VIP',
     icon: '🚕',
     basePay: 2200,
     maxTipBonus: 800,
@@ -1943,6 +3305,7 @@ export const CITY_REGULAR_JOBS_CATALOG: CityRegularJobSpec[] = [
     id: 'job_pizza',
     title: 'Olde Towne Gaithersburg Brick-Oven Pizza',
     roleLabel: 'PIZZA DELIVERY',
+    jobCategory: 'Delivery & Freight',
     icon: '🍕',
     basePay: 1850,
     maxTipBonus: 650,
@@ -1982,6 +3345,7 @@ export const CITY_REGULAR_JOBS_CATALOG: CityRegularJobSpec[] = [
     id: 'job_courier',
     title: 'Chesapeake Express Logistics Courier',
     roleLabel: 'EXPRESS COURIER',
+    jobCategory: 'Delivery & Freight',
     icon: '📦',
     basePay: 2500,
     maxTipBonus: 750,
@@ -2007,19 +3371,28 @@ export const CITY_REGULAR_JOBS_CATALOG: CityRegularJobSpec[] = [
         dropoffZ: -245,
         dropoffLabel: 'Charles Center Downtown Baltimore',
       },
+      {
+        pickupX: MD_LANDMARKS.bwiAirport.x,
+        pickupZ: MD_LANDMARKS.bwiAirport.z,
+        pickupLabel: 'BWI Cargo Terminal',
+        dropoffX: MD_LANDMARKS.bethesda.x,
+        dropoffZ: MD_LANDMARKS.bethesda.z,
+        dropoffLabel: 'Bethesda Metro Plaza',
+      },
     ],
   },
   {
     id: 'job_food',
     title: 'Crab-Cake & Pit Beef Midnight Delivery',
     roleLabel: 'FOOD DELIVERY',
+    jobCategory: 'Delivery & Freight',
     icon: '🦀',
     basePay: 1950,
     maxTipBonus: 600,
     tipBonusMax: 600,
     timeLimitSec: 80,
     badgeColor: '#ec4899',
-    description: 'Pick up fresh Maryland crab cakes from Fells Point or Woodlawn and race them to hungry campus fans!',
+    description: 'Pick up fresh Maryland crab cakes from Fells Point and race them to Camden Yards or Woodlawn!',
     fixedPickup: { x: 1455, z: -155, label: 'Fells Point Thames St Waterfront Grill' },
     routes: [
       {
@@ -2044,6 +3417,7 @@ export const CITY_REGULAR_JOBS_CATALOG: CityRegularJobSpec[] = [
     id: 'job_medical',
     title: 'Johns Hopkins–NIH Trauma Med Courier',
     roleLabel: 'MEDICAL EXPRESS',
+    jobCategory: 'Utility & Specialty',
     icon: '🚑',
     basePay: 3200,
     maxTipBonus: 1000,
@@ -2069,6 +3443,1239 @@ export const CITY_REGULAR_JOBS_CATALOG: CityRegularJobSpec[] = [
         dropoffZ: -280,
         dropoffLabel: 'Johns Hopkins Hospital Trauma Center',
       },
+    ],
+  },
+  {
+    id: 'job_armored_bank',
+    title: 'Federal Reserve Armored Cash Transport',
+    roleLabel: 'ARMORED LOGISTICS',
+    jobCategory: 'Utility & Specialty',
+    icon: '🛡️',
+    basePay: 4400,
+    maxTipBonus: 1200,
+    tipBonusMax: 1200,
+    timeLimitSec: 125,
+    badgeColor: '#eab308',
+    description: 'Authorized treasury cash runs between Baltimore Federal Reserve, Annapolis Bullion, and National Harbor. Zero crashes earns full security bonus!',
+    routes: [
+      {
+        pickupX: MD_LANDMARKS.baltimoreBank.x,
+        pickupZ: MD_LANDMARKS.baltimoreBank.z,
+        pickupLabel: 'Baltimore Federal Reserve Loading Bay',
+        dropoffX: MD_LANDMARKS.annapolisStateHouse.x,
+        dropoffZ: MD_LANDMARKS.annapolisStateHouse.z,
+        dropoffLabel: 'Annapolis State Circle Treasury',
+      },
+      {
+        pickupX: MD_LANDMARKS.nationalHarbor.x,
+        pickupZ: MD_LANDMARKS.nationalHarbor.z,
+        pickupLabel: 'National Harbor Reserve Vault',
+        dropoffX: MD_LANDMARKS.baltimoreBank.x,
+        dropoffZ: MD_LANDMARKS.baltimoreBank.z,
+        dropoffLabel: 'Baltimore Federal Reserve Bank',
+      },
+      {
+        pickupX: MD_LANDMARKS.frederick.x,
+        pickupZ: MD_LANDMARKS.frederick.z,
+        pickupLabel: 'Frederick Carroll Creek Trust',
+        dropoffX: MD_LANDMARKS.baltimoreBank.x,
+        dropoffZ: MD_LANDMARKS.baltimoreBank.z,
+        dropoffLabel: 'Baltimore Federal Reserve Bank',
+      },
+    ],
+  },
+  {
+    id: 'job_vip_limo',
+    title: 'Capital VIP Black-Car Chauffeur',
+    roleLabel: 'VIP CHAUFFEUR',
+    jobCategory: 'Passenger & VIP',
+    icon: '🚘',
+    basePay: 3600,
+    maxTipBonus: 1100,
+    tipBonusMax: 1100,
+    timeLimitSec: 115,
+    badgeColor: '#c084fc',
+    description: 'Drive executives from BWI Private Aviation & Inner Harbor WTC to Potomac Falls Estates and Bethesda Row.',
+    routes: [
+      {
+        pickupX: MD_LANDMARKS.bwiAirport.x,
+        pickupZ: MD_LANDMARKS.bwiAirport.z,
+        pickupLabel: 'BWI Signature Flight Terminal',
+        dropoffX: -760,
+        dropoffZ: 1680,
+        dropoffLabel: 'Potomac Falls Executive Estate',
+      },
+      {
+        pickupX: MD_LANDMARKS.baltimoreWTC.x,
+        pickupZ: MD_LANDMARKS.baltimoreWTC.z,
+        pickupLabel: 'Baltimore World Trade Center',
+        dropoffX: MD_LANDMARKS.bethesda.x,
+        dropoffZ: MD_LANDMARKS.bethesda.z,
+        dropoffLabel: 'Bethesda Row Executive Suites',
+      },
+      {
+        pickupX: MD_LANDMARKS.nationalHarbor.x,
+        pickupZ: MD_LANDMARKS.nationalHarbor.z,
+        pickupLabel: 'National Harbor Waterfront Hotel',
+        dropoffX: MD_LANDMARKS.annapolisCityDock.x,
+        dropoffZ: MD_LANDMARKS.annapolisCityDock.z,
+        dropoffLabel: 'Annapolis Historic Waterfront',
+      },
+    ],
+  },
+  {
+    id: 'job_roadside_tow',
+    title: 'I-270 & I-95 Roadside Assist Dispatch',
+    roleLabel: 'ROADSIDE ASSIST',
+    jobCategory: 'Utility & Specialty',
+    icon: '🪝',
+    basePay: 3100,
+    maxTipBonus: 900,
+    tipBonusMax: 900,
+    timeLimitSec: 105,
+    badgeColor: '#f59e0b',
+    description: 'Respond to stranded motorists along Maryland highways and escort repair parts back to service bays.',
+    routes: [
+      {
+        pickupX: MD_LANDMARKS.kgaiAirpark.x,
+        pickupZ: MD_LANDMARKS.kgaiAirpark.z,
+        pickupLabel: 'Montgomery Airpark Service Staging',
+        dropoffX: MD_LANDMARKS.shadyGroveMetro.x,
+        dropoffZ: MD_LANDMARKS.shadyGroveMetro.z,
+        dropoffLabel: 'I-270 / Shady Grove Breakdown Lane',
+      },
+      {
+        pickupX: MD_LANDMARKS.columbia.x,
+        pickupZ: MD_LANDMARKS.columbia.z,
+        pickupLabel: 'US-29 Columbia Breakdown Call',
+        dropoffX: MD_LANDMARKS.ellicottCity.x,
+        dropoffZ: MD_LANDMARKS.ellicottCity.z,
+        dropoffLabel: 'Ellicott City Service Garage',
+      },
+      {
+        pickupX: MD_LANDMARKS.hagerstown.x,
+        pickupZ: MD_LANDMARKS.hagerstown.z,
+        pickupLabel: 'I-70 / I-81 Hagerstown Interchange',
+        dropoffX: MD_LANDMARKS.frederick.x,
+        dropoffZ: MD_LANDMARKS.frederick.z,
+        dropoffLabel: 'Frederick Motor Repair Bay',
+      },
+    ],
+  },
+  {
+    id: 'job_bay_seafood',
+    title: 'Chesapeake Bay Seafood & Oyster Freight',
+    roleLabel: 'COLD FREIGHT',
+    jobCategory: 'Delivery & Freight',
+    icon: '🦞',
+    basePay: 3500,
+    maxTipBonus: 950,
+    tipBonusMax: 950,
+    timeLimitSec: 120,
+    badgeColor: '#06b6d4',
+    description: 'Haul fresh blue crab and oyster crates from Annapolis City Dock and Ocean City harbor to Baltimore market kitchens!',
+    routes: [
+      {
+        pickupX: MD_LANDMARKS.annapolisCityDock.x,
+        pickupZ: MD_LANDMARKS.annapolisCityDock.z,
+        pickupLabel: 'Annapolis City Dock Seafood Pier',
+        dropoffX: MD_LANDMARKS.baltimoreInnerHarbor.x,
+        dropoffZ: MD_LANDMARKS.baltimoreInnerHarbor.z,
+        dropoffLabel: 'Inner Harbor Seafood Pavilion',
+      },
+      {
+        pickupX: MD_LANDMARKS.baltimoreDominoSugar.x,
+        pickupZ: MD_LANDMARKS.baltimoreDominoSugar.z,
+        pickupLabel: 'Baltimore Harbor Cold Storage Pier',
+        dropoffX: MD_LANDMARKS.columbia.x,
+        dropoffZ: MD_LANDMARKS.columbia.z,
+        dropoffLabel: 'Columbia Mall Market Kitchen',
+      },
+      {
+        pickupX: MD_LANDMARKS.oceanCityBoardwalk.x,
+        pickupZ: MD_LANDMARKS.oceanCityBoardwalk.z,
+        pickupLabel: 'Ocean City Fishing Pier',
+        dropoffX: MD_LANDMARKS.annapolisCityDock.x,
+        dropoffZ: MD_LANDMARKS.annapolisCityDock.z,
+        dropoffLabel: 'Annapolis Dock Market',
+      },
+    ],
+  },
+  {
+    id: 'job_marc_shuttle',
+    title: 'MARC & WMATA Commuter Express Shuttle',
+    roleLabel: 'TRANSIT SHUTTLE',
+    jobCategory: 'Passenger & VIP',
+    icon: '🚐',
+    basePay: 2650,
+    maxTipBonus: 750,
+    tipBonusMax: 750,
+    timeLimitSec: 95,
+    badgeColor: '#3b82f6',
+    description: 'Connect rail commuters between Shady Grove Metro, Rockville Square, Silver Spring, and UMD College Park!',
+    routes: [
+      {
+        pickupX: MD_LANDMARKS.shadyGroveMetro.x,
+        pickupZ: MD_LANDMARKS.shadyGroveMetro.z,
+        pickupLabel: 'Shady Grove Metro Kiss & Ride',
+        dropoffX: MD_LANDMARKS.silverSpring.x,
+        dropoffZ: MD_LANDMARKS.silverSpring.z,
+        dropoffLabel: 'Silver Spring Transit Center',
+      },
+      {
+        pickupX: MD_LANDMARKS.silverSpring.x,
+        pickupZ: MD_LANDMARKS.silverSpring.z,
+        pickupLabel: 'Silver Spring Transit Center',
+        dropoffX: MD_LANDMARKS.collegeParkUMD.x,
+        dropoffZ: MD_LANDMARKS.collegeParkUMD.z,
+        dropoffLabel: 'College Park MARC & Metro',
+      },
+      {
+        pickupX: MD_LANDMARKS.rockvilleSquare.x,
+        pickupZ: MD_LANDMARKS.rockvilleSquare.z,
+        pickupLabel: 'Rockville Town Center MARC',
+        dropoffX: MD_LANDMARKS.bethesda.x,
+        dropoffZ: MD_LANDMARKS.bethesda.z,
+        dropoffLabel: 'Bethesda Metro North Entrance',
+      },
+    ],
+  },
+  {
+    id: 'job_campus_express',
+    title: 'Maryland University & Academy Charter',
+    roleLabel: 'CAMPUS CHARTER',
+    jobCategory: 'Passenger & VIP',
+    icon: '🚌',
+    basePay: 2400,
+    maxTipBonus: 700,
+    tipBonusMax: 700,
+    timeLimitSec: 95,
+    badgeColor: '#fbbf24',
+    description: 'Ferry students and faculty cleanly between College Park UMD, ISB Woodlawn, ICM Campus, and Olney!',
+    routes: [
+      {
+        pickupX: MD_LANDMARKS.collegeParkUMD.x,
+        pickupZ: MD_LANDMARKS.collegeParkUMD.z,
+        pickupLabel: 'UMD College Park Stamp Union',
+        dropoffX: MD_LANDMARKS.olney.x,
+        dropoffZ: MD_LANDMARKS.olney.z,
+        dropoffLabel: 'Olney Town Center Stop',
+      },
+      {
+        pickupX: MD_LANDMARKS.icmCampus.x,
+        pickupZ: MD_LANDMARKS.icmCampus.z,
+        pickupLabel: 'ICM Woodfield Rd Campus Loop',
+        dropoffX: MD_LANDMARKS.rioLakefront.x,
+        dropoffZ: MD_LANDMARKS.rioLakefront.z,
+        dropoffLabel: 'RIO Gaithersburg Campus Annex',
+      },
+      {
+        pickupX: MD_LANDMARKS.isbCampus.x,
+        pickupZ: MD_LANDMARKS.isbCampus.z,
+        pickupLabel: 'Woodlawn Johnnycake Campus',
+        dropoffX: MD_LANDMARKS.ellicottCity.x,
+        dropoffZ: MD_LANDMARKS.ellicottCity.z,
+        dropoffLabel: 'Ellicott City Student Dropoff',
+      },
+    ],
+  },
+  {
+    id: 'job_auto_parts',
+    title: 'Maryland Motorsport & Tire Parts Runner',
+    roleLabel: 'PARTS COURIER',
+    jobCategory: 'Delivery & Freight',
+    icon: '🔧',
+    basePay: 2550,
+    maxTipBonus: 800,
+    tipBonusMax: 800,
+    timeLimitSec: 95,
+    badgeColor: '#fb7185',
+    description: 'Deliver performance tires, brake rotors, and turbo kits to dealerships and service bays across Maryland!',
+    routes: [
+      {
+        pickupX: MD_LANDMARKS.baltimoreDealership.x,
+        pickupZ: MD_LANDMARKS.baltimoreDealership.z,
+        pickupLabel: 'Baltimore Exotic Motors Parts Dept',
+        dropoffX: MD_LANDMARKS.ellicottCity.x,
+        dropoffZ: MD_LANDMARKS.ellicottCity.z,
+        dropoffLabel: 'Ellicott City Service Station',
+      },
+      {
+        pickupX: gx(-62),
+        pickupZ: gz(1490),
+        pickupLabel: 'Watkins Mill Performance Garage',
+        dropoffX: MD_LANDMARKS.frederick.x,
+        dropoffZ: MD_LANDMARKS.frederick.z,
+        dropoffLabel: 'Frederick Custom Shop',
+      },
+      {
+        pickupX: MD_LANDMARKS.frederick.x,
+        pickupZ: MD_LANDMARKS.frederick.z,
+        pickupLabel: 'Frederick Auto Supply Warehouse',
+        dropoffX: MD_LANDMARKS.hagerstown.x,
+        dropoffZ: MD_LANDMARKS.hagerstown.z,
+        dropoffLabel: 'Hagerstown Hub Garage',
+      },
+    ],
+  },
+  {
+    id: 'job_pharmacy_rx',
+    title: 'Urgent Rx & Clinic Supply Runner',
+    roleLabel: 'PHARMACY COURIER',
+    jobCategory: 'Delivery & Freight',
+    icon: '💊',
+    basePay: 2350,
+    maxTipBonus: 750,
+    tipBonusMax: 750,
+    timeLimitSec: 90,
+    badgeColor: '#34d399',
+    description: 'Deliver sealed prescription packs between Shady Grove Medical, Bethesda NIH, Olney, and Silver Spring clinics!',
+    routes: [
+      {
+        pickupX: MD_LANDMARKS.bethesda.x,
+        pickupZ: MD_LANDMARKS.bethesda.z,
+        pickupLabel: 'Bethesda Medical Pharmacy Depot',
+        dropoffX: MD_LANDMARKS.shadyGroveMetro.x,
+        dropoffZ: MD_LANDMARKS.shadyGroveMetro.z,
+        dropoffLabel: 'Shady Grove Adventist Medical',
+      },
+      {
+        pickupX: MD_LANDMARKS.rockvilleSquare.x,
+        pickupZ: MD_LANDMARKS.rockvilleSquare.z,
+        pickupLabel: 'Rockville Clinical Pharmacy',
+        dropoffX: MD_LANDMARKS.olney.x,
+        dropoffZ: MD_LANDMARKS.olney.z,
+        dropoffLabel: 'Olney MedStar Clinic',
+      },
+      {
+        pickupX: MD_LANDMARKS.silverSpring.x,
+        pickupZ: MD_LANDMARKS.silverSpring.z,
+        pickupLabel: 'Silver Spring Medical Plaza',
+        dropoffX: MD_LANDMARKS.collegeParkUMD.x,
+        dropoffZ: MD_LANDMARKS.collegeParkUMD.z,
+        dropoffLabel: 'College Park Campus Health Center',
+      },
+    ],
+  },
+  {
+    id: 'job_realtor_tour',
+    title: 'Maryland Luxury Real Estate Showing Tour',
+    roleLabel: 'ESTATE BROKER',
+    jobCategory: 'Passenger & VIP',
+    icon: '🏡',
+    basePay: 3400,
+    maxTipBonus: 1050,
+    tipBonusMax: 1050,
+    timeLimitSec: 110,
+    badgeColor: '#f472b6',
+    description: 'Chauffeur high-net-worth buyers between luxury estates in Potomac, Kentlands, Ellicott City, and Silver Spring!',
+    routes: [
+      {
+        pickupX: MD_LANDMARKS.bethesda.x,
+        pickupZ: MD_LANDMARKS.bethesda.z,
+        pickupLabel: 'Bethesda Realty Flagship Office',
+        dropoffX: -760,
+        dropoffZ: 1680,
+        dropoffLabel: 'Potomac Falls Mansion Showing',
+      },
+      {
+        pickupX: MD_LANDMARKS.rioLakefront.x,
+        pickupZ: MD_LANDMARKS.rioLakefront.z,
+        pickupLabel: 'RIO Brokerage Lounge',
+        dropoffX: gx(-575),
+        dropoffZ: gz(2246),
+        dropoffLabel: 'Kentlands Brick Manor Tour',
+      },
+      {
+        pickupX: MD_LANDMARKS.columbia.x,
+        pickupZ: MD_LANDMARKS.columbia.z,
+        pickupLabel: 'Columbia Town Center Offices',
+        dropoffX: MD_LANDMARKS.ellicottCity.x,
+        dropoffZ: MD_LANDMARKS.ellicottCity.z,
+        dropoffLabel: 'Ellicott City Hillside Estate',
+      },
+    ],
+  },
+  {
+    id: 'job_mountain_supply',
+    title: 'Appalachian Deep Creek Outfitter Haul',
+    roleLabel: 'MOUNTAIN HAUL',
+    jobCategory: 'Delivery & Freight',
+    icon: '🏔️',
+    basePay: 4200,
+    maxTipBonus: 1150,
+    tipBonusMax: 1150,
+    timeLimitSec: 135,
+    badgeColor: '#22c55e',
+    description: 'Long-haul freight across Western Maryland grades from Hagerstown and Sideling Hill to Cumberland and Deep Creek Lake (SUV/Truck recommended)!',
+    routes: [
+      {
+        pickupX: MD_LANDMARKS.hagerstown.x,
+        pickupZ: MD_LANDMARKS.hagerstown.z,
+        pickupLabel: 'Hagerstown Valley Freight Hub',
+        dropoffX: MD_LANDMARKS.cumberland.x,
+        dropoffZ: MD_LANDMARKS.cumberland.z,
+        dropoffLabel: 'Cumberland Rail Depot',
+      },
+      {
+        pickupX: MD_LANDMARKS.sidelingHill.x,
+        pickupZ: MD_LANDMARKS.sidelingHill.z,
+        pickupLabel: 'Sideling Hill Overlook Staging',
+        dropoffX: MD_LANDMARKS.deepCreekLake.x,
+        dropoffZ: MD_LANDMARKS.deepCreekLake.z,
+        dropoffLabel: 'Deep Creek Lake Resort Outfitter',
+      },
+    ],
+  },
+  {
+    id: 'job_news_press',
+    title: 'Metro Press Breaking News Photojournalist',
+    roleLabel: 'PRESS DISPATCH',
+    jobCategory: 'Utility & Specialty',
+    icon: '📸',
+    basePay: 2950,
+    maxTipBonus: 950,
+    tipBonusMax: 950,
+    timeLimitSec: 95,
+    badgeColor: '#38bdf8',
+    description: 'Race press footage from Baltimore WTC, Camden Yards, and State Circle back to newsroom edit desks!',
+    routes: [
+      {
+        pickupX: MD_LANDMARKS.baltimoreCamdenYards.x,
+        pickupZ: MD_LANDMARKS.baltimoreCamdenYards.z,
+        pickupLabel: 'Camden Yards Press Gate',
+        dropoffX: MD_LANDMARKS.baltimoreWTC.x,
+        dropoffZ: MD_LANDMARKS.baltimoreWTC.z,
+        dropoffLabel: 'Inner Harbor WTC Broadcast Studio',
+      },
+      {
+        pickupX: MD_LANDMARKS.annapolisStateHouse.x,
+        pickupZ: MD_LANDMARKS.annapolisStateHouse.z,
+        pickupLabel: 'Annapolis State House Press Steps',
+        dropoffX: MD_LANDMARKS.baltimoreBank.x,
+        dropoffZ: MD_LANDMARKS.baltimoreBank.z,
+        dropoffLabel: 'Charles St Metro Newsroom',
+      },
+      {
+        pickupX: MD_LANDMARKS.nationalHarbor.x,
+        pickupZ: MD_LANDMARKS.nationalHarbor.z,
+        pickupLabel: 'National Harbor Convention Pier',
+        dropoffX: MD_LANDMARKS.silverSpring.x,
+        dropoffZ: MD_LANDMARKS.silverSpring.z,
+        dropoffLabel: 'Silver Spring Media Headquarters',
+      },
+    ],
+  },
+  {
+    id: 'job_construction_lumber',
+    title: 'Bay Bridge & Jobsite Materials Supply',
+    roleLabel: 'HEAVY SUPPLY',
+    jobCategory: 'Utility & Specialty',
+    icon: '🪵',
+    basePay: 3800,
+    maxTipBonus: 1000,
+    tipBonusMax: 1000,
+    timeLimitSec: 120,
+    badgeColor: '#d97706',
+    description: 'Haul steel fasteners, lumber, and survey gear from Domino Sugar Pier & Bay Bridge depots to active jobsites!',
+    routes: [
+      {
+        pickupX: MD_LANDMARKS.baltimoreDominoSugar.x,
+        pickupZ: MD_LANDMARKS.baltimoreDominoSugar.z,
+        pickupLabel: 'Baltimore Industrial Yard (Domino Pier)',
+        dropoffX: MD_LANDMARKS.chesapeakeBayBridgeMid.x,
+        dropoffZ: MD_LANDMARKS.chesapeakeBayBridgeMid.z,
+        dropoffLabel: 'Chesapeake Bay Bridge Maintenance Bay',
+      },
+      {
+        pickupX: MD_LANDMARKS.hadleyFarms.x,
+        pickupZ: MD_LANDMARKS.hadleyFarms.z,
+        pickupLabel: 'Gaithersburg Lumber Yard',
+        dropoffX: MD_LANDMARKS.olney.x,
+        dropoffZ: MD_LANDMARKS.olney.z,
+        dropoffLabel: 'Olney New Home Build Site',
+      },
+    ],
+  },
+  {
+    id: 'job_ocean_charter',
+    title: 'Ocean City Boardwalk Express Charter',
+    roleLabel: 'COASTAL CHARTER',
+    jobCategory: 'Passenger & VIP',
+    icon: '🏖️',
+    basePay: 4600,
+    maxTipBonus: 1300,
+    tipBonusMax: 1300,
+    timeLimitSec: 140,
+    badgeColor: '#0ea5e9',
+    description: 'High-paying Eastern Shore charter across the Chesapeake Bay Bridge between Annapolis City Dock and Ocean City Boardwalk!',
+    routes: [
+      {
+        pickupX: MD_LANDMARKS.annapolisCityDock.x,
+        pickupZ: MD_LANDMARKS.annapolisCityDock.z,
+        pickupLabel: 'Annapolis City Dock Charter Pier',
+        dropoffX: MD_LANDMARKS.oceanCityBoardwalk.x,
+        dropoffZ: MD_LANDMARKS.oceanCityBoardwalk.z,
+        dropoffLabel: 'Ocean City Boardwalk Inlet',
+      },
+      {
+        pickupX: MD_LANDMARKS.oceanCityBoardwalk.x,
+        pickupZ: MD_LANDMARKS.oceanCityBoardwalk.z,
+        pickupLabel: 'Ocean City Boardwalk Inlet',
+        dropoffX: MD_LANDMARKS.annapolisCityDock.x,
+        dropoffZ: MD_LANDMARKS.annapolisCityDock.z,
+        dropoffLabel: 'Annapolis City Dock',
+      },
+    ],
+  },
+  {
+    id: 'job_stunt_driver',
+    title: 'Harbor Film Set Precision Stunt Driver',
+    roleLabel: 'STUNT PRECISION',
+    jobCategory: 'Utility & Specialty',
+    icon: '🎬',
+    basePay: 3900,
+    maxTipBonus: 1200,
+    tipBonusMax: 1200,
+    timeLimitSec: 95,
+    badgeColor: '#f43f5e',
+    skillChallenge: 'high_speed_run',
+    skillBadgeLabel: '⚡ High-Speed Stunt +$850',
+    skillBonusMax: 850,
+    description: 'Film high-speed camera car passes between Camden Yards, Baltimore Inner Harbor, and the Bay Bridge—arrive hot with zero crashes!',
+    routes: [
+      {
+        pickupX: MD_LANDMARKS.baltimoreCamdenYards.x,
+        pickupZ: MD_LANDMARKS.baltimoreCamdenYards.z,
+        pickupLabel: 'Camden Yards Action Camera Unit',
+        dropoffX: MD_LANDMARKS.baltimoreInnerHarbor.x,
+        dropoffZ: MD_LANDMARKS.baltimoreInnerHarbor.z,
+        dropoffLabel: 'Inner Harbor Stunt Finish Gate',
+      },
+      {
+        pickupX: MD_LANDMARKS.bwiAirport.x,
+        pickupZ: MD_LANDMARKS.bwiAirport.z,
+        pickupLabel: 'BWI Perimeter Tarmac Film Rig',
+        dropoffX: MD_LANDMARKS.chesapeakeBayBridgeMid.x,
+        dropoffZ: MD_LANDMARKS.chesapeakeBayBridgeMid.z,
+        dropoffLabel: 'Bay Bridge Helicopter Shot',
+      },
+    ],
+  },
+  {
+    id: 'job_storm_chaser',
+    title: 'Appalachian Storm Chaser Barometer Run',
+    roleLabel: 'WEATHER PROBE',
+    jobCategory: 'Utility & Specialty',
+    icon: '⛈️',
+    basePay: 4100,
+    maxTipBonus: 1150,
+    tipBonusMax: 1150,
+    timeLimitSec: 125,
+    badgeColor: '#38bdf8',
+    skillChallenge: 'precision_stop',
+    skillBadgeLabel: '🎯 Precision Stop +$750',
+    skillBonusMax: 750,
+    description: 'Deploy mobile Doppler weather probes along Sideling Hill, Cumberland Ridge, and Deep Creek—come to a crisp controlled stop at the sensor pad!',
+    routes: [
+      {
+        pickupX: MD_LANDMARKS.hagerstown.x,
+        pickupZ: MD_LANDMARKS.hagerstown.z,
+        pickupLabel: 'Hagerstown Weather Station Depot',
+        dropoffX: MD_LANDMARKS.sidelingHill.x,
+        dropoffZ: MD_LANDMARKS.sidelingHill.z,
+        dropoffLabel: 'Sideling Hill Summit Sensor Pad',
+      },
+      {
+        pickupX: MD_LANDMARKS.cumberland.x,
+        pickupZ: MD_LANDMARKS.cumberland.z,
+        pickupLabel: 'Cumberland Ridge Radar Post',
+        dropoffX: MD_LANDMARKS.deepCreekLake.x,
+        dropoffZ: MD_LANDMARKS.deepCreekLake.z,
+        dropoffLabel: 'Deep Creek Shoreline Buoy Station',
+      },
+    ],
+  },
+  {
+    id: 'job_turbine_escort',
+    title: 'Heavy Wind-Turbine Blade Pilot Convoy',
+    roleLabel: 'OVERSIZE ESCORT',
+    jobCategory: 'Delivery & Freight',
+    icon: '🌬️',
+    basePay: 4300,
+    maxTipBonus: 1250,
+    tipBonusMax: 1250,
+    timeLimitSec: 135,
+    badgeColor: '#14b8a6',
+    skillChallenge: 'zero_damage_vip',
+    skillBadgeLabel: '🛡️ Zero-Scratch Bonus +$900',
+    skillBonusMax: 900,
+    description: 'Escort fragile composite turbine blades from Domino Sugar Port out west to Frederick & Hagerstown without a single fender scrape!',
+    routes: [
+      {
+        pickupX: MD_LANDMARKS.baltimoreDominoSugar.x,
+        pickupZ: MD_LANDMARKS.baltimoreDominoSugar.z,
+        pickupLabel: 'Baltimore Marine Heavy Dock',
+        dropoffX: MD_LANDMARKS.frederick.x,
+        dropoffZ: MD_LANDMARKS.frederick.z,
+        dropoffLabel: 'Frederick Wind Energy Staging Yard',
+      },
+      {
+        pickupX: MD_LANDMARKS.frederick.x,
+        pickupZ: MD_LANDMARKS.frederick.z,
+        pickupLabel: 'Frederick Energy Staging Yard',
+        dropoffX: MD_LANDMARKS.hagerstown.x,
+        dropoffZ: MD_LANDMARKS.hagerstown.z,
+        dropoffLabel: 'Hagerstown I-81 Assembly Yard',
+      },
+    ],
+  },
+  {
+    id: 'job_hazmat_tanker',
+    title: 'NIST Cryogenic Lab Isotope Transport',
+    roleLabel: 'CRYO TRANSPORT',
+    jobCategory: 'Utility & Specialty',
+    icon: '🧪',
+    basePay: 3750,
+    maxTipBonus: 1100,
+    tipBonusMax: 1100,
+    timeLimitSec: 110,
+    badgeColor: '#06b6d4',
+    skillChallenge: 'zero_damage_vip',
+    skillBadgeLabel: '🛡️ Zero-Impact Lab Bonus +$800',
+    skillBonusMax: 800,
+    description: 'Transport ultra-sensitive liquid helium flasks between NIST Gaithersburg, Bethesda NIH, and Johns Hopkins—zero collisions earns top hazard pay!',
+    routes: [
+      {
+        pickupX: MD_LANDMARKS.rioLakefront.x,
+        pickupZ: MD_LANDMARKS.rioLakefront.z,
+        pickupLabel: 'NIST Gaithersburg Cryo Gate',
+        dropoffX: MD_LANDMARKS.bethesda.x,
+        dropoffZ: MD_LANDMARKS.bethesda.z,
+        dropoffLabel: 'NIH Clinical Cryo Vault',
+      },
+      {
+        pickupX: MD_LANDMARKS.bethesda.x,
+        pickupZ: MD_LANDMARKS.bethesda.z,
+        pickupLabel: 'NIH Bethesda Lab Bay',
+        dropoffX: 1440,
+        dropoffZ: -280,
+        dropoffLabel: 'Johns Hopkins Research Dock',
+      },
+    ],
+  },
+  {
+    id: 'job_golf_catering',
+    title: 'Country Club VIP Tournament Supply',
+    roleLabel: 'EVENT LOGISTICS',
+    jobCategory: 'Passenger & VIP',
+    icon: '🥂',
+    basePay: 2850,
+    maxTipBonus: 900,
+    tipBonusMax: 900,
+    timeLimitSec: 95,
+    badgeColor: '#84cc16',
+    skillChallenge: 'precision_stop',
+    skillBadgeLabel: '🎯 Smooth Curb Stop +$600',
+    skillBonusMax: 600,
+    description: 'Deliver chilled tournament catering & pro golf gear to Gaithersburg Country Club and Potomac Falls with a silky-smooth valet stop!',
+    routes: [
+      {
+        pickupX: MD_LANDMARKS.rioLakefront.x,
+        pickupZ: MD_LANDMARKS.rioLakefront.z,
+        pickupLabel: 'RIO Waterfront Bistro Kitchen',
+        dropoffX: MD_LANDMARKS.gaithersburgGolfField.x,
+        dropoffZ: MD_LANDMARKS.gaithersburgGolfField.z,
+        dropoffLabel: 'Gaithersburg Country Club Clubhouse',
+      },
+      {
+        pickupX: MD_LANDMARKS.bethesda.x,
+        pickupZ: MD_LANDMARKS.bethesda.z,
+        pickupLabel: 'Bethesda Gourmet Market',
+        dropoffX: -760,
+        dropoffZ: 1680,
+        dropoffLabel: 'Potomac Falls Gala Gate',
+      },
+    ],
+  },
+  {
+    id: 'job_track_inspector',
+    title: 'MARC & Rail Corridor High-Speed Inspector',
+    roleLabel: 'RAIL CORRIDOR',
+    jobCategory: 'Utility & Specialty',
+    icon: '🚆',
+    basePay: 3350,
+    maxTipBonus: 1000,
+    tipBonusMax: 1000,
+    timeLimitSec: 100,
+    badgeColor: '#6366f1',
+    skillChallenge: 'high_speed_run',
+    skillBadgeLabel: '⚡ Rapid Telemetry +$700',
+    skillBonusMax: 700,
+    description: 'Run urgent signal & track sensor checks between Shady Grove, Silver Spring, College Park, and BWI Rail Terminal against the clock!',
+    routes: [
+      {
+        pickupX: MD_LANDMARKS.shadyGroveMetro.x,
+        pickupZ: MD_LANDMARKS.shadyGroveMetro.z,
+        pickupLabel: 'Shady Grove Rail Control Box',
+        dropoffX: MD_LANDMARKS.silverSpring.x,
+        dropoffZ: MD_LANDMARKS.silverSpring.z,
+        dropoffLabel: 'Silver Spring MARC Signal Tower',
+      },
+      {
+        pickupX: MD_LANDMARKS.collegeParkUMD.x,
+        pickupZ: MD_LANDMARKS.collegeParkUMD.z,
+        pickupLabel: 'College Park Rail Yard',
+        dropoffX: MD_LANDMARKS.bwiAirport.x,
+        dropoffZ: MD_LANDMARKS.bwiAirport.z,
+        dropoffLabel: 'BWI Rail Station Concourse',
+      },
+    ],
+  },
+];
+
+export interface CityIndoorJobSpec {
+  id: string;
+  title: string;
+  roleLabel: string;
+  icon: string;
+  workKind: WorkplaceShiftKind;
+  baseShiftPay: number;
+  maxShiftBonus: number;
+  badgeColor: string;
+  workplaceTypeLabel: string;
+  skillStyle: string;
+  buildingMatchKeywords: string[];
+  description: string;
+  tasksSummary: string;
+}
+
+export const CITY_INDOOR_JOBS_CATALOG: CityIndoorJobSpec[] = [
+  {
+    id: 'indoor_corporate_analyst',
+    title: 'Corporate Financial Analyst',
+    roleLabel: 'OFFICE SUITE SHIFT',
+    icon: '💼',
+    workKind: 'work_office',
+    baseShiftPay: 1950,
+    maxShiftBonus: 1450,
+    badgeColor: '#3b82f6',
+    workplaceTypeLabel: 'Office Buildings & Towers',
+    skillStyle: 'Timing Trade Lock + Ledger Audits',
+    buildingMatchKeywords: ['office', 'tower', 'corporate', 'financial', 'charles', 'pratt', 'wtc', 'mercantile', 'business', 'executive'],
+    description: 'Step inside any Office Building or High-Rise Tower, walk into a suite workstation, and nail timed market trades & client briefs.',
+    tasksSummary: 'Trade Timing · Revenue Audits · Executive Memos',
+  },
+  {
+    id: 'indoor_software_engineer',
+    title: 'Systems & Cyber Operations Engineer',
+    roleLabel: 'TECH OFFICE SHIFT',
+    icon: '💻',
+    workKind: 'work_office',
+    baseShiftPay: 2250,
+    maxShiftBonus: 1600,
+    badgeColor: '#6366f1',
+    workplaceTypeLabel: 'Tech Offices & Towers',
+    skillStyle: 'Rapid Command Macros + Triage',
+    buildingMatchKeywords: ['tech', 'solutions', 'office', 'tower', 'enterprise', 'hq', 'center', 'corporate'],
+    description: 'Work inside corporate tech floors across Baltimore, Columbia, and Gaithersburg—enter deployment codes and scale auth pods.',
+    tasksSummary: 'Deploy Macros · Incident Triage · Security Reviews',
+  },
+  {
+    id: 'indoor_cyber_forensics',
+    title: 'Cyber Intrusion & SOC Responder',
+    roleLabel: 'CYBER OPS SUITE',
+    icon: '🛡️',
+    workKind: 'work_office',
+    baseShiftPay: 2550,
+    maxShiftBonus: 1750,
+    badgeColor: '#8b5cf6',
+    workplaceTypeLabel: 'Tech & Security Office Towers',
+    skillStyle: 'Firewall Sequence + Signal Balance',
+    buildingMatchKeywords: ['office', 'tower', 'tech', 'wtc', 'financial', 'center', 'hq'],
+    description: 'Defend metro office networks inside multi-story suites by keying firewall isolation codes and balancing server load waveforms.',
+    tasksSummary: 'Firewall Codes · Traffic Balance · Threat Isolation',
+  },
+  {
+    id: 'indoor_legal_associate',
+    title: 'Law Firm & Municipal Associate',
+    roleLabel: 'LEGAL & CIVIC OFFICE',
+    icon: '⚖️',
+    workKind: 'work_office',
+    baseShiftPay: 2350,
+    maxShiftBonus: 1650,
+    badgeColor: '#60a5fa',
+    workplaceTypeLabel: 'Law Suites & City Hall',
+    skillStyle: 'Contract Audits + Filing Sequence',
+    buildingMatchKeywords: ['legal', 'law', 'courthouse', 'city hall', 'annex', 'associates', 'office', 'tower'],
+    description: 'Visit legal suites, municipal offices, or high-rise law floors—review contract clauses and stamp docket filings under deadline.',
+    tasksSummary: 'Contract Audits · Docket Sequence · Compliance',
+  },
+  {
+    id: 'indoor_executive_director',
+    title: 'Executive Floor Operations Director',
+    roleLabel: 'EXECUTIVE SUITE',
+    icon: '📊',
+    workKind: 'work_office',
+    baseShiftPay: 2800,
+    maxShiftBonus: 1950,
+    badgeColor: '#f59e0b',
+    workplaceTypeLabel: 'Multi-Story Towers (Upper Floors)',
+    skillStyle: 'Boardroom Timing + M&A Strategy',
+    buildingMatchKeywords: ['wtc', 'tower', 'headquarters', 'hq', 'executive', 'office', 'financial'],
+    description: 'Take the elevator inside any high-rise office tower up to upper executive suites for high-paying strategic operations shifts.',
+    tasksSummary: 'M&A Timing · Budget Balance · Board Approvals',
+  },
+  {
+    id: 'indoor_clinic_nurse',
+    title: 'Clinic Triage & Nurse Practitioner',
+    roleLabel: 'MEDICAL CLINIC SHIFT',
+    icon: '🩺',
+    workKind: 'work_clinic',
+    baseShiftPay: 2100,
+    maxShiftBonus: 1500,
+    badgeColor: '#22d3ee',
+    workplaceTypeLabel: 'Clinics & Medical Centers',
+    skillStyle: 'Pulse Sync Gauge + Patient Triage',
+    buildingMatchKeywords: ['clinic', 'medical', 'urgent', 'health', 'care'],
+    description: 'Enter any clinic or medical center ([V] Explore), walk to an exam suite charting desk, and sync vitals & triage patients.',
+    tasksSummary: 'Pulse Sync · Vitals Screening · Rx Orders',
+  },
+  {
+    id: 'indoor_hospital_physician',
+    title: 'Hospital Diagnostic Specialist',
+    roleLabel: 'HOSPITAL STAFF SHIFT',
+    icon: '🏥',
+    workKind: 'work_clinic',
+    baseShiftPay: 2700,
+    maxShiftBonus: 1800,
+    badgeColor: '#10b981',
+    workplaceTypeLabel: 'Hospitals & NIH Medical',
+    skillStyle: 'ECG Rhythm Lock + ICU Triage',
+    buildingMatchKeywords: ['hospital', 'nih', 'hopkins', 'medical', 'clinic'],
+    description: 'Clock in inside major hospitals & medical wings across multiple exam floors to stabilize rhythms and diagnose critical cases.',
+    tasksSummary: 'ECG Rhythm · Diagnostic Panels · ICU Care',
+  },
+  {
+    id: 'indoor_nist_researcher',
+    title: 'NIST & Bio-Research Scientist',
+    roleLabel: 'RESEARCH LAB SHIFT',
+    icon: '🔬',
+    workKind: 'work_lab',
+    baseShiftPay: 2500,
+    maxShiftBonus: 1700,
+    badgeColor: '#38bdf8',
+    workplaceTypeLabel: 'NIST & Research Labs',
+    skillStyle: 'Centrifuge Timing + Titration Balance',
+    buildingMatchKeywords: ['nist', 'research', 'lab', 'science', 'aquarium'],
+    description: 'Explore NIST Gaithersburg or research labs to lock centrifuge RPMs, balance dual reagent pH, and calibrate spectrometers.',
+    tasksSummary: 'Centrifuge Lock · pH Balance · Spectrometer Assay',
+  },
+  {
+    id: 'indoor_pharma_chemist',
+    title: 'Clinical Compounding & Assay Chemist',
+    roleLabel: 'COMPOUNDING LAB',
+    icon: '⚗️',
+    workKind: 'work_lab',
+    baseShiftPay: 2650,
+    maxShiftBonus: 1750,
+    badgeColor: '#2dd4bf',
+    workplaceTypeLabel: 'Labs, NIST & Medical Wings',
+    skillStyle: 'Reagent Balance + Purity Code',
+    buildingMatchKeywords: ['lab', 'nist', 'research', 'science', 'nih', 'hospital'],
+    description: 'Measure exact reagent ratios and execute sterile sequence protocols at research and hospital lab benches.',
+    tasksSummary: 'Reagent Balance · Sterile Sequence · Purity Test',
+  },
+  {
+    id: 'indoor_bank_teller',
+    title: 'Bank Teller & Wire Specialist',
+    roleLabel: 'BANK COUNTER SHIFT',
+    icon: '🏦',
+    workKind: 'work_bank',
+    baseShiftPay: 2200,
+    maxShiftBonus: 1450,
+    badgeColor: '#facc15',
+    workplaceTypeLabel: 'Banks (Press [V] Explore)',
+    skillStyle: 'Vault Seal Timing + Wire Audits',
+    buildingMatchKeywords: ['bank', 'reserve', 'trust', 'bullion'],
+    description: 'Walk peacefully inside any bank ([V] Explore) and work the teller counter—lock time-vault seals, audit wires, and balance drawers.',
+    tasksSummary: 'Vault Seal Lock · Wire Audit · Drawer Balance',
+  },
+  {
+    id: 'indoor_retail_manager',
+    title: 'Retail Store & Boutique Specialist',
+    roleLabel: 'STORE COUNTER SHIFT',
+    icon: '🛒',
+    workKind: 'work_retail',
+    baseShiftPay: 1750,
+    maxShiftBonus: 1250,
+    badgeColor: '#ec4899',
+    workplaceTypeLabel: 'Malls, Boutiques & Markets',
+    skillStyle: 'Barcode Speed Sequence + Register',
+    buildingMatchKeywords: ['mall', 'plaza', 'mart', 'store', 'shop', 'market', 'boutique', 'crown', 'center', 'jewelry'],
+    description: 'Step into stores, malls, or jewelry boutiques ([V] Explore) to run checkout registers, scan rapid SKUs, and appraise items.',
+    tasksSummary: 'SKU Sequence · Checkout Math · Client Sizing',
+  },
+  {
+    id: 'indoor_chef_kitchen',
+    title: 'Maryland Crab House & Bistro Head Chef',
+    roleLabel: 'KITCHEN LINE SHIFT',
+    icon: '👨‍🍳',
+    workKind: 'work_kitchen',
+    baseShiftPay: 2150,
+    maxShiftBonus: 1650,
+    badgeColor: '#f97316',
+    workplaceTypeLabel: 'Food Halls, Malls & Waterfront Cafes',
+    skillStyle: 'Sear Timing Gauge + Dual-Burner Heat',
+    buildingMatchKeywords: ['mall', 'plaza', 'crown', 'center', 'market', 'rio', 'harbor', 'store'],
+    description: 'Step behind the stainless prep counter inside shopping plazas and waterfront venues to time crab-cake sears and balance twin grill temps!',
+    tasksSummary: 'Grill Sear Timing · Burner Balance · Order Sequence',
+  },
+  {
+    id: 'indoor_baker_patisserie',
+    title: 'Artisan Bakery & Espresso Barista',
+    roleLabel: 'CAFE & BAKERY SHIFT',
+    icon: '🥐',
+    workKind: 'work_kitchen',
+    baseShiftPay: 1850,
+    maxShiftBonus: 1350,
+    badgeColor: '#fb923c',
+    workplaceTypeLabel: 'Town Centers & Markets',
+    skillStyle: 'Espresso Pressure + Order Combos',
+    buildingMatchKeywords: ['mall', 'plaza', 'market', 'mart', 'store', 'center'],
+    description: 'Pull golden espresso shots at exact bar pressure and punch rapid pastry orders during morning rush shifts.',
+    tasksSummary: 'Bar Pressure Lock · Drink Sequence · Steam Temp',
+  },
+  {
+    id: 'indoor_auto_mechanic',
+    title: 'Master Performance Mechanic & Dyno Tech',
+    roleLabel: 'GARAGE SERVICE BAY',
+    icon: '🔧',
+    workKind: 'work_mechanic',
+    baseShiftPay: 2400,
+    maxShiftBonus: 1750,
+    badgeColor: '#fbbf24',
+    workplaceTypeLabel: 'Service Stations & Tuning Bays',
+    skillStyle: 'Torque Gauge + Camber Alignment',
+    buildingMatchKeywords: ['service', 'sunoco', 'shell', 'exxon', 'wawa', 'pit', 'station', 'garage'],
+    description: 'Enter any Service Station ([V] Explore) and step into the lift bay to hit exact torque specs, balance ECU boost, and align wheels!',
+    tasksSummary: 'Torque Spec Lock · Dyno Balance · Firing Order',
+  },
+  {
+    id: 'indoor_ev_battery_tech',
+    title: 'High-Voltage EV & Hybrid Diagnostics Tech',
+    roleLabel: 'EV POWERTRAIN BAY',
+    icon: '🔋',
+    workKind: 'work_mechanic',
+    baseShiftPay: 2600,
+    maxShiftBonus: 1850,
+    badgeColor: '#34d399',
+    workplaceTypeLabel: 'Service Stations & EV Bays',
+    skillStyle: 'Cell Voltage Balance + Breaker Code',
+    buildingMatchKeywords: ['service', 'sunoco', 'shell', 'exxon', 'wawa', 'station', 'garage'],
+    description: 'Service high-voltage hybrid & EV packs inside tuning stations—equalize battery modules and clear inverter fault codes.',
+    tasksSummary: 'Voltage Equalize · Fault Code · Thermal Lock',
+  },
+  {
+    id: 'indoor_atc_controller',
+    title: 'BWI & KGAI Air Traffic Radar Controller',
+    roleLabel: 'ATC TOWER SHIFT',
+    icon: '✈️',
+    workKind: 'work_atc',
+    baseShiftPay: 2950,
+    maxShiftBonus: 2100,
+    badgeColor: '#0ea5e9',
+    workplaceTypeLabel: 'BWI Airport & KGAI Airpark Towers',
+    skillStyle: 'Glide-Slope Timing + Squawk Codes',
+    buildingMatchKeywords: ['airport', 'airpark', 'bwi', 'kgai', 'aviation', 'terminal', 'hangar'],
+    description: 'Step inside BWI or Montgomery Airpark towers ([V] Explore) and guide jets cleanly onto runway vectors with tight radar timing!',
+    tasksSummary: 'Glide-Slope Lock · Squawk Sequence · Vector Spacing',
+  },
+  {
+    id: 'indoor_broadcast_producer',
+    title: 'Baltimore Live Broadcast & Audio Producer',
+    roleLabel: 'MEDIA STUDIO SHIFT',
+    icon: '🎬',
+    workKind: 'work_studio',
+    baseShiftPay: 2550,
+    maxShiftBonus: 1800,
+    badgeColor: '#e879f9',
+    workplaceTypeLabel: 'WTC & Downtown Media Towers',
+    skillStyle: 'Audio EQ Balance + Live Cue Sync',
+    buildingMatchKeywords: ['wtc', 'world trade', 'media', 'broadcast', 'tower', 'studio', 'charles', 'pratt'],
+    description: 'Head up inside the World Trade Center or downtown towers to mix live broadcast audio levels and hit exact camera cut cues!',
+    tasksSummary: 'Audio Mastering · Camera Cue Timing · Cue Deck',
+  },
+  {
+    id: 'indoor_precinct_dispatcher',
+    title: 'Precinct & Transit Operations Dispatcher',
+    roleLabel: 'DISPATCH DESK SHIFT',
+    icon: '📻',
+    workKind: 'work_dispatch',
+    baseShiftPay: 2300,
+    maxShiftBonus: 1550,
+    badgeColor: '#818cf8',
+    workplaceTypeLabel: 'MCPD Precinct & Transit Hubs',
+    skillStyle: 'Radio Frequency Lock + Routing',
+    buildingMatchKeywords: ['precinct', 'police', 'station', 'marc', 'airport', 'airpark', 'terminal'],
+    description: 'Step inside the Police Precinct or transit terminals ([V] Explore) and route emergency & commuter units from the dispatch console.',
+    tasksSummary: 'Frequency Lock · Radio Priority · Fleet Dispatch',
+  },
+];
+
+export type OutdoorFieldJobKind =
+  | 'harbor_crane'
+  | 'crab_fishing'
+  | 'bridge_welder'
+  | 'power_lineman'
+  | 'wildfire_drop'
+  | 'stadium_turf'
+  | 'highway_paver'
+  | 'wind_turbine'
+  | 'drone_survey'
+  | 'heavy_winch'
+  | 'airfield_marshaler'
+  | 'solar_array';
+
+export type OutdoorSkillMechanic = 'canvas_action' | 'timing_strike' | 'wire_grid' | 'sequence_cal';
+
+export interface OutdoorJobSite {
+  x: number;
+  z: number;
+  label: string;
+}
+
+export interface CityOutdoorJobSpec {
+  id: string;
+  kind: OutdoorFieldJobKind;
+  mechanic: OutdoorSkillMechanic;
+  mechanicLabel: string;
+  title: string;
+  roleLabel: string;
+  icon: string;
+  basePay: number;
+  maxSkillBonus: number;
+  skillXpReward: number;
+  badgeColor: string;
+  description: string;
+  sites: OutdoorJobSite[];
+}
+
+export const CITY_OUTDOOR_JOBS_CATALOG: CityOutdoorJobSpec[] = [
+  {
+    id: 'outdoor_harbor_crane',
+    kind: 'harbor_crane',
+    mechanic: 'canvas_action',
+    mechanicLabel: 'Interactive Gantry Crane Canvas',
+    title: 'Port of Baltimore Container Crane Operator',
+    roleLabel: 'HARBOR CRANE',
+    icon: '🏗️',
+    basePay: 2800,
+    maxSkillBonus: 1850,
+    skillXpReward: 48,
+    badgeColor: '#f59e0b',
+    description: 'Drive out to Baltimore Waterfront Cargo Piers, step onto the dock, and operate the magnetic gantry crane to stack cargo onto trailers!',
+    sites: [
+      { x: MD_LANDMARKS.baltimoreDominoSugar.x, z: MD_LANDMARKS.baltimoreDominoSugar.z, label: 'Baltimore Domino Cargo Pier' },
+      { x: MD_LANDMARKS.baltimoreInnerHarbor.x + 28, z: MD_LANDMARKS.baltimoreInnerHarbor.z + 18, label: 'Inner Harbor South Pier' },
+    ],
+  },
+  {
+    id: 'outdoor_crab_fishing',
+    kind: 'crab_fishing',
+    mechanic: 'canvas_action',
+    mechanicLabel: 'Live Chesapeake Trawler Net Canvas',
+    title: 'Chesapeake Commercial Crab & Boat Charter',
+    roleLabel: 'COMMERCIAL BOAT',
+    icon: '🦀',
+    basePay: 2550,
+    maxSkillBonus: 1700,
+    skillXpReward: 44,
+    badgeColor: '#06b6d4',
+    description: 'Head down to the Annapolis Dock or RIO Lakefront Pier and steer your trawler net across blue crab schools while dodging channel buoys!',
+    sites: [
+      { x: MD_LANDMARKS.annapolisFishingDock.x, z: MD_LANDMARKS.annapolisFishingDock.z, label: 'Annapolis Commercial Seafood Pier' },
+      { x: MD_LANDMARKS.rioFishingPier.x, z: MD_LANDMARKS.rioFishingPier.z, label: 'RIO Lakefront Timber Pier' },
+    ],
+  },
+  {
+    id: 'outdoor_bridge_welder',
+    kind: 'bridge_welder',
+    mechanic: 'timing_strike',
+    mechanicLabel: 'Multi-Stage Arc Weld Timing',
+    title: 'Bay Bridge Structural Steel Welder',
+    roleLabel: 'BRIDGE STEEL',
+    icon: '🔥',
+    basePay: 3100,
+    maxSkillBonus: 2000,
+    skillXpReward: 52,
+    badgeColor: '#fb923c',
+    description: 'Drive onto the Chesapeake Bay Bridge maintenance span and weld high-tension steel gusset seams under coastal crosswinds!',
+    sites: [
+      { x: MD_LANDMARKS.chesapeakeBayBridgeMid.x, z: MD_LANDMARKS.chesapeakeBayBridgeMid.z, label: 'Chesapeake Bay Bridge Midspan Bay' },
+      { x: MD_LANDMARKS.baltimoreDominoSugar.x - 24, z: MD_LANDMARKS.baltimoreDominoSugar.z - 22, label: 'Harbor Drydock Girder Yard' },
+    ],
+  },
+  {
+    id: 'outdoor_power_lineman',
+    kind: 'power_lineman',
+    mechanic: 'wire_grid',
+    mechanicLabel: 'High-Voltage Grid Circuit Patch',
+    title: 'BGE High-Voltage Substation Lineman',
+    roleLabel: 'POWER GRID',
+    icon: '⚡',
+    basePay: 2950,
+    maxSkillBonus: 1900,
+    skillXpReward: 50,
+    badgeColor: '#eab308',
+    description: 'Respond to outdoor power substations and patch live 3-phase transformer buses safely without tripping overload breakers!',
+    sites: [
+      { x: MD_LANDMARKS.columbia.x + 25, z: MD_LANDMARKS.columbia.z + 25, label: 'Columbia US-29 Grid Substation' },
+      { x: MD_LANDMARKS.isbCampus.x - 32, z: MD_LANDMARKS.isbCampus.z + 28, label: 'Woodlawn Johnnycake Relay Yard' },
+    ],
+  },
+  {
+    id: 'outdoor_wildfire_crew',
+    kind: 'wildfire_drop',
+    mechanic: 'canvas_action',
+    mechanicLabel: 'Aerial Tanker Fire-Drop Canvas',
+    title: 'Appalachian Forestry Wildfire Crew',
+    roleLabel: 'FIRE CREW',
+    icon: '🚒',
+    basePay: 3250,
+    maxSkillBonus: 2100,
+    skillXpReward: 55,
+    badgeColor: '#ef4444',
+    description: 'Drive into Western Maryland mountain ridges and pilot the aerial water-drop target reticle over spreading brush flare-ups!',
+    sites: [
+      { x: MD_LANDMARKS.deepCreekLake.x, z: MD_LANDMARKS.deepCreekLake.z, label: 'Deep Creek State Forest Helipad' },
+      { x: MD_LANDMARKS.sidelingHill.x, z: MD_LANDMARKS.sidelingHill.z, label: 'Sideling Hill Forestry Firebreak' },
+    ],
+  },
+  {
+    id: 'outdoor_stadium_turf',
+    kind: 'stadium_turf',
+    mechanic: 'canvas_action',
+    mechanicLabel: 'Precision Turf Striper Canvas',
+    title: 'Camden Yards & Bohrer Turf Groundskeeper',
+    roleLabel: 'TURF CREW',
+    icon: '🌿',
+    basePay: 2350,
+    maxSkillBonus: 1550,
+    skillXpReward: 40,
+    badgeColor: '#22c55e',
+    description: 'Steer the precision turf mower across Camden Yards or Bohrer Stadium fields to stripe clean outfield lines before game time!',
+    sites: [
+      { x: MD_LANDMARKS.bohrerSoccerField.x + 18, z: MD_LANDMARKS.bohrerSoccerField.z, label: 'Bohrer Park Championship Turf' },
+      { x: MD_LANDMARKS.baltimoreCamdenYards.x + 20, z: MD_LANDMARKS.baltimoreCamdenYards.z + 20, label: 'Camden Yards Grounds Gate' },
+    ],
+  },
+  {
+    id: 'outdoor_highway_paver',
+    kind: 'highway_paver',
+    mechanic: 'timing_strike',
+    mechanicLabel: 'Asphalt Compactor & Hammer Timing',
+    title: 'I-270 & I-70 Highway Paving Crew',
+    roleLabel: 'ROAD CREW',
+    icon: '🚧',
+    basePay: 2650,
+    maxSkillBonus: 1750,
+    skillXpReward: 46,
+    badgeColor: '#facc15',
+    description: 'Deploy to active highway work zones and synchronize heavy jackhammer & roller compaction strikes to smooth cracked asphalt!',
+    sites: [
+      { x: MD_LANDMARKS.shadyGroveMetro.x + 24, z: MD_LANDMARKS.shadyGroveMetro.z - 24, label: 'I-270 Shady Grove Work Zone' },
+      { x: MD_LANDMARKS.hagerstown.x + 28, z: MD_LANDMARKS.hagerstown.z, label: 'I-70 Hagerstown Paving Zone' },
+    ],
+  },
+  {
+    id: 'outdoor_wind_turbine',
+    kind: 'wind_turbine',
+    mechanic: 'sequence_cal',
+    mechanicLabel: 'Blade Pitch Calibration Sequence',
+    title: 'Mountain Ridge Wind Turbine Technician',
+    roleLabel: 'WIND TECH',
+    icon: '🌬️',
+    basePay: 3050,
+    maxSkillBonus: 1950,
+    skillXpReward: 50,
+    badgeColor: '#38bdf8',
+    description: 'Climb the Cumberland & Sideling ridge wind farm pads and punch exact directional blade-pitch calibration sequences!',
+    sites: [
+      { x: MD_LANDMARKS.cumberland.x, z: MD_LANDMARKS.cumberland.z, label: 'Cumberland Ridge Turbine #4' },
+      { x: MD_LANDMARKS.frederick.x - 30, z: MD_LANDMARKS.frederick.z + 30, label: 'Catoctin Ridge Wind Pad' },
+    ],
+  },
+  {
+    id: 'outdoor_drone_survey',
+    kind: 'drone_survey',
+    mechanic: 'canvas_action',
+    mechanicLabel: 'Live Aerial Survey Drone Canvas',
+    title: 'Chesapeake Shoreline & Coast Drone Pilot',
+    roleLabel: 'DRONE SURVEY',
+    icon: '🛸',
+    basePay: 2700,
+    maxSkillBonus: 1800,
+    skillXpReward: 46,
+    badgeColor: '#818cf8',
+    description: 'Launch an outdoor mapping drone along National Harbor or Ocean City Inlet and fly through wind-buffeted telemetry rings!',
+    sites: [
+      { x: MD_LANDMARKS.nationalHarbor.x, z: MD_LANDMARKS.nationalHarbor.z, label: 'National Harbor Waterfront Launch' },
+      { x: MD_LANDMARKS.oceanCityBoardwalk.x, z: MD_LANDMARKS.oceanCityBoardwalk.z, label: 'Ocean City Inlet Survey Pad' },
+    ],
+  },
+  {
+    id: 'outdoor_heavy_winch',
+    kind: 'heavy_winch',
+    mechanic: 'timing_strike',
+    mechanicLabel: 'Hydraulic Winch Tension Timing',
+    title: 'Off-Road Ravine & Trail Winch Recovery',
+    roleLabel: 'WINCH RESCUE',
+    icon: '🪝',
+    basePay: 2900,
+    maxSkillBonus: 1900,
+    skillXpReward: 48,
+    badgeColor: '#f97316',
+    description: 'Take a high-clearance rig off the pavement to mud & gravel trailheads and winch stranded 4x4s free without snapping the cable!',
+    sites: [
+      { x: -760, z: 1680, label: 'Potomac Falls Off-Road Trailhead' },
+      { x: MD_LANDMARKS.ellicottCity.x - 24, z: MD_LANDMARKS.ellicottCity.z - 24, label: 'Patapsco Gorge Recovery Spot' },
+    ],
+  },
+  {
+    id: 'outdoor_airfield_marshaler',
+    kind: 'airfield_marshaler',
+    mechanic: 'sequence_cal',
+    mechanicLabel: 'Jet Marshaling Wand Sequence',
+    title: 'BWI & KGAI Flight-Line Ramp Marshaler',
+    roleLabel: 'RAMP CREW',
+    icon: '🛫',
+    basePay: 2850,
+    maxSkillBonus: 1850,
+    skillXpReward: 48,
+    badgeColor: '#0ea5e9',
+    description: 'Stand out on the tarmac at BWI or Montgomery Airpark and signal incoming cargo aircraft with crisp dual-wand hand commands!',
+    sites: [
+      { x: MD_LANDMARKS.kgaiAirpark.x, z: MD_LANDMARKS.kgaiAirpark.z, label: 'KGAI Montgomery Airpark Tarmac' },
+      { x: MD_LANDMARKS.bwiAirport.x + 28, z: MD_LANDMARKS.bwiAirport.z - 22, label: 'BWI Cargo Ramp Gate B4' },
+    ],
+  },
+  {
+    id: 'outdoor_solar_array',
+    kind: 'solar_array',
+    mechanic: 'wire_grid',
+    mechanicLabel: 'Solar Array Inverter Grid Puzzle',
+    title: 'Maryland Solar Farm & Grid Field Engineer',
+    roleLabel: 'SOLAR FIELD',
+    icon: '☀️',
+    basePay: 2600,
+    maxSkillBonus: 1700,
+    skillXpReward: 44,
+    badgeColor: '#fbbf24',
+    description: 'Inspect sunny Maryland solar yards near Hadley Farms & Olney—link solar panel inverters cleanly across every bus bar!',
+    sites: [
+      { x: MD_LANDMARKS.hadleyFarms.x, z: MD_LANDMARKS.hadleyFarms.z, label: 'Hadley Farms Solar Field' },
+      { x: MD_LANDMARKS.olney.x, z: MD_LANDMARKS.olney.z, label: 'Olney Agricultural Solar Array' },
     ],
   },
 ];
@@ -2542,6 +5149,7 @@ const LEGACY_CAR_ID_MAP: Record<string, string> = {
   jesko_megacar: 'koenigsegg_jesko',
   bugatti_tourbillon: 'bugatti_chiron_pur_sport',
   f1_street_legal: 'bugatti_chiron_super_sport',
+  tesla_cybertruck_beast: 'ford_f150_raptor_r',
 };
 
 function mapCarId(id: string): string {
@@ -2577,6 +5185,8 @@ export function createDefaultMetroCitySave(): MetroCitySaveState {
     totalJobsCompleted: 0,
     totalHeistsCompleted: 0,
     bankRobberyBustCount: 0,
+    jobSkillXp: 0,
+    outdoorJobsCompleted: 0,
   };
 }
 
@@ -2693,6 +5303,21 @@ export function normalizeMetroCitySave(rawParsed: unknown): MetroCitySaveState {
     bankRobberyBustCount:
       typeof parsed.bankRobberyBustCount === 'number' && Number.isFinite(parsed.bankRobberyBustCount)
         ? Math.max(0, parsed.bankRobberyBustCount)
+        : 0,
+    jobSkillXp:
+      typeof parsed.jobSkillXp === 'number' && Number.isFinite(parsed.jobSkillXp)
+        ? Math.max(0, Math.round(parsed.jobSkillXp))
+        : Math.max(
+            0,
+            Math.round(
+              (typeof parsed.totalJobsCompleted === 'number' && Number.isFinite(parsed.totalJobsCompleted)
+                ? Math.max(0, parsed.totalJobsCompleted)
+                : 0) * 28
+            )
+          ),
+    outdoorJobsCompleted:
+      typeof parsed.outdoorJobsCompleted === 'number' && Number.isFinite(parsed.outdoorJobsCompleted)
+        ? Math.max(0, Math.round(parsed.outdoorJobsCompleted))
         : 0,
   };
 }
@@ -5300,9 +7925,13 @@ export function applyPlayerStreetCarVisual(
     playerCar.root.remove(existingOverlay);
   }
 
-  // Always hide native open-wheel F1 children in City Mode while keeping sparksPoints
+  // Always hide native open-wheel F1 children in City Mode while keeping sparksPoints, offroadSprayPoints & tireSmokePoints
   playerCar.root.children.forEach((child) => {
-    if (child === playerCar.sparksPoints) {
+    if (
+      child === playerCar.sparksPoints ||
+      child === playerCar.offroadSprayPoints ||
+      child === playerCar.tireSmokePoints
+    ) {
       child.visible = true;
     } else {
       child.visible = false;
@@ -5316,84 +7945,111 @@ export function applyPlayerStreetCarVisual(
   const overlay = new THREE.Group();
   overlay.name = 'city_street_car_overlay';
 
+  const gfxPreset = getGraphicsPresetConfig();
+  const isRetro = gfxPreset.id === 'retro' || gfxPreset.id === 'retro_pixel';
+  const isFastMat = isRetro || gfxPreset.id === 'low' || gfxPreset.id === 'dynamic_conservative';
+
   const paintColor = new THREE.Color(customColorHex || spec.defaultColor);
   const accentColor = new THREE.Color(effective.accentColor);
 
-  const flakeNormal = getCarPaintFlakeNormalTexture();
-  const bodyMat = new THREE.MeshPhysicalMaterial({
-    color: paintColor,
-    normalMap: flakeNormal,
-    normalScale: new THREE.Vector2(0.015, 0.015),
-    metalness: 0.68,
-    roughness: 0.14,
-    clearcoat: 1.0,
-    clearcoatRoughness: 0.02,
-    ior: 1.52,
-    reflectivity: 1.0,
-    envMapIntensity: 1.78,
-  });
-  const accentMat = new THREE.MeshPhysicalMaterial({
-    color: accentColor,
-    metalness: 0.68,
-    roughness: 0.15,
-    clearcoat: 0.96,
-    clearcoatRoughness: 0.03,
-    envMapIntensity: 1.55,
-  });
-  const glassMat = new THREE.MeshPhysicalMaterial({
-    color: 0x05080f,
-    metalness: 0.2,
-    roughness: 0.025,
-    clearcoat: 1.0,
-    clearcoatRoughness: 0.012,
-    reflectivity: 1.0,
-    envMapIntensity: 1.9,
-  });
-  const carbonMat = new THREE.MeshPhysicalMaterial({
-    color: 0x121316,
-    metalness: 0.45,
-    roughness: 0.28,
-    clearcoat: 0.68,
-    clearcoatRoughness: 0.12,
-    envMapIntensity: 1.25,
-  });
-  const darkGrilleMat = new THREE.MeshStandardMaterial({
-    color: 0x060608,
-    metalness: 0.32,
-    roughness: 0.65,
-  });
-  const chromeMat = new THREE.MeshStandardMaterial({
-    color: 0xf1f5f9,
-    metalness: 0.96,
-    roughness: 0.08,
-    envMapIntensity: 1.65,
-  });
-  const goldMat = new THREE.MeshStandardMaterial({
-    color: 0xfbbf24,
-    metalness: 0.95,
-    roughness: 0.11,
-    envMapIntensity: 1.6,
-  });
-  const rotorMat = new THREE.MeshStandardMaterial({
-    color: 0x94a3b8,
-    metalness: 0.88,
-    roughness: 0.24,
-  });
-  const headMat = new THREE.MeshStandardMaterial({
-    color: 0xf4f8ff,
-    emissive: new THREE.Color(0xeef6ff),
-    emissiveIntensity: 0.12,
-    roughness: 0.12,
-    metalness: 0.15,
-    toneMapped: false,
-  });
-  const yellowDrlMat = new THREE.MeshStandardMaterial({
-    color: 0xfef08a,
-    emissive: new THREE.Color(0xfacc15),
-    emissiveIntensity: 1.4,
-    roughness: 0.18,
-    toneMapped: false,
-  });
+  const bodyMat: THREE.Material = isFastMat
+    ? new THREE.MeshLambertMaterial({ color: paintColor, flatShading: isRetro })
+    : new THREE.MeshPhysicalMaterial({
+        color: paintColor,
+        normalMap: getCarPaintFlakeNormalTexture(),
+        normalScale: new THREE.Vector2(0.015, 0.015),
+        metalness: 0.68,
+        roughness: 0.14,
+        clearcoat: 1.0,
+        clearcoatRoughness: 0.02,
+        ior: 1.52,
+        reflectivity: 1.0,
+        envMapIntensity: 1.78,
+      });
+  const accentMat: THREE.Material = isFastMat
+    ? new THREE.MeshLambertMaterial({ color: accentColor, flatShading: isRetro })
+    : new THREE.MeshPhysicalMaterial({
+        color: accentColor,
+        metalness: 0.68,
+        roughness: 0.15,
+        clearcoat: 0.96,
+        clearcoatRoughness: 0.03,
+        envMapIntensity: 1.55,
+      });
+  const glassMat: THREE.Material = isFastMat
+    ? new THREE.MeshLambertMaterial({ color: 0x0a1120, flatShading: isRetro })
+    : new THREE.MeshPhysicalMaterial({
+        color: 0x05080f,
+        metalness: 0.2,
+        roughness: 0.025,
+        clearcoat: 1.0,
+        clearcoatRoughness: 0.012,
+        reflectivity: 1.0,
+        envMapIntensity: 1.9,
+      });
+  const carbonMat: THREE.Material = isFastMat
+    ? new THREE.MeshLambertMaterial({ color: 0x16181d, flatShading: isRetro })
+    : new THREE.MeshPhysicalMaterial({
+        color: 0x121316,
+        metalness: 0.45,
+        roughness: 0.28,
+        clearcoat: 0.68,
+        clearcoatRoughness: 0.12,
+        envMapIntensity: 1.25,
+      });
+  const darkGrilleMat: THREE.Material = isFastMat
+    ? new THREE.MeshLambertMaterial({ color: 0x0a0a0e })
+    : new THREE.MeshStandardMaterial({
+        color: 0x060608,
+        metalness: 0.32,
+        roughness: 0.65,
+      });
+  const chromeMat: THREE.Material = isFastMat
+    ? new THREE.MeshLambertMaterial({ color: 0xe2e8f0 })
+    : new THREE.MeshStandardMaterial({
+        color: 0xf1f5f9,
+        metalness: 0.96,
+        roughness: 0.08,
+        envMapIntensity: 1.65,
+      });
+  const goldMat: THREE.Material = isFastMat
+    ? new THREE.MeshLambertMaterial({ color: 0xfbbf24 })
+    : new THREE.MeshStandardMaterial({
+        color: 0xfbbf24,
+        metalness: 0.95,
+        roughness: 0.11,
+        envMapIntensity: 1.6,
+      });
+  const rotorMat: THREE.Material = isFastMat
+    ? new THREE.MeshLambertMaterial({ color: 0x94a3b8 })
+    : new THREE.MeshStandardMaterial({
+        color: 0x94a3b8,
+        metalness: 0.88,
+        roughness: 0.24,
+      });
+  const headMat: HeadlightLensMaterial = isFastMat
+    ? new THREE.MeshLambertMaterial({
+        color: 0xf4f8ff,
+        emissive: new THREE.Color(0xeef6ff),
+        emissiveIntensity: 0.12,
+      })
+    : new THREE.MeshStandardMaterial({
+        color: 0xf4f8ff,
+        emissive: new THREE.Color(0xeef6ff),
+        emissiveIntensity: 0.12,
+        roughness: 0.12,
+        metalness: 0.15,
+        toneMapped: false,
+      });
+  const yellowDrlMat: THREE.Material = isFastMat
+    ? new THREE.MeshBasicMaterial({ color: 0xfef08a })
+    : new THREE.MeshStandardMaterial({
+        color: 0xfef08a,
+        emissive: new THREE.Color(0xfacc15),
+        emissiveIntensity: 1.4,
+        roughness: 0.18,
+        toneMapped: false,
+      });
   const amberMat = new THREE.MeshBasicMaterial({ color: 0xf97316 });
   const brakeMat =
     (playerCar.tailLight.material as THREE.MeshBasicMaterial) ||
@@ -5664,6 +8320,7 @@ export function applyPlayerStreetCarVisual(
   playerCar.root.userData = {
     ...playerCar.root.userData,
     ...policeVisualPayload,
+    streetWheelRig: overlay.userData.streetWheelRig,
   };
 
   playerCar.root.add(overlay);
@@ -5674,53 +8331,125 @@ export function applyPlayerStreetCarVisual(
  * modern aerodynamic production cars with sloping chamfered hoods, raked curved greenhouse,
  * jewel-eye projector LED headlights, side character lines, and performance alloy wheels
  */
+const civBodyMatPool = new Map<string, THREE.Material>();
+const civSharedMatPool = new Map<
+  string,
+  {
+    glassMat: THREE.Material;
+    trimMat: THREE.Material;
+    chromeMat: THREE.Material;
+    carbonMat: THREE.Material;
+    drlMat: THREE.MeshBasicMaterial;
+    policeBlackMat: THREE.Material;
+    policeWhiteMat: THREE.Material;
+    policeSteelMat: THREE.Material;
+  }
+>();
+
+function getSharedTrafficMaterials() {
+  const preset = getGraphicsPresetConfig();
+  const isRetro = preset.id === 'retro' || preset.id === 'retro_pixel';
+  const isFastMat = isRetro || preset.id === 'low' || preset.id === 'dynamic_conservative';
+  const poolKey = `${isRetro ? 1 : 0}_${isFastMat ? 1 : 0}`;
+  let shared = civSharedMatPool.get(poolKey);
+  if (!shared) {
+    shared = {
+      glassMat: isFastMat
+        ? new THREE.MeshLambertMaterial({ color: 0x0a101d, flatShading: isRetro })
+        : new THREE.MeshPhysicalMaterial({
+            color: 0x070b14,
+            roughness: 0.035,
+            metalness: 0.22,
+            clearcoat: 1.0,
+            clearcoatRoughness: 0.02,
+            envMapIntensity: 1.75,
+          }),
+      trimMat: isFastMat
+        ? new THREE.MeshLambertMaterial({ color: 0x18181b })
+        : new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.65, metalness: 0.25 }),
+      chromeMat: isFastMat
+        ? new THREE.MeshLambertMaterial({ color: 0xe2e8f0 })
+        : new THREE.MeshStandardMaterial({
+            color: 0xf1f5f9,
+            roughness: 0.08,
+            metalness: 0.95,
+            envMapIntensity: 1.5,
+          }),
+      carbonMat: isFastMat
+        ? new THREE.MeshLambertMaterial({ color: 0x111827 })
+        : new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.4, metalness: 0.4 }),
+      drlMat: new THREE.MeshBasicMaterial({ color: 0x38bdf8 }),
+      policeBlackMat: isFastMat
+        ? new THREE.MeshLambertMaterial({ color: 0x0b101b, flatShading: isRetro })
+        : new THREE.MeshPhysicalMaterial({
+            color: 0x090d16,
+            roughness: 0.18,
+            metalness: 0.62,
+            clearcoat: 0.95,
+            clearcoatRoughness: 0.04,
+            envMapIntensity: 1.55,
+          }),
+      policeWhiteMat: isFastMat
+        ? new THREE.MeshLambertMaterial({ color: 0xf8fafc, flatShading: isRetro })
+        : new THREE.MeshPhysicalMaterial({
+            color: 0xf8fafc,
+            roughness: 0.22,
+            metalness: 0.3,
+            clearcoat: 0.95,
+            clearcoatRoughness: 0.05,
+            envMapIntensity: 1.4,
+          }),
+      policeSteelMat: isFastMat
+        ? new THREE.MeshLambertMaterial({ color: 0x334155 })
+        : new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.4, metalness: 0.8 }),
+    };
+    civSharedMatPool.set(poolKey, shared);
+  }
+  return { ...shared, isRetro, isFastMat };
+}
+
+function getSharedCivBodyMat(bodyColorHex: number, isRetro: boolean, isFastMat: boolean): THREE.Material {
+  const key = `${bodyColorHex}_${isRetro ? 1 : 0}_${isFastMat ? 1 : 0}`;
+  let mat = civBodyMatPool.get(key);
+  if (!mat) {
+    mat = isFastMat
+      ? new THREE.MeshLambertMaterial({ color: bodyColorHex, flatShading: isRetro })
+      : new THREE.MeshPhysicalMaterial({
+          color: bodyColorHex,
+          roughness: 0.2,
+          metalness: 0.62,
+          clearcoat: 0.95,
+          clearcoatRoughness: 0.04,
+          envMapIntensity: 1.55,
+        });
+    civBodyMatPool.set(key, mat);
+  }
+  return mat;
+}
+
 export function buildCivilianCarMesh(bodyColorHex: number, style: 'sedan' | 'suv' | 'coupe'): BuiltCivilianCar {
   const group = new THREE.Group();
   const wheels: THREE.Mesh[] = [];
 
-  const bodyMat = new THREE.MeshPhysicalMaterial({
-    color: bodyColorHex,
-    roughness: 0.2,
-    metalness: 0.62,
-    clearcoat: 0.95,
-    clearcoatRoughness: 0.04,
-    envMapIntensity: 1.55,
-  });
-  const glassMat = new THREE.MeshPhysicalMaterial({
-    color: 0x070b14,
-    roughness: 0.035,
-    metalness: 0.22,
-    clearcoat: 1.0,
-    clearcoatRoughness: 0.02,
-    envMapIntensity: 1.75,
-  });
-  const trimMat = new THREE.MeshStandardMaterial({
-    color: 0x18181b,
-    roughness: 0.65,
-    metalness: 0.25,
-  });
-  const chromeMat = new THREE.MeshStandardMaterial({
-    color: 0xf1f5f9,
-    roughness: 0.08,
-    metalness: 0.95,
-    envMapIntensity: 1.5,
-  });
-  const carbonMat = new THREE.MeshStandardMaterial({
-    color: 0x111827,
-    roughness: 0.4,
-    metalness: 0.4,
-  });
+  const shared = getSharedTrafficMaterials();
+  const bodyMat = getSharedCivBodyMat(bodyColorHex, shared.isRetro, shared.isFastMat);
+  const { glassMat, trimMat, chromeMat, carbonMat, drlMat } = shared;
 
   const leftAmberMat = new THREE.MeshBasicMaterial({ color: 0x2b1504 });
   const rightAmberMat = new THREE.MeshBasicMaterial({ color: 0x2b1504 });
-  const headMat = new THREE.MeshStandardMaterial({
-    color: 0xf0fdf4,
-    emissive: new THREE.Color(0xeef6ff),
-    emissiveIntensity: 0.1,
-    roughness: 0.15,
-    toneMapped: false,
-  });
-  const drlMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8 });
+  const headMat: HeadlightLensMaterial = shared.isFastMat
+    ? new THREE.MeshLambertMaterial({
+        color: 0xf0fdf4,
+        emissive: new THREE.Color(0xeef6ff),
+        emissiveIntensity: 0.1,
+      })
+    : new THREE.MeshStandardMaterial({
+        color: 0xf0fdf4,
+        emissive: new THREE.Color(0xeef6ff),
+        emissiveIntensity: 0.1,
+        roughness: 0.15,
+        toneMapped: false,
+      });
   const brakeLightMatL = new THREE.MeshBasicMaterial({ color: 0x660f13 });
   const brakeLightMatR = new THREE.MeshBasicMaterial({ color: 0x660f13 });
 
@@ -5808,42 +8537,28 @@ export function buildPoliceInterceptorMesh(): BuiltPoliceCar {
   const group = new THREE.Group();
   const wheels: THREE.Mesh[] = [];
 
-  const blackMat = new THREE.MeshPhysicalMaterial({
-    color: 0x090d16,
-    roughness: 0.18,
-    metalness: 0.62,
-    clearcoat: 0.95,
-    clearcoatRoughness: 0.04,
-    envMapIntensity: 1.55,
-  });
-  const whiteDoorsMat = new THREE.MeshPhysicalMaterial({
-    color: 0xf8fafc,
-    roughness: 0.22,
-    metalness: 0.3,
-    clearcoat: 0.95,
-    clearcoatRoughness: 0.05,
-    envMapIntensity: 1.4,
-  });
-  const glassMat = new THREE.MeshPhysicalMaterial({
-    color: 0x0a101d,
-    roughness: 0.04,
-    metalness: 0.25,
-    clearcoat: 1.0,
-    clearcoatRoughness: 0.02,
-    envMapIntensity: 1.75,
-  });
-  const steelMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.4, metalness: 0.8 });
-  const chromeMat = new THREE.MeshStandardMaterial({ color: 0xf1f5f9, roughness: 0.1, metalness: 0.9 });
+  const shared = getSharedTrafficMaterials();
+  const blackMat = shared.policeBlackMat;
+  const whiteDoorsMat = shared.policeWhiteMat;
+  const glassMat = shared.glassMat;
+  const steelMat = shared.policeSteelMat;
+  const chromeMat = shared.chromeMat;
 
   const redStrobeMat = new THREE.MeshBasicMaterial({ color: 0x3b0a0a });
   const blueStrobeMat = new THREE.MeshBasicMaterial({ color: 0x0a193b });
-  const headMat = new THREE.MeshStandardMaterial({
-    color: 0xf4f8ff,
-    emissive: new THREE.Color(0xeef6ff),
-    emissiveIntensity: 0.1,
-    roughness: 0.15,
-    toneMapped: false,
-  });
+  const headMat: HeadlightLensMaterial = shared.isFastMat
+    ? new THREE.MeshLambertMaterial({
+        color: 0xf4f8ff,
+        emissive: new THREE.Color(0xeef6ff),
+        emissiveIntensity: 0.1,
+      })
+    : new THREE.MeshStandardMaterial({
+        color: 0xf4f8ff,
+        emissive: new THREE.Color(0xeef6ff),
+        emissiveIntensity: 0.1,
+        roughness: 0.15,
+        toneMapped: false,
+      });
   const tailMat = new THREE.MeshBasicMaterial({ color: 0xef4444 });
 
   const { wheels: copWheels, dim: polDim } = buildSculptedPoliceHull(
@@ -5932,6 +8647,108 @@ function hashAddressSeed(s: string): number {
   return h >>> 0;
 }
 
+const houseSharedPool = new Map<
+  string,
+  {
+    grassMat: THREE.Material;
+    concreteMat: THREE.Material;
+    stonePlinthMat: THREE.Material;
+    paverMat: THREE.Material;
+    whiteTrimMat: THREE.Material;
+    doorMat: THREE.Material;
+    glassMat: THREE.Material;
+    shutterMat: THREE.Material;
+    poolWaterMat: THREE.Material;
+    brickChimneyMat: THREE.Material;
+    shrubMat: THREE.Material;
+  }
+>();
+const houseColorMatPool = new Map<string, THREE.Material>();
+
+function getSharedHouseMaterials() {
+  const preset = getGraphicsPresetConfig();
+  const isRetroPixel = preset.id === 'retro_pixel';
+  const isRetro = preset.id === 'retro' || isRetroPixel;
+  const isFastMat = isRetro || preset.id === 'low' || preset.id === 'dynamic_conservative';
+  const key = `${isRetroPixel ? 1 : 0}_${isFastMat ? 1 : 0}`;
+  let s = houseSharedPool.get(key);
+  if (!s) {
+    const lawnPBR = getLawnPBRTextures(isRetroPixel, isFastMat ? 1 : 4);
+    const leafTex = getLeafClusterTexture(isRetroPixel);
+    s = {
+      grassMat: isFastMat
+        ? new THREE.MeshLambertMaterial({ color: 0xcbe3c2, map: lawnPBR.map })
+        : new THREE.MeshStandardMaterial({
+            color: 0xcbe3c2,
+            map: lawnPBR.map,
+            normalMap: lawnPBR.normalMap,
+            normalScale: new THREE.Vector2(0.8, 0.8),
+            roughness: 0.92,
+            metalness: 0.0,
+          }),
+      concreteMat: isFastMat
+        ? new THREE.MeshLambertMaterial({ color: 0xa4b0be })
+        : new THREE.MeshStandardMaterial({ color: 0xa4b0be, roughness: 0.78, metalness: 0.04 }),
+      stonePlinthMat: isFastMat
+        ? new THREE.MeshLambertMaterial({ color: 0x64748b })
+        : new THREE.MeshStandardMaterial({ color: 0x64748b, roughness: 0.88, metalness: 0.04 }),
+      paverMat: isFastMat
+        ? new THREE.MeshLambertMaterial({ color: 0x475569 })
+        : new THREE.MeshStandardMaterial({ color: 0x475569, roughness: 0.68, metalness: 0.1 }),
+      whiteTrimMat: isFastMat
+        ? new THREE.MeshLambertMaterial({ color: 0xf8fafc })
+        : new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.36, metalness: 0.08 }),
+      doorMat: isFastMat
+        ? new THREE.MeshLambertMaterial({ color: 0x7c2d12 })
+        : new THREE.MeshStandardMaterial({ color: 0x7c2d12, roughness: 0.45, metalness: 0.1 }),
+      glassMat: isFastMat
+        ? new THREE.MeshLambertMaterial({ color: 0x0b1a2d })
+        : new THREE.MeshPhysicalMaterial({
+            color: 0x0b1a2d,
+            roughness: 0.06,
+            metalness: 0.18,
+            clearcoat: 1.0,
+            clearcoatRoughness: 0.04,
+          }),
+      shutterMat: isFastMat
+        ? new THREE.MeshLambertMaterial({ color: 0x1e293b })
+        : new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.55 }),
+      poolWaterMat: isFastMat
+        ? new THREE.MeshLambertMaterial({ color: 0x06b6d4, transparent: true, opacity: 0.85 })
+        : new THREE.MeshStandardMaterial({ color: 0x06b6d4, roughness: 0.12, metalness: 0.75, transparent: true, opacity: 0.85 }),
+      brickChimneyMat: isFastMat
+        ? new THREE.MeshLambertMaterial({ color: 0x881337 })
+        : new THREE.MeshStandardMaterial({ color: 0x881337, roughness: 0.78, metalness: 0.04 }),
+      shrubMat: isFastMat
+        ? new THREE.MeshLambertMaterial({ color: 0x99c47f, map: leafTex })
+        : new THREE.MeshStandardMaterial({
+            color: 0x99c47f,
+            map: leafTex,
+            roughness: 0.86,
+            metalness: 0.01,
+          }),
+    };
+    houseSharedPool.set(key, s);
+  }
+  return { ...s, isFastMat, shadowsEnabled: preset.shadowsEnabled };
+}
+
+function getSharedHouseColorMat(kind: 'wall' | 'roof', hex: number, isFastMat: boolean): THREE.Material {
+  const key = `${kind}_${hex}_${isFastMat ? 1 : 0}`;
+  let m = houseColorMatPool.get(key);
+  if (!m) {
+    m = isFastMat
+      ? new THREE.MeshLambertMaterial({ color: hex })
+      : new THREE.MeshStandardMaterial({
+          color: hex,
+          roughness: kind === 'roof' ? 0.8 : 0.65,
+          metalness: 0.04,
+        });
+    houseColorMatPool.set(key, m);
+  }
+  return m;
+}
+
 export function buildSuburbanHouseMesh(
   x: number,
   z: number,
@@ -5949,38 +8766,24 @@ export function buildSuburbanHouseMesh(
 
   const tier = opts.tier === 'mansion' ? 'luxury' : opts.tier || 'regular';
 
-  const lawnPBR = getLawnPBRTextures(false, 4);
-  const grassMat = new THREE.MeshStandardMaterial({
-    color: 0xcbe3c2,
-    map: lawnPBR.map,
-    normalMap: lawnPBR.normalMap,
-    normalScale: new THREE.Vector2(0.8, 0.8),
-    roughness: 0.92,
-    metalness: 0.0,
-  });
-  const concreteMat = new THREE.MeshStandardMaterial({ color: 0xa4b0be, roughness: 0.78, metalness: 0.04 });
-  const stonePlinthMat = new THREE.MeshStandardMaterial({ color: 0x64748b, roughness: 0.88, metalness: 0.04 });
-  const paverMat = new THREE.MeshStandardMaterial({ color: 0x475569, roughness: 0.68, metalness: 0.1 });
-  const wallMat = new THREE.MeshStandardMaterial({ color: opts.wallColor, roughness: 0.65, metalness: 0.04 });
-  const roofMat = new THREE.MeshStandardMaterial({ color: opts.roofColor, roughness: 0.8, metalness: 0.04 });
-  const whiteTrimMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.36, metalness: 0.08 });
-  const doorMat = new THREE.MeshStandardMaterial({ color: 0x7c2d12, roughness: 0.45, metalness: 0.1 });
-  const glassMat = new THREE.MeshPhysicalMaterial({
-    color: 0x0b1a2d,
-    roughness: 0.06,
-    metalness: 0.18,
-    clearcoat: 1.0,
-    clearcoatRoughness: 0.04,
-  });
-  const shutterMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.55 });
-  const poolWaterMat = new THREE.MeshStandardMaterial({ color: 0x06b6d4, roughness: 0.12, metalness: 0.75, transparent: true, opacity: 0.85 });
-  const brickChimneyMat = new THREE.MeshStandardMaterial({ color: 0x881337, roughness: 0.78, metalness: 0.04 });
-  const shrubMat = new THREE.MeshStandardMaterial({
-    color: 0x99c47f,
-    map: getLeafClusterTexture(false),
-    roughness: 0.86,
-    metalness: 0.01,
-  });
+  const hs = getSharedHouseMaterials();
+  const {
+    grassMat,
+    concreteMat,
+    stonePlinthMat,
+    paverMat,
+    whiteTrimMat,
+    doorMat,
+    glassMat,
+    shutterMat,
+    poolWaterMat,
+    brickChimneyMat,
+    shrubMat,
+    isFastMat,
+    shadowsEnabled,
+  } = hs;
+  const wallMat = getSharedHouseColorMat('wall', opts.wallColor, isFastMat);
+  const roofMat = getSharedHouseColorMat('roof', opts.roofColor, isFastMat);
 
   const addWindowWithMullions = (wx: number, wy: number, wz: number, fw = 1.38, fh = 1.56) => {
     const wf = new THREE.Mesh(new THREE.BoxGeometry(fw, fh, 0.09), whiteTrimMat);
@@ -6007,7 +8810,7 @@ export function buildSuburbanHouseMesh(
     const sh = new THREE.Mesh(new THREE.IcosahedronGeometry(r, 1), shrubMat);
     sh.scale.set(1.2, 0.82, 1.05);
     sh.position.set(sx, r * 0.48, sz);
-    sh.castShadow = true;
+    sh.castShadow = shadowsEnabled;
     group.add(sh);
   };
 
@@ -6029,12 +8832,12 @@ export function buildSuburbanHouseMesh(
   if (tier === 'starter') {
     const lawn = new THREE.Mesh(new THREE.BoxGeometry(17.5, 0.02, 20), grassMat);
     lawn.position.set(0, -0.02, 0);
-    lawn.receiveShadow = true;
+    lawn.receiveShadow = shadowsEnabled;
     group.add(lawn);
 
     const driveway = new THREE.Mesh(new THREE.BoxGeometry(4.4, 0.02, 9.0), concreteMat);
     driveway.position.set(4.6, -0.016, 5.2);
-    driveway.receiveShadow = true;
+    driveway.receiveShadow = shadowsEnabled;
     group.add(driveway);
 
     const plinth = new THREE.Mesh(new THREE.BoxGeometry(9.35, 0.34, 8.35), stonePlinthMat);
@@ -6043,8 +8846,8 @@ export function buildSuburbanHouseMesh(
 
     const cottage = new THREE.Mesh(new THREE.BoxGeometry(9.2, 3.8, 8.2), wallMat);
     cottage.position.set(-2.2, 2.05, -2.2);
-    cottage.castShadow = true;
-    cottage.receiveShadow = true;
+    cottage.castShadow = shadowsEnabled;
+    cottage.receiveShadow = shadowsEnabled;
     group.add(cottage);
 
     const roof = buildPitchedRoofGroup(9.5, 8.5, 2.4, wallMat, roofMat, 'x');
@@ -6094,12 +8897,12 @@ export function buildSuburbanHouseMesh(
   } else if (tier === 'luxury') {
     const lawn = new THREE.Mesh(new THREE.BoxGeometry(24, 0.02, 25), grassMat);
     lawn.position.set(0, -0.02, 0);
-    lawn.receiveShadow = true;
+    lawn.receiveShadow = shadowsEnabled;
     group.add(lawn);
 
     const driveway = new THREE.Mesh(new THREE.BoxGeometry(8.4, 0.02, 9.6), paverMat);
     driveway.position.set(6.4, -0.016, 6.8);
-    driveway.receiveShadow = true;
+    driveway.receiveShadow = shadowsEnabled;
     group.add(driveway);
 
     const walkPath = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.02, 9.0), paverMat);
@@ -6112,7 +8915,7 @@ export function buildSuburbanHouseMesh(
 
     const mainVilla = new THREE.Mesh(new THREE.BoxGeometry(12.4, 6.6, 9.4), wallMat);
     mainVilla.position.set(-3.8, 3.45, -2.5);
-    mainVilla.castShadow = true;
+    mainVilla.castShadow = shadowsEnabled;
     group.add(mainVilla);
 
     const manorRoof = buildPitchedRoofGroup(12.8, 9.8, 3.3, wallMat, roofMat, 'x');
@@ -6158,7 +8961,7 @@ export function buildSuburbanHouseMesh(
 
     const luxuryGarage = new THREE.Mesh(new THREE.BoxGeometry(8.0, 3.8, 7.6), wallMat);
     luxuryGarage.position.set(6.4, 2.05, -1.7);
-    luxuryGarage.castShadow = true;
+    luxuryGarage.castShadow = shadowsEnabled;
     group.add(luxuryGarage);
 
     const garageRoof = buildPitchedRoofGroup(8.3, 7.9, 2.1, wallMat, roofMat, 'x');
@@ -6218,12 +9021,12 @@ export function buildSuburbanHouseMesh(
   // TIER 2: REGULAR FAMILY SUBURBS (2-Story Colonial, Attached 2-Car Garage)
   const lawn = new THREE.Mesh(new THREE.BoxGeometry(20, 0.02, 24), grassMat);
   lawn.position.set(0, -0.02, 0);
-  lawn.receiveShadow = true;
+  lawn.receiveShadow = shadowsEnabled;
   group.add(lawn);
 
   const driveway = new THREE.Mesh(new THREE.BoxGeometry(5.6, 0.02, 10.0), concreteMat);
   driveway.position.set(5.4, -0.016, 6.2);
-  driveway.receiveShadow = true;
+  driveway.receiveShadow = shadowsEnabled;
   group.add(driveway);
 
   const plinthMain = new THREE.Mesh(new THREE.BoxGeometry(10.76, 0.36, 8.96), stonePlinthMat);
@@ -6232,7 +9035,7 @@ export function buildSuburbanHouseMesh(
 
   const mainHouse = new THREE.Mesh(new THREE.BoxGeometry(10.6, 5.6, 8.8), wallMat);
   mainHouse.position.set(-2.6, 2.95, -2.5);
-  mainHouse.castShadow = true;
+  mainHouse.castShadow = shadowsEnabled;
   group.add(mainHouse);
 
   const plinthGar = new THREE.Mesh(new THREE.BoxGeometry(5.96, 0.34, 7.36), stonePlinthMat);
@@ -6241,7 +9044,7 @@ export function buildSuburbanHouseMesh(
 
   const garage = new THREE.Mesh(new THREE.BoxGeometry(5.8, 3.5, 7.2), wallMat);
   garage.position.set(5.6, 1.9, -1.7);
-  garage.castShadow = true;
+  garage.castShadow = shadowsEnabled;
   group.add(garage);
 
   const garageDoor = new THREE.Mesh(new THREE.BoxGeometry(4.7, 2.6, 0.15), whiteTrimMat);
@@ -6445,7 +9248,7 @@ export function updateVehicleLighting(
 // =================================================================================================
 // 3D VEHICLE HEADLIGHTS RIG (Calibrated ECE SpotLight Projector, Flush Optical Halos & Ground Pool)
 // =================================================================================================
-type HeadlightLensMaterial = THREE.MeshStandardMaterial | THREE.MeshBasicMaterial;
+type HeadlightLensMaterial = THREE.MeshStandardMaterial | THREE.MeshLambertMaterial | THREE.MeshBasicMaterial;
 
 interface PlayerHeadlightRigData {
   spotLight: THREE.SpotLight;
@@ -6605,7 +9408,7 @@ export function updatePlayerHeadlightRig(
     rig.bounceLight.intensity = 0;
     rig.haloGroup.visible = false;
     rig.headMat.color.setHex(0xb8c2cf);
-    if (rig.headMat instanceof THREE.MeshStandardMaterial) {
+    if (rig.headMat instanceof THREE.MeshStandardMaterial || rig.headMat instanceof THREE.MeshLambertMaterial) {
       rig.headMat.emissiveIntensity = 0.06;
     }
   } else if (state === 'low') {
@@ -6620,7 +9423,7 @@ export function updatePlayerHeadlightRig(
     rig.groundPoolMesh.scale.set(1.06, 1, 1.15);
     rig.groundPoolMat.opacity = 0.24;
     rig.headMat.color.setHex(0xf8fbff);
-    if (rig.headMat instanceof THREE.MeshStandardMaterial) {
+    if (rig.headMat instanceof THREE.MeshStandardMaterial || rig.headMat instanceof THREE.MeshLambertMaterial) {
       rig.headMat.emissiveIntensity = 3.2;
     }
   } else {
@@ -6635,7 +9438,7 @@ export function updatePlayerHeadlightRig(
     rig.groundPoolMesh.scale.set(1.28, 1, 1.55);
     rig.groundPoolMat.opacity = 0.36;
     rig.headMat.color.setHex(0xffffff);
-    if (rig.headMat instanceof THREE.MeshStandardMaterial) {
+    if (rig.headMat instanceof THREE.MeshStandardMaterial || rig.headMat instanceof THREE.MeshLambertMaterial) {
       rig.headMat.emissiveIntensity = 4.6;
     }
   }
@@ -6654,11 +9457,103 @@ export function updateNpcHeadlightsVisibility(carRoot: THREE.Object3D, active: b
   if (data.haloGroup.visible !== active) {
     data.haloGroup.visible = active;
     data.headMat.color.setHex(active ? 0xf8fbff : 0xcbd5e1);
-    if (data.headMat instanceof THREE.MeshStandardMaterial) {
+    if (data.headMat instanceof THREE.MeshStandardMaterial || data.headMat instanceof THREE.MeshLambertMaterial) {
       data.headMat.emissiveIntensity = active ? 2.4 : 0.06;
     }
   }
 }
+
+// ============================================================================
+// TACTICAL MCPD POLICE ROADBLOCKS (SPAWNED AHEAD ON PURSUIT ROADS)
+// ============================================================================
+
+export interface PoliceRoadblockEntity {
+  id: string;
+  roadId: string;
+  pos: THREE.Vector3;
+  heading: number;
+  halfWidth: number;
+  root: THREE.Group;
+  hitCooldown: number;
+  updateStrobe: (timeSec: number) => void;
+}
+
+const roadblockGeoPool = {
+  barrierBody: new THREE.BoxGeometry(2.8, 0.92, 0.56),
+  barrierStripe: new THREE.BoxGeometry(0.45, 0.24, 0.60),
+  coneBody: new THREE.ConeGeometry(0.24, 0.68, 10),
+  coneBase: new THREE.BoxGeometry(0.46, 0.06, 0.46),
+};
+
+const roadblockMatPool = {
+  barrierMat: new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.72, metalness: 0.12 }),
+  stripeOrangeMat: new THREE.MeshStandardMaterial({
+    color: 0xf97316,
+    emissive: 0x7c2d12,
+    emissiveIntensity: 0.28,
+    roughness: 0.48,
+  }),
+  coneOrangeMat: new THREE.MeshStandardMaterial({
+    color: 0xf97316,
+    emissive: 0x9a3412,
+    emissiveIntensity: 0.35,
+    roughness: 0.55,
+  }),
+  coneBaseMat: new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.85 }),
+};
+
+export function buildPoliceRoadblockGroup(roadWidth: number): {
+  root: THREE.Group;
+  halfWidth: number;
+  updateStrobe: (timeSec: number) => void;
+} {
+  const root = new THREE.Group();
+  const halfWidth = Math.max(5.5, Math.min(9.5, roadWidth * 0.44));
+
+  // Two angled MCPD Police Interceptors flanking the roadway, leaving a tight tactical weave gap
+  const leftCop = buildPoliceInterceptorMesh();
+  leftCop.root.position.set(-Math.max(2.6, halfWidth * 0.56), 0, -0.35);
+  leftCop.root.rotation.y = Math.PI * 0.42;
+  root.add(leftCop.root);
+
+  const rightCop = buildPoliceInterceptorMesh();
+  rightCop.root.position.set(Math.max(2.6, halfWidth * 0.56), 0, 0.35);
+  rightCop.root.rotation.y = -Math.PI * 0.42;
+  root.add(rightCop.root);
+
+  // Two striped Jersey barriers in front of the cruisers + safety cones
+  for (const side of [-1, 1]) {
+    const bx = side * Math.max(1.9, halfWidth * 0.36);
+    const barrier = new THREE.Mesh(roadblockGeoPool.barrierBody, roadblockMatPool.barrierMat);
+    barrier.position.set(bx, 0.46, -1.75);
+    root.add(barrier);
+
+    for (const sx of [-0.95, 0, 0.95]) {
+      const stripe = new THREE.Mesh(roadblockGeoPool.barrierStripe, roadblockMatPool.stripeOrangeMat);
+      stripe.position.set(bx + sx, 0.64, -1.75);
+      root.add(stripe);
+    }
+
+    const coneX = side * (halfWidth * 0.78);
+    const cone = new THREE.Mesh(roadblockGeoPool.coneBody, roadblockMatPool.coneOrangeMat);
+    cone.position.set(coneX, 0.36, -2.55);
+    root.add(cone);
+
+    const coneBase = new THREE.Mesh(roadblockGeoPool.coneBase, roadblockMatPool.coneBaseMat);
+    coneBase.position.set(coneX, 0.03, -2.55);
+    root.add(coneBase);
+  }
+
+  return {
+    root,
+    halfWidth,
+    updateStrobe: (timeSec: number) => {
+      leftCop.setSirenActive(true, timeSec);
+      rightCop.setSirenActive(true, timeSec + 0.09);
+    },
+  };
+}
+
 
 
 

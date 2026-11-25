@@ -2384,3 +2384,437 @@ export function buildPitchedRoofGroup(
   }
   return g;
 }
+
+export interface OffRoadTerrainSample {
+  /** Normalized grass height: 0.12-0.45 shorter grass, 0.52-1.0 tall wild meadow grass */
+  grassHeight: number;
+  /** True when in tall overgrown meadow grass (>= 0.52) */
+  isTallGrass: boolean;
+  /** 0..1 patchy loose gravel/pebble zone density */
+  pebbleFactor: number;
+  /** Deterministic vertical rock/pebble/rut bump height in meters (0..0.14m) */
+  rockBump: number;
+  /** Combined surface roughness (0..1) */
+  roughness: number;
+}
+
+function hashCell2D(cx: number, cz: number, seed: number): number {
+  const h = Math.sin(cx * 127.1 + cz * 311.7 + seed * 74.7) * 43758.5453123;
+  return h - Math.floor(h);
+}
+
+/**
+ * Deterministic world-space sampler for off-road grass height zones, pebble beds,
+ * and scattered stones/ruts so both 3D foliage placement and 4-wheel suspension/traction
+ * physics react to the exact same terrain features.
+ */
+export function sampleOffRoadTerrainAt(x: number, z: number): OffRoadTerrainSample {
+  // Multi-frequency continuous meadow grass height field
+  const macro =
+    0.50 +
+    0.29 * Math.sin(x * 0.011 + 0.7) * Math.cos(z * 0.013 - 0.4) +
+    0.21 * Math.sin((x + z) * 0.023 + 1.9) +
+    0.10 * Math.cos(x * 0.047 - z * 0.039);
+  const grassHeight = Math.max(0.12, Math.min(1.0, macro));
+  const isTallGrass = grassHeight >= 0.52;
+
+  // Loose pebble / gravel wash patches
+  const pebField =
+    0.50 +
+    0.34 * Math.sin(x * 0.027 - z * 0.022 + 2.1) +
+    0.16 * Math.cos(x * 0.061 + z * 0.053 - 0.9);
+  const pebbleFactor = pebField > 0.56 ? Math.min(1.0, (pebField - 0.56) / 0.44) : 0;
+
+  // High-frequency pebble chatter & uneven dirt ruts for individual wheel bounce
+  const pebbleWave =
+    pebbleFactor *
+    (0.014 +
+      0.030 *
+        Math.max(
+          0,
+          Math.sin(x * 2.15 + z * 1.75) * Math.cos(x * 1.45 - z * 2.35)
+        ));
+
+  // Deterministic field stones / rocks on a 5.2m cell grid
+  const cellSize = 5.2;
+  const cx = Math.floor(x / cellSize);
+  const cz = Math.floor(z / cellSize);
+  let stoneBump = 0;
+  if (hashCell2D(cx, cz, 1.0) < (pebbleFactor > 0.25 ? 0.34 : 0.20)) {
+    const sx = (cx + 0.22 + hashCell2D(cx, cz, 2.0) * 0.56) * cellSize;
+    const sz = (cz + 0.22 + hashCell2D(cx, cz, 3.0) * 0.56) * cellSize;
+    const radius = 0.48 + hashCell2D(cx, cz, 4.0) * 0.52;
+    const dSq = (x - sx) * (x - sx) + (z - sz) * (z - sz);
+    if (dSq < radius * radius) {
+      const peak = 0.065 + hashCell2D(cx, cz, 5.0) * 0.075;
+      stoneBump = peak * (1.0 - dSq / (radius * radius));
+    }
+  }
+
+  // Soft grass tussock / rut undulations
+  const rutAmp = isTallGrass ? 0.034 : 0.015;
+  const grassRut =
+    rutAmp *
+    (0.5 + 0.5 * Math.sin(x * 0.62 + z * 0.49) * Math.cos(x * 0.37 - z * 0.71));
+
+  const rockBump = Math.min(0.145, stoneBump + pebbleWave + grassRut);
+  const roughness = Math.min(
+    1.0,
+    (isTallGrass ? 0.48 : 0.22) + pebbleFactor * 0.36 + (stoneBump > 0.01 ? 0.32 : 0)
+  );
+
+  return {
+    grassHeight,
+    isTallGrass,
+    pebbleFactor,
+    rockBump,
+    roughness,
+  };
+}
+
+let cachedRioWaterTex: THREE.CanvasTexture | null = null;
+let cachedRioPixelTex: THREE.CanvasTexture | null = null;
+
+function getRioWaterRippleTexture(isRetroPixel: boolean): THREE.CanvasTexture {
+  if (isRetroPixel && cachedRioPixelTex) return cachedRioPixelTex;
+  if (!isRetroPixel && cachedRioWaterTex) return cachedRioWaterTex;
+
+  const size = isRetroPixel ? 64 : 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    // Rich RIO Lakefront turquoise-slate gradient base
+    const grad = ctx.createLinearGradient(0, 0, size, size);
+    grad.addColorStop(0, '#135e78');
+    grad.addColorStop(0.45, '#1e7694');
+    grad.addColorStop(0.75, '#0e6a87');
+    grad.addColorStop(1, '#196985');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, size, size);
+
+    // Subtle organic sky-reflection ripple bands & glints matching RIO Reflector feel
+    const bandStep = isRetroPixel ? 8 : 14;
+    for (let y = 0; y < size; y += bandStep) {
+      for (let x = 0; x < size; x += bandStep) {
+        const wave =
+          Math.sin((x / size) * Math.PI * 4 + (y / size) * Math.PI * 2) *
+          Math.cos((y / size) * Math.PI * 6 - (x / size) * Math.PI * 2);
+        if (wave > 0.28) {
+          ctx.fillStyle = `rgba(125, 211, 252, ${(0.08 + wave * 0.12).toFixed(3)})`;
+          ctx.fillRect(x, y, bandStep * 1.4, Math.max(2, bandStep * 0.42));
+        } else if (wave < -0.35) {
+          ctx.fillStyle = `rgba(12, 74, 110, ${(0.12 + Math.abs(wave) * 0.14).toFixed(3)})`;
+          ctx.fillRect(x, y, bandStep * 1.2, Math.max(2, bandStep * 0.48));
+        }
+      }
+    }
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(5, 5);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  if (isRetroPixel) {
+    tex.magFilter = THREE.NearestFilter;
+    tex.minFilter = THREE.NearestFilter;
+    cachedRioPixelTex = tex;
+  } else {
+    cachedRioWaterTex = tex;
+  }
+  return tex;
+}
+
+/**
+ * Shared RIO-style reflective turquoise-teal water material used across all Maryland lakes,
+ * bays, harbors, rivers, canals, and pools without duplicating full-scene Reflector passes.
+ */
+export function createRioStyleWaterMaterial(isUltra: boolean, isRetroPixel: boolean): THREE.Material {
+  const tex = getRioWaterRippleTexture(isRetroPixel);
+  if (isRetroPixel) {
+    return new THREE.MeshLambertMaterial({
+      color: 0x2a8ba8,
+      map: tex,
+    });
+  }
+  return new THREE.MeshStandardMaterial({
+    color: 0x3b8ea8,
+    map: tex,
+    roughness: 0.08,
+    metalness: 0.72,
+    envMapIntensity: isUltra ? 1.45 : 1.05,
+  });
+}
+
+export interface WaterBarrierColliderTarget {
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
+  height?: number;
+  stories?: number;
+  name?: string;
+}
+
+export interface WaterBarrierSegment {
+  x1: number;
+  z1: number;
+  x2: number;
+  z2: number;
+  label: string;
+}
+
+export interface WaterBarrierExclusionBox {
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
+}
+
+/**
+ * Places RIO-style wrought-iron double-rail + limestone bollard perimeter barriers around water edges,
+ * automatically omitting any sub-segment overlapping paved Maryland roads, bridges, or exclusion boxes.
+ * Uses InstancedMesh batching so hundreds of meters of shoreline barrier cost only 3 draw calls.
+ */
+export function addWaterPerimeterBarriers(opts: {
+  sceneryGroup: THREE.Group;
+  cityBuildings: WaterBarrierColliderTarget[];
+  makeCityMat: (cfg: { color?: number; roughness?: number; metalness?: number }) => THREE.Material;
+  segments: WaterBarrierSegment[];
+  exclusions?: WaterBarrierExclusionBox[];
+  disposables?: { dispose: () => void }[];
+  roadMargin?: number;
+  stepLength?: number;
+}): void {
+  const {
+    sceneryGroup,
+    cityBuildings,
+    makeCityMat,
+    segments,
+    exclusions = [],
+    disposables,
+    roadMargin = 2.4,
+    stepLength = 7.0,
+  } = opts;
+
+  if (segments.length === 0) return;
+
+  const isBlocked = (px: number, pz: number): boolean => {
+    for (let i = 0; i < exclusions.length; i++) {
+      const ex = exclusions[i];
+      if (px >= ex.minX && px <= ex.maxX && pz >= ex.minZ && pz <= ex.maxZ) {
+        return true;
+      }
+    }
+    for (let i = 0; i < ALL_MARYLAND_ROADS.length; i++) {
+      const road = ALL_MARYLAND_ROADS[i];
+      const clearR = road.width * 0.5 + roadMargin;
+      const clearRSq = clearR * clearR;
+      const pts = road.points;
+      for (let k = 0; k < pts.length - 1; k++) {
+        if (distSqPointToSeg(px, pz, pts[k].x, pts[k].z, pts[k + 1].x, pts[k + 1].z) <= clearRSq) {
+          return true;
+        }
+      }
+    }
+    return false;
+  };
+
+  interface KeptSpan {
+    x1: number;
+    z1: number;
+    x2: number;
+    z2: number;
+    mx: number;
+    mz: number;
+    len: number;
+    yaw: number;
+    label: string;
+  }
+
+  const keptSpans: KeptSpan[] = [];
+  const postKeySet = new Set<string>();
+  const postPositions: [number, number][] = [];
+
+  const pushPost = (x: number, z: number) => {
+    const key = `${Math.round(x * 2)}_${Math.round(z * 2)}`;
+    if (!postKeySet.has(key)) {
+      postKeySet.add(key);
+      postPositions.push([x, z]);
+    }
+  };
+
+  for (const seg of segments) {
+    const totalLen = Math.hypot(seg.x2 - seg.x1, seg.z2 - seg.z1);
+    if (totalLen < 1.0) continue;
+    const subCount = Math.max(1, Math.ceil(totalLen / stepLength));
+    let runStartIdx = -1;
+
+    const flushRun = (endIdx: number) => {
+      if (runStartIdx < 0) return;
+      const t0 = runStartIdx / subCount;
+      const t1 = (endIdx + 1) / subCount;
+      const rx1 = seg.x1 + (seg.x2 - seg.x1) * t0;
+      const rz1 = seg.z1 + (seg.z2 - seg.z1) * t0;
+      const rx2 = seg.x1 + (seg.x2 - seg.x1) * t1;
+      const rz2 = seg.z1 + (seg.z2 - seg.z1) * t1;
+      const rLen = Math.hypot(rx2 - rx1, rz2 - rz1);
+      if (rLen >= 1.2) {
+        const mx = (rx1 + rx2) * 0.5;
+        const mz = (rz1 + rz2) * 0.5;
+        const yaw = Math.atan2(rx2 - rx1, rz2 - rz1);
+        keptSpans.push({ x1: rx1, z1: rz1, x2: rx2, z2: rz2, mx, mz, len: rLen, yaw, label: seg.label });
+
+        const postsInRun = Math.max(2, Math.round(rLen / 6.5) + 1);
+        for (let pi = 0; pi < postsInRun; pi++) {
+          const pt = pi / (postsInRun - 1);
+          pushPost(rx1 + (rx2 - rx1) * pt, rz1 + (rz2 - rz1) * pt);
+        }
+
+        // Subdivide diagonal colliders into compact AABBs so cars never snag on empty corners
+        const colliderPieces = Math.abs(rx2 - rx1) > 2.5 && Math.abs(rz2 - rz1) > 2.5
+          ? Math.max(1, Math.ceil(rLen / 9.0))
+          : 1;
+        for (let ci = 0; ci < colliderPieces; ci++) {
+          const c0 = ci / colliderPieces;
+          const c1 = (ci + 1) / colliderPieces;
+          const ax = rx1 + (rx2 - rx1) * c0;
+          const az = rz1 + (rz2 - rz1) * c0;
+          const bx = rx1 + (rx2 - rx1) * c1;
+          const bz = rz1 + (rz2 - rz1) * c1;
+          cityBuildings.push({
+            minX: Math.min(ax, bx) - 0.55,
+            maxX: Math.max(ax, bx) + 0.55,
+            minZ: Math.min(az, bz) - 0.55,
+            maxZ: Math.max(az, bz) + 0.55,
+            height: 1.5,
+            name: seg.label,
+          });
+        }
+      }
+      runStartIdx = -1;
+    };
+
+    for (let si = 0; si < subCount; si++) {
+      const t0 = si / subCount;
+      const t1 = (si + 1) / subCount;
+      const tm = (t0 + t1) * 0.5;
+      const mx = seg.x1 + (seg.x2 - seg.x1) * tm;
+      const mz = seg.z1 + (seg.z2 - seg.z1) * tm;
+      const p0x = seg.x1 + (seg.x2 - seg.x1) * t0;
+      const p0z = seg.z1 + (seg.z2 - seg.z1) * t0;
+      const p1x = seg.x1 + (seg.x2 - seg.x1) * t1;
+      const p1z = seg.z1 + (seg.z2 - seg.z1) * t1;
+      const blocked = isBlocked(mx, mz) || isBlocked(p0x, p0z) || isBlocked(p1x, p1z);
+      if (!blocked) {
+        if (runStartIdx < 0) runStartIdx = si;
+      } else {
+        flushRun(si - 1);
+      }
+    }
+    flushRun(subCount - 1);
+  }
+
+  if (keptSpans.length === 0) return;
+
+  const ironRailMat = makeCityMat({ color: 0x1e293b, roughness: 0.35, metalness: 0.72 });
+  const bollardMat = makeCityMat({ color: 0x94a3b8, roughness: 0.65, metalness: 0.12 });
+
+  const topRailGeo = new THREE.BoxGeometry(0.22, 0.14, 1.0);
+  const midRailGeo = new THREE.BoxGeometry(0.18, 0.10, 1.0);
+  const postGeo = new THREE.BoxGeometry(0.42, 1.15, 0.42);
+  if (disposables) {
+    disposables.push(topRailGeo, midRailGeo, postGeo);
+  }
+
+  const topInst = new THREE.InstancedMesh(topRailGeo, ironRailMat, keptSpans.length);
+  const midInst = new THREE.InstancedMesh(midRailGeo, ironRailMat, keptSpans.length);
+  const dummy = new THREE.Object3D();
+
+  keptSpans.forEach((sp, idx) => {
+    dummy.position.set(sp.mx, 1.05, sp.mz);
+    dummy.rotation.set(0, sp.yaw, 0);
+    dummy.scale.set(1, 1, sp.len + 0.3);
+    dummy.updateMatrix();
+    topInst.setMatrixAt(idx, dummy.matrix);
+
+    dummy.position.set(sp.mx, 0.72, sp.mz);
+    dummy.updateMatrix();
+    midInst.setMatrixAt(idx, dummy.matrix);
+  });
+  topInst.instanceMatrix.needsUpdate = true;
+  midInst.instanceMatrix.needsUpdate = true;
+  topInst.computeBoundingSphere();
+  midInst.computeBoundingSphere();
+  sceneryGroup.add(topInst, midInst);
+
+  if (postPositions.length > 0) {
+    const postInst = new THREE.InstancedMesh(postGeo, bollardMat, postPositions.length);
+    postPositions.forEach(([px, pz], idx) => {
+      dummy.position.set(px, 0.25 + 0.575, pz);
+      dummy.rotation.set(0, 0, 0);
+      dummy.scale.set(1, 1, 1);
+      dummy.updateMatrix();
+      postInst.setMatrixAt(idx, dummy.matrix);
+    });
+    postInst.instanceMatrix.needsUpdate = true;
+    postInst.computeBoundingSphere();
+    sceneryGroup.add(postInst);
+  }
+}
+
+export function buildRectWaterSegments(
+  cx: number,
+  cz: number,
+  width: number,
+  depth: number,
+  label: string,
+  rotZ = 0,
+  pad = 0.45
+): WaterBarrierSegment[] {
+  const hw = width * 0.5 + pad;
+  const hd = depth * 0.5 + pad;
+  const c = Math.cos(rotZ);
+  const s = Math.sin(rotZ);
+  const xf = (lx: number, ly: number): [number, number] => [
+    cx + lx * c - ly * s,
+    cz - (lx * s + ly * c),
+  ];
+  const [nwx, nwz] = xf(-hw, hd);
+  const [nex, nez] = xf(hw, hd);
+  const [sex, sez] = xf(hw, -hd);
+  const [swx, swz] = xf(-hw, -hd);
+  return [
+    { x1: nwx, z1: nwz, x2: nex, z2: nez, label: `${label} North Barrier` },
+    { x1: nex, z1: nez, x2: sex, z2: sez, label: `${label} East Barrier` },
+    { x1: sex, z1: sez, x2: swx, z2: swz, label: `${label} South Barrier` },
+    { x1: swx, z1: swz, x2: nwx, z2: nwz, label: `${label} West Barrier` },
+  ];
+}
+
+export function buildCircleWaterSegments(
+  cx: number,
+  cz: number,
+  rx: number,
+  rz: number,
+  segmentsCount: number,
+  label: string,
+  pad = 0.45
+): WaterBarrierSegment[] {
+  const list: WaterBarrierSegment[] = [];
+  for (let i = 0; i < segmentsCount; i++) {
+    const a0 = (i / segmentsCount) * Math.PI * 2;
+    const a1 = ((i + 1) / segmentsCount) * Math.PI * 2;
+    list.push({
+      x1: cx + Math.cos(a0) * (rx + pad),
+      z1: cz + Math.sin(a0) * (rz + pad),
+      x2: cx + Math.cos(a1) * (rx + pad),
+      z2: cz + Math.sin(a1) * (rz + pad),
+      label: `${label} Perimeter Barrier`,
+    });
+  }
+  return list;
+}
+
