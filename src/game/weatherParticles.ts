@@ -201,13 +201,20 @@ export function createTireSpraySystem(
 
 export interface AtmosphericWeatherSystem {
   group: THREE.Group;
-  update: (carPos: THREE.Vector3, weather: GaithersburgWeather, dt: number) => void;
+  update: (
+    carPos: THREE.Vector3,
+    weather: GaithersburgWeather,
+    dt: number,
+    camPos?: THREE.Vector3,
+    camLookAt?: THREE.Vector3
+  ) => void;
   dispose: () => void;
 }
 
 /**
- * Atmospheric Falling Weather System (Rain Streaks or Snowflakes)
- * Floating bounding cloud surrounding the camera and player car.
+ * Atmospheric Falling Weather System (Wind-Slanted 3D Rain Streaks & Soft Snowflakes)
+ * Covers a wide scene volume centered ahead of the camera so precipitation fills streets,
+ * sidewalks, and horizons rather than clustering only around the car.
  */
 export function createAtmosphericWeatherSystem(
   scene: THREE.Scene,
@@ -217,97 +224,260 @@ export function createAtmosphericWeatherSystem(
   const group = new THREE.Group();
   scene.add(group);
 
-  const COUNT = isRetroPixel ? 96 : 600;
-  const positions = new Float32Array(COUNT * 3);
-  const pVelsY = new Float32Array(COUNT);
-  const pDriftX = new Float32Array(COUNT);
+  // --- 1. Realistic 3D Rain Streaks (LineSegments with tail-to-tip alpha/color taper) ---
+  const RAIN_COUNT = isRetroPixel ? 160 : 960;
+  const rainPositions = new Float32Array(RAIN_COUNT * 6); // 2 vertices per streak
+  const rainColors = new Float32Array(RAIN_COUNT * 6);
+  const rainDropX = new Float32Array(RAIN_COUNT);
+  const rainDropY = new Float32Array(RAIN_COUNT);
+  const rainDropZ = new Float32Array(RAIN_COUNT);
+  const rainFallSpeed = new Float32Array(RAIN_COUNT);
+  const rainLen = new Float32Array(RAIN_COUNT);
+  const rainWindMult = new Float32Array(RAIN_COUNT);
 
-  // Initialize random distribution in a 60m x 32m x 60m cube
-  for (let i = 0; i < COUNT; i++) {
-    positions[i * 3 + 0] = (Math.random() - 0.5) * 60;
-    positions[i * 3 + 1] = Math.random() * 32;
-    positions[i * 3 + 2] = (Math.random() - 0.5) * 60;
-    pVelsY[i] = 12 + Math.random() * 8;
-    pDriftX[i] = (Math.random() - 0.5) * 1.2;
+  const BOX_W = 148;
+  const BOX_D = 148;
+  const BOX_H = 42;
+  const HALF_W = BOX_W * 0.5;
+  const HALF_D = BOX_D * 0.5;
+
+  for (let i = 0; i < RAIN_COUNT; i++) {
+    rainDropX[i] = (Math.random() - 0.5) * BOX_W;
+    rainDropY[i] = Math.random() * BOX_H;
+    rainDropZ[i] = (Math.random() - 0.5) * BOX_D;
+    rainFallSpeed[i] = 28 + Math.random() * 14;
+    rainLen[i] = 0.95 + Math.random() * 0.95;
+    rainWindMult[i] = 0.84 + Math.random() * 0.34;
+
+    const shade = 0.72 + Math.random() * 0.28;
+    // Tail vertex (fainter slate-blue)
+    rainColors[i * 6 + 0] = 0.48 * shade;
+    rainColors[i * 6 + 1] = 0.62 * shade;
+    rainColors[i * 6 + 2] = 0.80 * shade;
+    // Tip vertex (brighter cool mist-white)
+    rainColors[i * 6 + 3] = 0.78 * shade;
+    rainColors[i * 6 + 4] = 0.89 * shade;
+    rainColors[i * 6 + 5] = 1.0 * shade;
   }
 
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  const rainGeom = new THREE.BufferGeometry();
+  rainGeom.setAttribute('position', new THREE.BufferAttribute(rainPositions, 3));
+  rainGeom.setAttribute('color', new THREE.BufferAttribute(rainColors, 3));
 
-  const material = new THREE.PointsMaterial({
-    color: 0xffffff,
-    size: 0.65,
+  const rainMat = new THREE.LineBasicMaterial({
+    vertexColors: true,
     transparent: true,
-    opacity: 0.75,
+    opacity: 0.58,
     blending: THREE.NormalBlending,
     depthWrite: false,
   });
 
-  const pointsMesh = new THREE.Points(geometry, material);
-  group.add(pointsMesh);
+  const rainLines = new THREE.LineSegments(rainGeom, rainMat);
+  rainLines.frustumCulled = false;
+  group.add(rainLines);
 
-  const update = (carPos: THREE.Vector3, weather: GaithersburgWeather, dt: number) => {
+  // --- 2. Feathered Circular Snowflakes (Points with radial gradient texture) ---
+  const SNOW_COUNT = isRetroPixel ? 110 : 720;
+  const snowTexture = createSprayParticleTexture(isRetroPixel);
+  const snowPositions = new Float32Array(SNOW_COUNT * 3);
+  const snowFallSpeed = new Float32Array(SNOW_COUNT);
+  const snowPhase = new Float32Array(SNOW_COUNT);
+
+  for (let i = 0; i < SNOW_COUNT; i++) {
+    snowPositions[i * 3 + 0] = (Math.random() - 0.5) * BOX_W;
+    snowPositions[i * 3 + 1] = Math.random() * BOX_H;
+    snowPositions[i * 3 + 2] = (Math.random() - 0.5) * BOX_D;
+    snowFallSpeed[i] = 2.8 + Math.random() * 2.2;
+    snowPhase[i] = Math.random() * Math.PI * 2;
+  }
+
+  const snowGeom = new THREE.BufferGeometry();
+  snowGeom.setAttribute('position', new THREE.BufferAttribute(snowPositions, 3));
+
+  const snowMat = new THREE.PointsMaterial({
+    map: snowTexture,
+    color: 0xf8fafc,
+    size: 0.92,
+    transparent: true,
+    opacity: 0.85,
+    blending: THREE.NormalBlending,
+    depthWrite: false,
+  });
+
+  const snowPoints = new THREE.Points(snowGeom, snowMat);
+  snowPoints.frustumCulled = false;
+  group.add(snowPoints);
+
+  let windTime = 0;
+  let volumeInitialized = false;
+
+  const update = (
+    carPos: THREE.Vector3,
+    weather: GaithersburgWeather,
+    dt: number,
+    camPos?: THREE.Vector3,
+    camLookAt?: THREE.Vector3
+  ) => {
     const isRaining = weather.isRaining;
     const isSnowing = weather.isSnowing;
 
     if (!isRaining && !isSnowing) {
-      pointsMesh.visible = false;
+      rainLines.visible = false;
+      snowPoints.visible = false;
       return;
     }
-    pointsMesh.visible = true;
 
-    // Configure particle look
-    if (isSnowing) {
-      material.size = 0.95;
-      material.color.setHex(0xf8fafc);
-      material.opacity = Math.min(0.9, 0.45 + weather.precipitationRate * 0.45);
+    const safeDt = Math.min(0.05, Math.max(0.001, dt));
+    windTime += safeDt;
+
+    // Anchor volume wide around the camera's forward view so rain fills the entire street & horizon
+    let focusX = carPos.x;
+    let focusZ = carPos.z;
+    if (camPos && camLookAt) {
+      const lx = camLookAt.x - camPos.x;
+      const lz = camLookAt.z - camPos.z;
+      const lLen = Math.hypot(lx, lz);
+      if (lLen > 0.05) {
+        const fwdX = lx / lLen;
+        const fwdZ = lz / lLen;
+        focusX = carPos.x * 0.55 + camPos.x * 0.45 + fwdX * 26;
+        focusZ = carPos.z * 0.55 + camPos.z * 0.45 + fwdZ * 26;
+      }
+    }
+    const baseY = carPos.y;
+
+    if (!volumeInitialized) {
+      volumeInitialized = true;
+      for (let i = 0; i < RAIN_COUNT; i++) {
+        rainDropX[i] = focusX + (Math.random() - 0.5) * BOX_W;
+        rainDropY[i] = baseY + Math.random() * BOX_H;
+        rainDropZ[i] = focusZ + (Math.random() - 0.5) * BOX_D;
+      }
+      for (let i = 0; i < SNOW_COUNT; i++) {
+        snowPositions[i * 3 + 0] = focusX + (Math.random() - 0.5) * BOX_W;
+        snowPositions[i * 3 + 1] = baseY + Math.random() * BOX_H;
+        snowPositions[i * 3 + 2] = focusZ + (Math.random() - 0.5) * BOX_D;
+      }
+    }
+
+    const precip = Math.max(0.15, Math.min(1.0, weather.precipitationRate || 0.5));
+    const baseWindSpeed = Math.min(18, Math.max(2.2, (weather.windSpeedKmh ?? 14) * 0.28));
+    const windAngle = 0.58 + Math.sin(windTime * 0.35) * 0.14;
+    const gustMult = 0.88 + Math.sin(windTime * 1.15) * 0.16;
+    const windVX = Math.cos(windAngle) * baseWindSpeed * gustMult;
+    const windVZ = Math.sin(windAngle) * baseWindSpeed * gustMult;
+
+    if (isRaining && !isSnowing) {
+      rainLines.visible = true;
+      snowPoints.visible = false;
+      rainMat.opacity = Math.min(0.72, 0.34 + precip * 0.36);
+
+      const posAttr = rainGeom.getAttribute('position') as THREE.BufferAttribute;
+      const pArr = posAttr.array as Float32Array;
+      const streakScale = 0.85 + precip * 0.45;
+
+      for (let i = 0; i < RAIN_COUNT; i++) {
+        const wMult = rainWindMult[i];
+        const vy = rainFallSpeed[i];
+        const vx = windVX * wMult;
+        const vz = windVZ * wMult;
+
+        let px = rainDropX[i] + vx * safeDt;
+        let py = rainDropY[i] - vy * safeDt;
+        let pz = rainDropZ[i] + vz * safeDt;
+
+        // Seamless edge wrapping keeps density uniform everywhere in the scene without bunching
+        if (py < baseY - 1.2) {
+          py += BOX_H + 1.5;
+        } else if (py > baseY + BOX_H + 4.0) {
+          py = baseY + Math.random() * BOX_H;
+        }
+
+        const dx = px - focusX;
+        if (dx > HALF_W) px -= BOX_W;
+        else if (dx < -HALF_W) px += BOX_W;
+        if (Math.abs(px - focusX) > HALF_W) {
+          px = focusX + (Math.random() - 0.5) * BOX_W;
+        }
+
+        const dz = pz - focusZ;
+        if (dz > HALF_D) pz -= BOX_D;
+        else if (dz < -HALF_D) pz += BOX_D;
+        if (Math.abs(pz - focusZ) > HALF_D) {
+          pz = focusZ + (Math.random() - 0.5) * BOX_D;
+        }
+
+        rainDropX[i] = px;
+        rainDropY[i] = py;
+        rainDropZ[i] = pz;
+
+        const vMag = Math.hypot(vx, vy, vz) || 1;
+        const sLen = rainLen[i] * streakScale;
+        const tailDx = (-vx / vMag) * sLen;
+        const tailDy = (vy / vMag) * sLen;
+        const tailDz = (-vz / vMag) * sLen;
+
+        // Tail vertex (upper behind wind)
+        pArr[i * 6 + 0] = px + tailDx;
+        pArr[i * 6 + 1] = py + tailDy;
+        pArr[i * 6 + 2] = pz + tailDz;
+        // Tip vertex (leading falling droplet)
+        pArr[i * 6 + 3] = px;
+        pArr[i * 6 + 4] = py;
+        pArr[i * 6 + 5] = pz;
+      }
+
+      posAttr.needsUpdate = true;
     } else {
-      material.size = 0.55;
-      material.color.setHex(0x93c5fd);
-      material.opacity = Math.min(0.85, 0.4 + weather.precipitationRate * 0.45);
-    }
+      rainLines.visible = false;
+      snowPoints.visible = true;
+      snowMat.size = 0.85 + precip * 0.35;
+      snowMat.opacity = Math.min(0.92, 0.45 + precip * 0.45);
 
-    const posAttr = geometry.getAttribute('position') as THREE.BufferAttribute;
-    const pArr = posAttr.array as Float32Array;
+      const posAttr = snowGeom.getAttribute('position') as THREE.BufferAttribute;
+      const pArr = posAttr.array as Float32Array;
 
-    const fallSpeed = isSnowing ? 3.8 : 38.0; // Snow falls gently, rain plunges down rapidly
-    const boxWidth = 64;
-    const boxHeight = 32;
+      for (let i = 0; i < SNOW_COUNT; i++) {
+        const phase = snowPhase[i];
+        let px = pArr[i * 3 + 0] + (windVX * 0.42 + Math.sin(windTime * 1.4 + phase) * 1.7) * safeDt;
+        let py = pArr[i * 3 + 1] - snowFallSpeed[i] * safeDt;
+        let pz = pArr[i * 3 + 2] + (windVZ * 0.42 + Math.cos(windTime * 1.2 + phase) * 1.5) * safeDt;
 
-    for (let i = 0; i < COUNT; i++) {
-      let px = pArr[i * 3 + 0];
-      let py = pArr[i * 3 + 1];
-      let pz = pArr[i * 3 + 2];
+        if (py < baseY - 1.0) {
+          py += BOX_H + 1.5;
+        } else if (py > baseY + BOX_H + 4.0) {
+          py = baseY + Math.random() * BOX_H;
+        }
 
-      py -= fallSpeed * dt;
-      if (isSnowing) {
-        px += Math.sin(py * 0.25 + i) * 1.6 * dt;
+        const dx = px - focusX;
+        if (dx > HALF_W) px -= BOX_W;
+        else if (dx < -HALF_W) px += BOX_W;
+        if (Math.abs(px - focusX) > HALF_W) {
+          px = focusX + (Math.random() - 0.5) * BOX_W;
+        }
+
+        const dz = pz - focusZ;
+        if (dz > HALF_D) pz -= BOX_D;
+        else if (dz < -HALF_D) pz += BOX_D;
+        if (Math.abs(pz - focusZ) > HALF_D) {
+          pz = focusZ + (Math.random() - 0.5) * BOX_D;
+        }
+
+        pArr[i * 3 + 0] = px;
+        pArr[i * 3 + 1] = py;
+        pArr[i * 3 + 2] = pz;
       }
 
-      // Recycle particles relative to car
-      const relX = px - carPos.x;
-      const relZ = pz - carPos.z;
-
-      if (py < carPos.y - 1.0) {
-        py = carPos.y + boxHeight + Math.random() * 4.0;
-        px = carPos.x + (Math.random() - 0.5) * boxWidth;
-        pz = carPos.z + (Math.random() - 0.5) * boxWidth;
-      } else if (Math.abs(relX) > boxWidth * 0.5 || Math.abs(relZ) > boxWidth * 0.5) {
-        px = carPos.x + (Math.random() - 0.5) * boxWidth;
-        pz = carPos.z + (Math.random() - 0.5) * boxWidth;
-      }
-
-      pArr[i * 3 + 0] = px;
-      pArr[i * 3 + 1] = py;
-      pArr[i * 3 + 2] = pz;
+      posAttr.needsUpdate = true;
     }
-
-    posAttr.needsUpdate = true;
   };
 
   const dispose = () => {
-    geometry.dispose();
-    material.dispose();
+    rainGeom.dispose();
+    rainMat.dispose();
+    snowGeom.dispose();
+    snowMat.dispose();
+    snowTexture.dispose();
     scene.remove(group);
   };
 

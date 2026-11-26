@@ -5090,15 +5090,21 @@ const SHIFT_THEME_META: Record<
 
 function generateWorkplaceTasks(kind: WorkplaceShiftKind, count = 6): ShiftTaskSpec[] {
   const randInt = (min: number, max: number) => Math.floor(Math.random() * (max - min + 1)) + min;
+  const shuffleArr = <T,>(arr: T[]): T[] => {
+    const copy = [...arr];
+    for (let i = copy.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [copy[i], copy[j]] = [copy[j], copy[i]];
+    }
+    return copy;
+  };
+  const pickOne = <T,>(arr: T[]): T => arr[randInt(0, arr.length - 1)];
+
   const shuffleOptions = (correct: string, wrongs: string[]): { options: string[]; correctIdx: number } => {
-    const items = [
+    const items = shuffleArr([
       { text: correct, ok: true },
       ...wrongs.slice(0, 2).map((w) => ({ text: w, ok: false })),
-    ];
-    for (let i = items.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [items[i], items[j]] = [items[j], items[i]];
-    }
+    ]);
     return {
       options: items.map((x) => x.text),
       correctIdx: items.findIndex((x) => x.ok),
@@ -5107,53 +5113,50 @@ function generateWorkplaceTasks(kind: WorkplaceShiftKind, count = 6): ShiftTaskS
 
   const makeTimingTask = (
     category: string,
-    prompt: string,
-    detail: string,
-    gaugeLabel: string,
-    speed = 1.45
-  ): ShiftTaskSpec => ({
-    category,
-    prompt,
-    detail,
-    options: [],
-    correctIdx: 0,
-    taskMode: 'timing_gauge',
-    gaugeLabel,
-    gaugeTargetCenter: randInt(28, 72),
-    gaugeTargetWidth: 19,
-    gaugeSpeed: speed,
-  });
+    prompts: { prompt: string; detail: string; label: string }[],
+    baseSpeed = 1.45
+  ): ShiftTaskSpec => {
+    const chosen = pickOne(prompts);
+    return {
+      category,
+      prompt: chosen.prompt,
+      detail: chosen.detail,
+      options: [],
+      correctIdx: 0,
+      taskMode: 'timing_gauge',
+      gaugeLabel: chosen.label,
+      gaugeTargetCenter: randInt(24, 76),
+      gaugeTargetWidth: randInt(15, 21),
+      gaugeSpeed: Number((baseSpeed + (Math.random() * 0.35 - 0.12)).toFixed(2)),
+    };
+  };
 
   const makeBalanceTask = (
     category: string,
     prompt: string,
     detail: string,
     labelA: string,
-    targetA: number,
+    rangeA: [number, number],
     unitA: string,
     labelB: string,
-    targetB: number,
+    rangeB: [number, number],
     unitB: string
-  ): ShiftTaskSpec => ({
-    category,
-    prompt,
-    detail,
-    options: [],
-    correctIdx: 0,
-    taskMode: 'dual_balance',
-    balanceParamA: {
-      label: labelA,
-      target: targetA,
-      start: targetA + (Math.random() < 0.5 ? -3 : 3),
-      unit: unitA,
-    },
-    balanceParamB: {
-      label: labelB,
-      target: targetB,
-      start: targetB + (Math.random() < 0.5 ? 2 : -2),
-      unit: unitB,
-    },
-  });
+  ): ShiftTaskSpec => {
+    const targetA = randInt(rangeA[0], rangeA[1]);
+    const targetB = randInt(rangeB[0], rangeB[1]);
+    const offA = (Math.random() < 0.5 ? -1 : 1) * randInt(2, 4);
+    const offB = (Math.random() < 0.5 ? -1 : 1) * randInt(2, 4);
+    return {
+      category,
+      prompt,
+      detail,
+      options: [],
+      correctIdx: 0,
+      taskMode: 'dual_balance',
+      balanceParamA: { label: labelA, target: targetA, start: targetA + offA, unit: unitA },
+      balanceParamB: { label: labelB, target: targetB, start: targetB + offB, unit: unitB },
+    };
+  };
 
   const makeCodeSequenceTask = (
     category: string,
@@ -5177,544 +5180,823 @@ function generateWorkplaceTasks(kind: WorkplaceShiftKind, count = 6): ShiftTaskS
     };
   };
 
-  const tasks: ShiftTaskSpec[] = [];
-  for (let i = 0; i < count; i++) {
-    // Inject interactive skill gameplay at indices 1 and 4 of every shift!
-    if (i === 1) {
-      if (kind === 'work_office') {
-        tasks.push(
-          makeTimingTask(
-            'EXECUTION TIMING',
-            'Execute Market Trade at Closing Bell Window',
-            'Press [SPACE] or click Lock when the ticker needle enters the green execution zone!',
-            'ORDER TIMING WINDOW',
-            1.5
-          )
-        );
-        continue;
-      } else if (kind === 'work_clinic') {
-        tasks.push(
-          makeTimingTask(
-            'PULSE OX SYNC',
-            'Capture Clean ECG Waveform Peak',
-            'Press [SPACE] or Lock precisely inside the green sinus capture window!',
-            'ECG CAPTURE ZONE',
-            1.45
-          )
-        );
-        continue;
-      } else if (kind === 'work_lab') {
-        tasks.push(
-          makeTimingTask(
-            'CENTRIFUGE LOCK',
-            'Stabilize High-Speed Centrifuge RPM',
-            'Lock rotor speed inside the green NIST resonance band!',
-            'ROTOR RPM BAND',
-            1.55
-          )
-        );
-        continue;
-      } else if (kind === 'work_bank') {
-        tasks.push(
-          makeTimingTask(
-            'VAULT SEAL',
-            'Sync Armored Time-Vault Seal Pin',
-            'Engage deadbolt inside the safe timing zone to verify deposit clearance!',
-            'DEADBOLT SEAL',
-            1.5
-          )
-        );
-        continue;
-      } else if (kind === 'work_retail') {
-        tasks.push(
-          makeCodeSequenceTask(
-            'RAPID SKU SCAN',
-            'Enter Express Inventory Verification Code',
-            'Tap or click the exact sequence tokens below in order!',
-            ['A1', 'B4', 'C7', 'X9'],
-            4
-          )
-        );
-        continue;
-      } else if (kind === 'work_dispatch') {
-        tasks.push(
-          makeTimingTask(
-            'RADIO SQUELCH',
-            'Lock Priority Precinct Dispatch Frequency',
-            'Tap [SPACE] when carrier signal crosses the green clear-channel band!',
-            'VHF CARRIER LOCK',
-            1.5
-          )
-        );
-        continue;
-      } else if (kind === 'work_kitchen') {
-        tasks.push(
-          makeTimingTask(
-            'SEAR PERFECTION',
-            'Flip Lump Maryland Crab Cake at Golden Sear',
-            'Press [SPACE] or Flip inside the golden crust zone without burning!',
-            'SKILLET SEAR TEMP',
-            1.55
-          )
-        );
-        continue;
-      } else if (kind === 'work_mechanic') {
-        tasks.push(
-          makeTimingTask(
-            'TORQUE WRENCH',
-            'Hit Exact 115 lb-ft Wheel Stud Torque',
-            'Release torque bar cleanly inside the green calibration arc!',
-            'TORQUE LB-FT',
-            1.55
-          )
-        );
-        continue;
-      } else if (kind === 'work_atc') {
-        tasks.push(
-          makeTimingTask(
-            'ILS GLIDE-SLOPE',
-            'Align Jet Localizer onto BWI Runway 33L',
-            'Lock approach beam inside the green ILS glide-slope window!',
-            'ILS APPROACH BEAM',
-            1.62
-          )
-        );
-        continue;
-      } else if (kind === 'work_studio') {
-        tasks.push(
-          makeTimingTask(
-            'LIVE CAMERA CUT',
-            'Hit Exact Broadcast Anchor Cue',
-            'Trigger Cam-2 switch cleanly inside the live director sync beat!',
-            'DIRECTOR CUE',
-            1.55
-          )
-        );
-        continue;
-      }
-    }
-
-    if (i === 4) {
-      if (kind === 'work_office') {
-        tasks.push(
-          makeCodeSequenceTask(
-            'SERVER DEPLOY MACRO',
-            'Run Auth Pod Hotfix Command Sequence',
-            'Enter the 4 deployment keys in exact order to scale cluster traffic!',
-            ['AUTH', 'SYNC', 'SCALE', 'PING'],
-            4
-          )
-        );
-        continue;
-      } else if (kind === 'work_lab') {
-        tasks.push(
-          makeBalanceTask(
-            'REAGENT BALANCE',
-            'Balance Dual Assay Chamber Sensors',
-            'Adjust Base Buffer & Temp using - / + until both gauges hit target!',
-            'Solution pH',
-            74,
-            'x0.1',
-            'Chamber °C',
-            24,
-            '°C'
-          )
-        );
-        continue;
-      } else if (kind === 'work_kitchen') {
-        tasks.push(
-          makeBalanceTask(
-            'TWIN BURNER LINE',
-            'Balance Grill Deck & Steamer Temps',
-            'Dial both heat zones cleanly into target service specs before plating!',
-            'Flat-Top Grill',
-            38,
-            '0°F',
-            'Crab Steamer',
-            22,
-            '0°F'
-          )
-        );
-        continue;
-      } else if (kind === 'work_mechanic') {
-        tasks.push(
-          makeBalanceTask(
-            'DYNO & BOOST TUNING',
-            'Dial Air-Fuel & Turbo Boost Targets',
-            'Balance AFR and Peak Boost cleanly for maximum dyno pull!',
-            'Target AFR',
-            12,
-            ':1',
-            'Peak Boost',
-            19,
-            'PSI'
-          )
-        );
-        continue;
-      } else if (kind === 'work_atc') {
-        tasks.push(
-          makeCodeSequenceTask(
-            'TRANSPONDER SQUAWK',
-            'Assign Departure Clearance Sequence',
-            'Punch the 4 beacon codes in order to clear Runway 15R departure!',
-            ['SW4', 'RW15', 'ALT9', 'CLR'],
-            4
-          )
-        );
-        continue;
-      } else if (kind === 'work_studio') {
-        tasks.push(
-          makeBalanceTask(
-            'AUDIO MASTERING',
-            'Balance Studio Mic Gain & Master LUFS',
-            'Tune both studio board channels cleanly into broadcast spec!',
-            'Vocal Gain',
-            18,
-            'dB',
-            'Master Out',
-            14,
-            'LUFS'
-          )
-        );
-        continue;
-      } else {
-        tasks.push(
-          makeBalanceTask(
-            'SYSTEM CALIBRATION',
-            'Calibrate Dual Workstation Channels',
-            'Tune Primary & Backup dials using - / + until both match target!',
-            'Channel A',
-            16,
-            'Hz',
-            'Channel B',
-            28,
-            'V'
-          )
-        );
-        continue;
-      }
-    }
-
-    if (kind === 'work_office') {
-      const mode = i % 3;
-      if (mode === 0) {
-        const rev = randInt(48, 120);
-        const exp = randInt(16, rev - 9);
-        const profit = rev - exp;
-        const { options, correctIdx } = shuffleOptions(`$${profit},000 Net`, [
-          `$${profit + randInt(4, 9)},000 Net`,
-          `$${Math.max(3, profit - randInt(4, 9))},000 Net`,
-        ]);
-        tasks.push({
-          category: 'Q4 LEDGER AUDIT',
-          prompt: `Calculate Department Net Profit`,
-          detail: `Quarterly Revenue: $${rev},000  |  Operating Expense: $${exp},000`,
-          options,
-          correctIdx,
-        });
-      } else if (mode === 1) {
-        const scenarios = [
-          {
-            prompt: 'Inbox Triage: "Wire $85k to external crypto wallet immediately — CEO"',
-            detail: 'Sender domain: ceo-urgent-mail99.biz · Requested bypass of CFO sign-off',
-            ok: 'Flag Phishing & Quarantine',
-            bad: ['Approve Immediate Wire', 'Reply with Bank Routing'],
-          },
-          {
-            prompt: 'Client Brief: "Maryland Lease Renewal #408 expires in 48 hours"',
-            detail: 'Signed by Legal Counsel & Regional VP · Rent unchanged',
-            ok: 'Execute & Forward to Records',
-            bad: ['Discard as Junk Mail', 'Freeze Client Account'],
-          },
-          {
-            prompt: 'IT Alert: "Auth Gateway CPU spiked to 99% during morning login"',
-            detail: 'Latency 1,400ms across 4 Baltimore office pods',
-            ok: 'Scale Auth Replicas x2',
-            bad: ['Shut Down Database', 'Ignore Until Friday'],
-          },
-          {
-            prompt: 'Compliance Memo: "Vendor W-9 tax form missing on Invoice #774"',
-            detail: 'Accounts Payable holds payout pending valid tax ID',
-            ok: 'Hold & Request Vendor W-9',
-            bad: ['Double Payout Anyway', 'Delete Vendor Record'],
-          },
-        ];
-        const s = scenarios[randInt(0, scenarios.length - 1)];
+  type ScenarioItem = { cat?: string; prompt: string; detail: string; ok: string; bad: string[] };
+  const buildFromScenarios = (defaultCat: string, list: ScenarioItem[], take: number): ShiftTaskSpec[] =>
+    shuffleArr(list)
+      .slice(0, take)
+      .map((s) => {
         const { options, correctIdx } = shuffleOptions(s.ok, s.bad);
-        tasks.push({ category: 'EXECUTIVE INBOX', prompt: s.prompt, detail: s.detail, options, correctIdx });
-      } else {
-        const q1 = randInt(22, 45);
-        const q2 = randInt(22, 45);
-        const q3 = randInt(22, 45);
-        const maxQ = Math.max(q1, q2, q3);
-        const winner = q1 === maxQ ? 'North Suite' : q2 === maxQ ? 'Harbor Team' : 'Bethesda Branch';
-        const { options, correctIdx } = shuffleOptions(
-          winner,
-          ['North Suite', 'Harbor Team', 'Bethesda Branch'].filter((x) => x !== winner)
-        );
-        tasks.push({
-          category: 'PERFORMANCE REVIEW',
-          prompt: 'Which office division hit highest quarterly billings?',
-          detail: `North Suite: $${q1}k  |  Harbor Team: $${q2}k  |  Bethesda Branch: $${q3}k`,
+        return {
+          category: s.cat || defaultCat,
+          prompt: s.prompt,
+          detail: s.detail,
           options,
           correctIdx,
-        });
-      }
-    } else if (kind === 'work_clinic') {
-      const cases = [
+        };
+      });
+
+  const skillTasks: ShiftTaskSpec[] = [];
+  const choiceTasks: ShiftTaskSpec[] = [];
+
+  // 1) Interactive Skill Tasks per Workplace (randomized order, prompts & numerical targets)
+  if (kind === 'work_office') {
+    skillTasks.push(
+      makeTimingTask('EXECUTION TIMING', [
         {
-          prompt: 'Patient Vitals: Temp 102.6°F · White Tonsil Exudate',
-          detail: 'No drug allergies · Reports 2 days painful swallowing',
-          ok: 'Rapid Strep Test & Antipyretic',
-          bad: ['Orthopedic Leg Cast', 'Eye Prescription Drops'],
+          prompt: 'Execute Block Equity Trade at Closing Bell Window',
+          detail: 'Press [SPACE] or click Lock when the ticker needle enters the green execution zone!',
+          label: 'ORDER TIMING WINDOW',
         },
         {
-          prompt: 'Triage Alert: BP 174/104 mmHg · Blurred Vision',
-          detail: 'Walk-in adult patient reporting sudden headache',
-          ok: 'Immediate Hypertensive Eval & ECG',
-          bad: ['Send Home Without Check', 'Schedule Dental Cleaning'],
+          prompt: 'Approve Treasury Liquidity Sweep Before Cut-Off',
+          detail: 'Time the sweep release precisely inside the green settlement band!',
+          label: 'SETTLEMENT WINDOW',
         },
         {
-          prompt: 'Orthopedic Exam: Rolled Left Ankle on Stairs',
-          detail: 'Localized lateral swelling · Can bear partial weight',
-          ok: 'Ankle X-Ray & Compression Wrap',
-          bad: ['Prescribe Asthma Inhaler', 'Administer Flu Shot Only'],
+          prompt: 'Close Quarterly Hedging Collar at Target Spread',
+          detail: 'Lock the options collar inside the green basis-point target!',
+          label: 'SPREAD WINDOW',
+        },
+      ], 1.5),
+      Math.random() < 0.55
+        ? makeCodeSequenceTask(
+            'SERVER DEPLOY MACRO',
+            pickOne([
+              'Run Auth Pod Hotfix Command Sequence',
+              'Isolate Compromised Subnet & Rotate Keys',
+              'Execute Zero-Downtime API Cluster Rollout',
+            ]),
+            'Enter the command tokens in exact order from left to right!',
+            shuffleArr(['AUTH', 'SYNC', 'SCALE', 'PING', 'LOCK', 'AUDIT']),
+            randInt(4, 5)
+          )
+        : makeBalanceTask(
+            'BUDGET & SERVER LOAD',
+            'Balance Quarterly OpEx & Cluster Load',
+            'Dial both office metrics cleanly into executive target specs!',
+            'Cloud Budget',
+            [42, 68],
+            'k$',
+            'Pod Replicas',
+            [12, 26],
+            'x'
+          )
+    );
+  } else if (kind === 'work_clinic') {
+    skillTasks.push(
+      makeTimingTask('PULSE OX SYNC', [
+        {
+          prompt: 'Capture Clean ECG Waveform Peak',
+          detail: 'Press [SPACE] or Lock precisely inside the green sinus capture window!',
+          label: 'ECG CAPTURE ZONE',
         },
         {
-          prompt: 'Rx Verification: Patient allergic to Penicillin',
-          detail: 'Needs broad-spectrum antibiotic coverage for sinus infection',
-          ok: 'Substitute Non-Penicillin Rx',
-          bad: ['Dispense Amoxicillin Anyway', 'Skip Allergy Check'],
+          prompt: 'Synchronize Biphasic Cardioversion Pulse',
+          detail: 'Trigger on the R-wave peak inside the green safety band!',
+          label: 'R-WAVE SYNC ZONE',
         },
-      ];
-      if (i % 2 === 0) {
-        const c = cases[randInt(0, cases.length - 1)];
-        const { options, correctIdx } = shuffleOptions(c.ok, c.bad);
-        tasks.push({ category: 'PATIENT TRIAGE', prompt: c.prompt, detail: c.detail, options, correctIdx });
-      } else {
-        const hr = randInt(52, 132);
-        const status = hr > 100 ? 'Tachycardia (>100 bpm)' : hr < 60 ? 'Bradycardia (<60 bpm)' : 'Normal Sinus (60–100)';
-        const { options, correctIdx } = shuffleOptions(
-          status,
-          ['Tachycardia (>100 bpm)', 'Bradycardia (<60 bpm)', 'Normal Sinus (60–100)'].filter((x) => x !== status)
-        );
-        tasks.push({
-          category: 'VITALS MONITOR',
-          prompt: `Classify Resting Heart Rate: ${hr} BPM`,
-          detail: 'Standard Adult Resting Range: 60–100 BPM',
-          options,
-          correctIdx,
-        });
-      }
-    } else if (kind === 'work_lab') {
-      if (i % 2 === 0) {
-        const curPh = Number((6.2 + randInt(0, 18) * 0.1).toFixed(1));
-        const targetPh = 7.4;
-        const delta = Number((targetPh - curPh).toFixed(1));
-        const ok =
-          Math.abs(delta) < 0.05
-            ? 'Hold — Sample Calibrated'
-            : delta > 0
-            ? `Add +${delta.toFixed(1)} Base Buffer`
-            : `Add ${delta.toFixed(1)} Acid Buffer`;
-        const { options, correctIdx } = shuffleOptions(ok, [
-          `Add +${(Math.abs(delta) + 0.8).toFixed(1)} Base Buffer`,
-          `Add -${(Math.abs(delta) + 0.9).toFixed(1)} Acid Buffer`,
-        ]);
-        tasks.push({
-          category: 'pH CALIBRATION',
-          prompt: `Adjust Assay Solution to Target pH ${targetPh}`,
-          detail: `Current Sensor Probe Readout: pH ${curPh.toFixed(1)}`,
-          options,
-          correctIdx,
-        });
-      } else {
-        const targetMv = randInt(220, 480);
-        const { options, correctIdx } = shuffleOptions(`${targetMv} mV (Verified)`, [
-          `${targetMv + 45} mV (Drift)`,
-          `${targetMv - 55} mV (Noise)`,
-        ]);
-        tasks.push({
-          category: 'SPECTROMETER LOCK',
-          prompt: `Select Exact Reference Peak: ${targetMv} mV`,
-          detail: 'Match NIST calibration frequency within ±0 mV tolerance',
-          options,
-          correctIdx,
-        });
-      }
-    } else if (kind === 'work_bank') {
-      if (i % 2 === 0) {
-        const hundreds = randInt(2, 6);
-        const twenties = randInt(1, 5);
-        const tens = randInt(1, 4);
-        const total = hundreds * 100 + twenties * 20 + tens * 10;
-        const { options, correctIdx } = shuffleOptions(`$${total.toLocaleString()}`, [
-          `$${(total + 40).toLocaleString()}`,
-          `$${(total - 30).toLocaleString()}`,
-        ]);
-        tasks.push({
-          category: 'CASH DRAWER AUDIT',
-          prompt: 'Count Teller Vault Deposit Bundle',
-          detail: `${hundreds}×$100 bills  +  ${twenties}×$20 bills  +  ${tens}×$10 bills`,
-          options,
-          correctIdx,
-        });
-      } else {
-        const isValid = i % 4 === 1;
-        const written = '$1,450.00';
-        const numeric = isValid ? '$1,450.00' : '$14,500.00';
-        const ok = isValid ? 'Approve & Clear Check' : 'Hold — Amount Mismatch';
-        const { options, correctIdx } = shuffleOptions(ok, [
-          isValid ? 'Hold — Amount Mismatch' : 'Approve & Clear Check',
-          'Waive Verification & Pay Cash',
-        ]);
-        tasks.push({
-          category: 'CHECK & WIRE AUDIT',
-          prompt: `Written Line: "${written}"  |  Numeric Box: "${numeric}"`,
-          detail: 'Verify written legal amount matches numeric box before clearing',
-          options,
-          correctIdx,
-        });
-      }
-    } else if (kind === 'work_retail') {
-      const price = randInt(12, 46);
+      ], 1.45),
+      makeBalanceTask(
+        'PATIENT INFUSION CALIBRATION',
+        'Dial IV Drip Rate & O2 Flow Targets',
+        'Adjust both clinical regulators until they match the physician order!',
+        'IV Drip Rate',
+        [24, 48],
+        'mL/h',
+        'O2 Nasal Flow',
+        [3, 12],
+        'L/m'
+      )
+    );
+  } else if (kind === 'work_lab') {
+    skillTasks.push(
+      makeTimingTask('CENTRIFUGE LOCK', [
+        {
+          prompt: 'Stabilize High-Speed Centrifuge RPM',
+          detail: 'Lock rotor speed inside the green NIST resonance band!',
+          label: 'ROTOR RPM BAND',
+        },
+        {
+          prompt: 'Capture Laser Raman Calibration Peak',
+          detail: 'Freeze spectrometer mirror inside the green wavelength window!',
+          label: 'WAVELENGTH BAND',
+        },
+      ], 1.55),
+      makeBalanceTask(
+        'REAGENT BALANCE',
+        'Balance Dual Assay Chamber Sensors',
+        'Adjust Base Buffer & Temp using - / + until both gauges hit target!',
+        'Solution pH',
+        [66, 78],
+        'x0.1',
+        'Chamber °C',
+        [19, 31],
+        '°C'
+      )
+    );
+  } else if (kind === 'work_bank') {
+    skillTasks.push(
+      makeTimingTask('VAULT SEAL', [
+        {
+          prompt: 'Sync Armored Time-Vault Seal Pin',
+          detail: 'Engage deadbolt inside the safe timing zone to verify deposit clearance!',
+          label: 'DEADBOLT SEAL',
+        },
+        {
+          prompt: 'Verify Fedwire Batch Settlement Cutoff',
+          detail: 'Release armored transfer inside the green clearing window!',
+          label: 'FEDWIRE WINDOW',
+        },
+      ], 1.5),
+      Math.random() < 0.5
+        ? makeCodeSequenceTask(
+            'VAULT AUTH CODE',
+            'Enter Dual-Custody Teller Override Sequence',
+            'Input the audit authorization keys in exact left-to-right order!',
+            shuffleArr(['KEY1', 'CLR', 'AUD', 'VAULT', 'SIG']),
+            4
+          )
+        : makeBalanceTask(
+            'RESERVE LEDGER BALANCE',
+            'Balance Branch Cash & Wire Reserve',
+            'Match both vault reserve counters to today’s audit target!',
+            'ATM Reserve',
+            [35, 65],
+            'k$',
+            'Teller Float',
+            [14, 32],
+            'k$'
+          )
+    );
+  } else if (kind === 'work_retail') {
+    skillTasks.push(
+      makeCodeSequenceTask(
+        'RAPID SKU SCAN',
+        pickOne([
+          'Enter Express Inventory Verification Code',
+          'Scan High-Value Jewelry Security Tag Sequence',
+          'Clear Curbside Pickup Manifest Barcode Order',
+        ]),
+        'Tap or click the exact sequence tokens below in order!',
+        shuffleArr(['A1', 'B4', 'C7', 'X9', 'M2', 'K5']),
+        randInt(4, 5)
+      ),
+      makeBalanceTask(
+        'STOCK & DISPLAY AUDIT',
+        'Balance Shelf Facings & Register Float',
+        'Set store stock counts cleanly to regional manager targets!',
+        'Shelf Stock',
+        [18, 42],
+        'pcs',
+        'Drawer Float',
+        [15, 35],
+        '$10s'
+      )
+    );
+  } else if (kind === 'work_kitchen') {
+    skillTasks.push(
+      makeTimingTask('SEAR PERFECTION', [
+        {
+          prompt: 'Flip Lump Maryland Crab Cake at Golden Sear',
+          detail: 'Press [SPACE] or Flip inside the golden crust zone without burning!',
+          label: 'SKILLET SEAR TEMP',
+        },
+        {
+          prompt: 'Pull Double Espresso Shot at Golden Crema',
+          detail: 'Stop the portafilter extraction inside the sweet-spot timing band!',
+          label: 'CREMA EXTRACTION',
+        },
+        {
+          prompt: 'Pull Brioche Croissants from Deck Oven',
+          detail: 'Hit [SPACE] cleanly at peak flaky brown caramelization!',
+          label: 'OVEN TIMER',
+        },
+      ], 1.55),
+      makeBalanceTask(
+        'TWIN BURNER LINE',
+        'Balance Grill Deck & Steamer Temps',
+        'Dial both heat zones cleanly into target service specs before plating!',
+        'Flat-Top Grill',
+        [34, 44],
+        '0°F',
+        'Crab Steamer',
+        [19, 28],
+        '0°F'
+      )
+    );
+  } else if (kind === 'work_mechanic') {
+    skillTasks.push(
+      makeTimingTask('TORQUE WRENCH', [
+        {
+          prompt: 'Hit Exact Wheel Lug Torque Spec',
+          detail: 'Release torque bar cleanly inside the green calibration arc!',
+          label: 'TORQUE LB-FT',
+        },
+        {
+          prompt: 'Dial Dynamic Ignition Timing Advance',
+          detail: 'Lock distributor mark cleanly inside the green TDC window!',
+          label: 'TDC TIMING',
+        },
+      ], 1.55),
+      makeBalanceTask(
+        'DYNO & BOOST TUNING',
+        'Dial Air-Fuel & Turbo Boost Targets',
+        'Balance AFR and Peak Boost cleanly for maximum dyno pull!',
+        'Target AFR',
+        [11, 14],
+        ':1',
+        'Peak Boost',
+        [14, 24],
+        'PSI'
+      )
+    );
+  } else if (kind === 'work_atc') {
+    skillTasks.push(
+      makeTimingTask('ILS GLIDE-SLOPE', [
+        {
+          prompt: 'Align Jet Localizer onto BWI Runway 33L',
+          detail: 'Lock approach beam inside the green ILS glide-slope window!',
+          label: 'ILS APPROACH BEAM',
+        },
+        {
+          prompt: 'Time Cross-Runway Departure Release',
+          detail: 'Clear heavy jet rotation inside the wake-turbulence window!',
+          label: 'WAKE SEPARATION',
+        },
+      ], 1.62),
+      makeCodeSequenceTask(
+        'TRANSPONDER SQUAWK',
+        'Assign Departure Clearance Sequence',
+        'Punch the beacon codes in exact order to clear runway departure!',
+        shuffleArr(['SW4', 'RW15', 'ALT9', 'CLR', 'HDG2', 'DEP']),
+        randInt(4, 5)
+      )
+    );
+  } else if (kind === 'work_studio') {
+    skillTasks.push(
+      makeTimingTask('LIVE CAMERA CUT', [
+        {
+          prompt: 'Hit Exact Broadcast Anchor Cue',
+          detail: 'Trigger Cam-2 switch cleanly inside the live director sync beat!',
+          label: 'DIRECTOR CUE',
+        },
+        {
+          prompt: 'Sync Live Sports Replay Stinger',
+          detail: 'Drop bumper transition on the exact downbeat frame!',
+          label: 'REPLAY SYNC',
+        },
+      ], 1.55),
+      makeBalanceTask(
+        'AUDIO MASTERING',
+        'Balance Studio Mic Gain & Master LUFS',
+        'Tune both studio board channels cleanly into broadcast spec!',
+        'Vocal Gain',
+        [12, 24],
+        'dB',
+        'Master Out',
+        [11, 18],
+        'LUFS'
+      )
+    );
+  } else {
+    skillTasks.push(
+      makeTimingTask('RADIO SQUELCH', [
+        {
+          prompt: 'Lock Priority Precinct Dispatch Frequency',
+          detail: 'Tap [SPACE] when carrier signal crosses the green clear-channel band!',
+          label: 'VHF CARRIER LOCK',
+        },
+        {
+          prompt: 'Sync Emergency Siren Repeater Tower',
+          detail: 'Lock statewide relay pulse cleanly inside the green band!',
+          label: 'REPEATER LOCK',
+        },
+      ], 1.5),
+      makeBalanceTask(
+        'SECTOR DISPATCH GRID',
+        'Balance Patrol Units & Transit Signal Cycles',
+        'Calibrate district unit coverage & light timing to target specs!',
+        'Patrol Units',
+        [10, 22],
+        'cars',
+        'Signal Cycle',
+        [22, 38],
+        'sec'
+      )
+    );
+  }
+
+  // 2) Randomized Scenario & Dynamic Numerical Question Pools (never repeats in same shift!)
+  const choiceCountNeeded = Math.max(1, count - skillTasks.length);
+
+  if (kind === 'work_office') {
+    const scenarios: ScenarioItem[] = [
+      {
+        cat: 'CYBER SECURITY',
+        prompt: 'Inbox Triage: "Wire $85k to external crypto wallet immediately — CEO"',
+        detail: 'Sender domain: ceo-urgent-mail99.biz · Requested bypass of CFO sign-off',
+        ok: 'Flag Phishing & Quarantine',
+        bad: ['Approve Immediate Wire', 'Reply with Bank Routing'],
+      },
+      {
+        cat: 'LEGAL & CONTRACTS',
+        prompt: 'Client Brief: "Maryland Lease Renewal #408 expires in 48 hours"',
+        detail: 'Signed by Legal Counsel & Regional VP · Terms verified',
+        ok: 'Execute & Forward to Records',
+        bad: ['Discard as Junk Mail', 'Freeze Client Account'],
+      },
+      {
+        cat: 'CLOUD OPS',
+        prompt: 'IT Alert: "Auth Gateway CPU spiked to 99% during morning login"',
+        detail: 'Latency 1,400ms across 4 Baltimore office pods',
+        ok: 'Scale Auth Replicas x2',
+        bad: ['Shut Down Production DB', 'Ignore Until Friday'],
+      },
+      {
+        cat: 'COMPLIANCE',
+        prompt: 'Compliance Memo: "Vendor W-9 tax form missing on Invoice #774"',
+        detail: 'Accounts Payable holds payout pending valid tax ID',
+        ok: 'Hold & Request Vendor W-9',
+        bad: ['Double Payout Anyway', 'Delete Vendor Record'],
+      },
+      {
+        cat: 'SOC RESPONSE',
+        prompt: 'SOC Alert: "1,800 failed SSH attempts from unfamiliar ASN on Gateway #3"',
+        detail: 'Brute-force pattern hitting corporate jump host',
+        ok: 'Block IP Range & Enforce MFA',
+        bad: ['Disable Firewall Logging', 'Email Password to Everyone'],
+      },
+      {
+        cat: 'M&A STRATEGY',
+        prompt: 'Board Review: "Target logistics firm carries hidden $4.2M environmental lien"',
+        detail: 'Discovered during final Baltimore port due diligence',
+        ok: 'Escrow Holdback & Renegotiate Price',
+        bad: ['Waive Disclosure & Overpay', 'Shred Inspection File'],
+      },
+    ];
+    const picked = buildFromScenarios('OFFICE OPS', scenarios, Math.max(2, choiceCountNeeded - 2));
+    choiceTasks.push(...picked);
+
+    const rev = randInt(52, 145);
+    const exp = randInt(18, rev - 10);
+    const profit = rev - exp;
+    const ledgerOpts = shuffleOptions(`$${profit},000 Net`, [
+      `$${profit + randInt(4, 11)},000 Net`,
+      `$${Math.max(3, profit - randInt(4, 9))},000 Net`,
+    ]);
+    choiceTasks.push({
+      category: 'LEDGER AUDIT',
+      prompt: 'Calculate Department Net Profit',
+      detail: `Quarterly Revenue: $${rev},000  |  Operating Expense: $${exp},000`,
+      options: ledgerOpts.options,
+      correctIdx: ledgerOpts.correctIdx,
+    });
+
+    const q1 = randInt(21, 58);
+    const q2 = randInt(21, 58);
+    const q3 = randInt(21, 58);
+    const adjQ2 = q2 === q1 ? q2 + 3 : q2;
+    const adjQ3 = q3 === q1 || q3 === adjQ2 ? Math.max(q1, adjQ2) + 4 : q3;
+    const maxQ = Math.max(q1, adjQ2, adjQ3);
+    const winner = q1 === maxQ ? 'North Suite' : adjQ2 === maxQ ? 'Harbor Team' : 'Bethesda Branch';
+    const perfOpts = shuffleOptions(
+      winner,
+      ['North Suite', 'Harbor Team', 'Bethesda Branch'].filter((x) => x !== winner)
+    );
+    choiceTasks.push({
+      category: 'PERFORMANCE REVIEW',
+      prompt: 'Which office division hit highest quarterly billings?',
+      detail: `North Suite: $${q1}k  |  Harbor Team: $${adjQ2}k  |  Bethesda Branch: $${adjQ3}k`,
+      options: perfOpts.options,
+      correctIdx: perfOpts.correctIdx,
+    });
+  } else if (kind === 'work_clinic') {
+    const cases: ScenarioItem[] = [
+      {
+        cat: 'PATIENT TRIAGE',
+        prompt: 'Patient Vitals: Temp 102.6°F · White Tonsil Exudate',
+        detail: 'No drug allergies · Reports 2 days painful swallowing',
+        ok: 'Rapid Strep Test & Antipyretic',
+        bad: ['Orthopedic Leg Cast', 'Eye Prescription Drops'],
+      },
+      {
+        cat: 'CRITICAL TRIAGE',
+        prompt: 'Triage Alert: BP 174/104 mmHg · Sudden Blurred Vision',
+        detail: 'Walk-in adult patient reporting acute occipital headache',
+        ok: 'Immediate Hypertensive Eval & ECG',
+        bad: ['Send Home Without Check', 'Schedule Dental Cleaning'],
+      },
+      {
+        cat: 'ORTHOPEDICS',
+        prompt: 'Orthopedic Exam: Rolled Left Ankle on Stairs',
+        detail: 'Localized lateral swelling · Can bear partial weight',
+        ok: 'Ankle X-Ray & Compression Wrap',
+        bad: ['Prescribe Asthma Inhaler', 'Administer Flu Shot Only'],
+      },
+      {
+        cat: 'PHARMACY CHECK',
+        prompt: 'Rx Verification: Patient Severe Allergy to Penicillin',
+        detail: 'Needs broad-spectrum antibiotic coverage for bacterial sinusitis',
+        ok: 'Substitute Non-Penicillin Rx',
+        bad: ['Dispense Amoxicillin Anyway', 'Skip Allergy Check'],
+      },
+      {
+        cat: 'PULMONOLOGY',
+        prompt: 'ER Walk-In: Wheezing, SpO2 89%, Accessory Muscle Use',
+        detail: 'History of asthma · Forgot rescue inhaler at work',
+        ok: 'Nebulized Albuterol & Supplemental O2',
+        bad: ['Discharge Without Oxygen', 'Prescribe Cold Ice Pack'],
+      },
+      {
+        cat: 'TRAUMA PREP',
+        prompt: 'Laceration Bay: Deep Forearm Cut with Active Venous Bleeding',
+        detail: 'Last tetanus booster was 12 years ago',
+        ok: 'Direct Pressure, Irrigate, Suture & Tdap',
+        bad: ['Apply Dry Paper Towel Only', 'Delay Care 48 Hours'],
+      },
+    ];
+    choiceTasks.push(...buildFromScenarios('PATIENT TRIAGE', cases, Math.max(2, choiceCountNeeded - 1)));
+
+    const hr = pickOne([randInt(44, 57), randInt(64, 94), randInt(106, 138)]);
+    const status = hr > 100 ? 'Tachycardia (>100 bpm)' : hr < 60 ? 'Bradycardia (<60 bpm)' : 'Normal Sinus (60–100)';
+    const hrOpts = shuffleOptions(
+      status,
+      ['Tachycardia (>100 bpm)', 'Bradycardia (<60 bpm)', 'Normal Sinus (60–100)'].filter((x) => x !== status)
+    );
+    choiceTasks.push({
+      category: 'VITALS MONITOR',
+      prompt: `Classify Resting Heart Rate: ${hr} BPM`,
+      detail: 'Standard Adult Resting Range: 60–100 BPM',
+      options: hrOpts.options,
+      correctIdx: hrOpts.correctIdx,
+    });
+  } else if (kind === 'work_lab') {
+    const labScenarios: ScenarioItem[] = [
+      {
+        cat: 'BIOSAFETY',
+        prompt: 'Fume Hood Alarm: Sash Raised Above Safe Airflow Line',
+        detail: 'Volatile organic solvent transfer currently in progress',
+        ok: 'Lower Sash to Calibration Mark',
+        bad: ['Prop Sash Open With Beaker', 'Turn Off Exhaust Fan'],
+      },
+      {
+        cat: 'SAMPLE INTEGRITY',
+        prompt: 'NIST Cold Chain: Cryo Freezer Drifted from -80°C to -58°C',
+        detail: 'Contains sensitive mRNA reference standards',
+        ok: 'Transfer Samples to Backup -80°C Unit',
+        bad: ['Unplug Alarm Buzzer', 'Leave Samples on Benchtop'],
+      },
+      {
+        cat: 'MASS SPEC',
+        prompt: 'LC-MS Baseline Noise Spiked 4x Above Blank Control',
+        detail: 'Possible air bubble in mobile phase pump A',
+        ok: 'Purge Solvent Lines & Re-Run Blank',
+        bad: ['Falsify Baseline Zero', 'Double Injection Volume'],
+      },
+    ];
+    choiceTasks.push(...buildFromScenarios('NIST PROTOCOL', labScenarios, Math.max(1, choiceCountNeeded - 2)));
+
+    const curPh = Number((5.8 + randInt(0, 24) * 0.1).toFixed(1));
+    const targetPh = pickOne([7.0, 7.2, 7.4]);
+    const delta = Number((targetPh - curPh).toFixed(1));
+    const okPh =
+      Math.abs(delta) < 0.05
+        ? 'Hold — Sample Calibrated'
+        : delta > 0
+        ? `Add +${delta.toFixed(1)} Base Buffer`
+        : `Add ${delta.toFixed(1)} Acid Buffer`;
+    const phOpts = shuffleOptions(okPh, [
+      `Add +${(Math.abs(delta) + 0.7).toFixed(1)} Base Buffer`,
+      `Add -${(Math.abs(delta) + 0.9).toFixed(1)} Acid Buffer`,
+    ]);
+    choiceTasks.push({
+      category: 'pH CALIBRATION',
+      prompt: `Adjust Assay Solution to Target pH ${targetPh.toFixed(1)}`,
+      detail: `Current Sensor Probe Readout: pH ${curPh.toFixed(1)}`,
+      options: phOpts.options,
+      correctIdx: phOpts.correctIdx,
+    });
+
+    const targetMv = randInt(185, 515);
+    const mvOpts = shuffleOptions(`${targetMv} mV (Verified)`, [
+      `${targetMv + randInt(25, 60)} mV (Drift)`,
+      `${targetMv - randInt(25, 60)} mV (Noise)`,
+    ]);
+    choiceTasks.push({
+      category: 'SPECTROMETER LOCK',
+      prompt: `Select Exact Reference Peak: ${targetMv} mV`,
+      detail: 'Match NIST calibration frequency within ±0 mV tolerance',
+      options: mvOpts.options,
+      correctIdx: mvOpts.correctIdx,
+    });
+  } else if (kind === 'work_bank') {
+    const bankScenarios: ScenarioItem[] = [
+      {
+        cat: 'AML COMPLIANCE',
+        prompt: 'Teller Window: Customer Splitting $28,000 into Four $7,000 Deposits',
+        detail: 'Explicitly asks teller to keep each slip under the $10k reporting limit',
+        ok: 'Flag Structuring & File SAR Review',
+        bad: ['Split Across 4 Windows Quietly', 'Disable Audit Camera'],
+      },
+      {
+        cat: 'FRAUD DESK',
+        prompt: 'Wire Request: Urgent $45,000 Change-of-Account Email With Misspelled Domain',
+        detail: 'Callback number provided does not match bank profile on file',
+        ok: 'Verify via Trusted Callback Number On File',
+        bad: ['Wire Immediately Without Callback', 'Share PIN With Caller'],
+      },
+      {
+        cat: 'ARMORED COURIER',
+        prompt: 'Loading Bay: Armored Seal #8842 Broken Upon Arrival',
+        detail: 'Manifest lists 12 strapped currency bricks inside canister',
+        ok: 'Dual-Count & Log Seal Exception',
+        bad: ['Sign Clear Receipt Unchecked', 'Throw Away Broken Seal'],
+      },
+    ];
+    choiceTasks.push(...buildFromScenarios('BANK COMPLIANCE', bankScenarios, Math.max(1, choiceCountNeeded - 2)));
+
+    const hundreds = randInt(2, 8);
+    const twenties = randInt(1, 7);
+    const tens = randInt(1, 6);
+    const total = hundreds * 100 + twenties * 20 + tens * 10;
+    const cashOpts = shuffleOptions(`$${total.toLocaleString()}`, [
+      `$${(total + pickOne([20, 40, 60])).toLocaleString()}`,
+      `$${Math.max(100, total - pickOne([20, 30, 50])).toLocaleString()}`,
+    ]);
+    choiceTasks.push({
+      category: 'CASH DRAWER AUDIT',
+      prompt: 'Count Teller Vault Deposit Bundle',
+      detail: `${hundreds}×$100 bills  +  ${twenties}×$20 bills  +  ${tens}×$10 bills`,
+      options: cashOpts.options,
+      correctIdx: cashOpts.correctIdx,
+    });
+
+    const isValid = Math.random() < 0.5;
+    const checkAmt = pickOne([
+      { w: '$1,450.00', bad: '$14,500.00' },
+      { w: '$2,875.00', bad: '$2,785.00' },
+      { w: '$6,340.00', bad: '$63,400.00' },
+      { w: '$920.00', bad: '$9,200.00' },
+    ]);
+    const numeric = isValid ? checkAmt.w : checkAmt.bad;
+    const okChk = isValid ? 'Approve & Clear Check' : 'Hold — Amount Mismatch';
+    const chkOpts = shuffleOptions(okChk, [
+      isValid ? 'Hold — Amount Mismatch' : 'Approve & Clear Check',
+      'Waive Verification & Pay Cash',
+    ]);
+    choiceTasks.push({
+      category: 'CHECK & WIRE AUDIT',
+      prompt: `Written Line: "${checkAmt.w}"  |  Numeric Box: "${numeric}"`,
+      detail: 'Verify written legal amount matches numeric box before clearing',
+      options: chkOpts.options,
+      correctIdx: chkOpts.correctIdx,
+    });
+  } else if (kind === 'work_retail') {
+    const retailScenarios: ScenarioItem[] = [
+      {
+        cat: 'JEWELRY APPRAISAL',
+        prompt: 'Client Counter: 18K Gold Stamp Check & Diamond Thermal Probe',
+        detail: 'Thermal conductivity spikes cleanly into genuine diamond zone',
+        ok: 'Certify Authentic & Issue Appraisal',
+        bad: ['Label as Plastic Costume', 'Scratch Stone With File'],
+      },
+      {
+        cat: 'LOSS PREVENTION',
+        prompt: 'POS Alert: Unlisted Return Receipt Printed 3 Times Without Barcode',
+        detail: 'Serial number shows item sold in another state 4 years ago',
+        ok: 'Decline Return & Call Floor Manager',
+        bad: ['Issue Full Cash Refund', 'Override Register Lock'],
+      },
+      {
+        cat: 'INVENTORY',
+        prompt: 'Stockroom: Cold-Case Beverage Cooler Crept Up to 56°F',
+        detail: 'Perishable dairy & sushi platters stored inside',
+        ok: 'Quarantine Perishables & Log Temp Alert',
+        bad: ['Sell At Half-Price Anyway', 'Tape Door Closed'],
+      },
+    ];
+    choiceTasks.push(...buildFromScenarios('STORE OPS', retailScenarios, Math.max(1, choiceCountNeeded - 2)));
+
+    for (let r = choiceTasks.length; r < choiceCountNeeded; r++) {
+      const price = randInt(11, 47);
       const paid = price <= 20 ? 20 : price <= 50 ? 50 : 100;
       const change = paid - price;
-      const { options, correctIdx } = shuffleOptions(`$${change}.00 Change`, [
+      const chgOpts = shuffleOptions(`$${change}.00 Change`, [
         `$${change + randInt(2, 6)}.00 Change`,
-        `$${Math.max(1, change - randInt(2, 5))}.00 Change`,
+        `$${Math.max(1, change - randInt(1, 5))}.00 Change`,
       ]);
-      tasks.push({
+      choiceTasks.push({
         category: 'REGISTER CHECKOUT',
         prompt: `Customer Pays $${paid}.00 for $${price}.00 Order`,
         detail: 'Select exact register change to keep drawer balanced',
-        options,
-        correctIdx,
+        options: chgOpts.options,
+        correctIdx: chgOpts.correctIdx,
       });
-    } else if (kind === 'work_kitchen') {
-      const orders = [
-        {
-          prompt: 'Table 6 Ticket: Jumbo Lump Maryland Crab Cakes (No Filler)',
-          detail: 'Finish with Old Bay aioli + charred lemon on warm plate',
-          ok: 'Sauté Golden & Plate w/ Old Bay',
-          bad: ['Boil 20 Mins in Plain Water', 'Serve Frozen Without Heat'],
-        },
-        {
-          prompt: 'Allergy Flag: Ticket #19 — Severe Shellfish Allergy',
-          detail: 'Guest ordered Grilled Rockfish · Sauté pan shared crab line',
-          ok: 'Use Clean Sanitized Pan & Gloves',
-          bad: ['Rinse Old Pan Quickly', 'Swap Sauce Only'],
-        },
-        {
-          prompt: 'Morning Barista Rush: Double Espresso Pull Running Too Fast (11s)',
-          detail: 'Shot tastes sour & watery at 6 bar pressure',
-          ok: 'Finely Grind & Tamp to 9 Bar',
-          bad: ['Add Cold Tap Water', 'Coarsen Grind Further'],
-        },
-      ];
-      const o = orders[randInt(0, orders.length - 1)];
-      const { options, correctIdx } = shuffleOptions(o.ok, o.bad);
-      tasks.push({ category: 'KITCHEN TICKET', prompt: o.prompt, detail: o.detail, options, correctIdx });
-    } else if (kind === 'work_mechanic') {
-      const specs = [
-        {
-          prompt: 'Brake Service: Soft Spongy Pedal & Low Fluid Reservoir',
-          detail: 'Front calipers just replaced on Dodge Hellcat bay #2',
-          ok: 'Pressure-Bleed Brake Lines & Top DOT4',
-          bad: ['Grease Brake Rotors', 'Lower Tire Pressure to 14 PSI'],
-        },
-        {
-          prompt: 'Dyno Diagnostics: Knock Sensor Pulls Timing Above 5,500 RPM',
-          detail: 'Customer filled 87 octane on high-boost twin-turbo tune',
-          ok: 'Drain Tank & Flash 93 Octane Map',
-          bad: ['Advance Spark Timing +8°', 'Disconnect Knock Sensor'],
-        },
-        {
-          prompt: 'EV Pack Fault: Module #4 Reads 0.45V Higher Than Rest',
-          detail: 'BMS triggered charge current limiter at 72% SoC',
-          ok: 'Run Active Cell Balance Cycle',
-          bad: ['Jump Directly With 12V Alternator', 'Bypass Coolant Pump'],
-        },
-      ];
-      const s = specs[randInt(0, specs.length - 1)];
-      const { options, correctIdx } = shuffleOptions(s.ok, s.bad);
-      tasks.push({ category: 'GARAGE DIAGNOSTICS', prompt: s.prompt, detail: s.detail, options, correctIdx });
-    } else if (kind === 'work_atc') {
-      const calls = [
-        {
-          prompt: 'BWI Final: Two jets converging at 2.1 NM separation on Runway 33L',
-          detail: 'Trailing heavy 767 closing 35 kts faster than regional turboprop',
-          ok: 'Instruct Trailing Jet: Go Around',
-          bad: ['Turn Off Runway Lights', 'Clear Both to Land Simultaneously'],
-        },
-        {
-          prompt: 'KGAI Tower: Crosswind 24 kts from 320° · Cessna Requesting Touchdown',
-          detail: 'Active runway options: RWY 14 vs RWY 32',
-          ok: 'Assign Headwind Runway 32',
-          bad: ['Assign Tailwind Runway 14', 'Close Airspace Indefinitely'],
-        },
-        {
-          prompt: 'Storm Cell Alert: Severe Microburst Crossing South Approach Corridor',
-          detail: 'Visibility dropping below 1/2 mile near Chesapeake Bay',
-          ok: 'Hold Departures & Divert Vectors East',
-          bad: ['Expedite Low-Altitude Takeoffs', 'Disable Radar Altimeter'],
-        },
-      ];
-      const c = calls[randInt(0, calls.length - 1)];
-      const { options, correctIdx } = shuffleOptions(c.ok, c.bad);
-      tasks.push({ category: 'ATC TRAFFIC VECTOR', prompt: c.prompt, detail: c.detail, options, correctIdx });
-    } else if (kind === 'work_studio') {
-      const cues = [
-        {
-          prompt: 'Audio Feed Check: Harbor Field Reporter Mic Peaking at +3 dB Clipping',
-          detail: 'Harbor wind noise saturating live pre-amp input',
-          ok: 'Engage High-Pass Filter & Trim -6 dB',
-          bad: ['Boost Compressor Gain +12 dB', 'Mute Master Studio Out'],
-        },
-        {
-          prompt: 'Live Switcher: Satellite Feed #2 Dropping Frames 10s Before Package',
-          detail: 'Backup fiber link B from WTC roof is 100% locked',
-          ok: 'Cut to Backup Fiber Link B',
-          bad: ['Roll Dead Air Until Tomorrow', 'Cut Power to Control Room'],
-        },
-        {
-          prompt: 'Color Grade Check: Outdoor Waterfront Cam Overexposed in Sun Glare',
-          detail: 'Waveforms hitting 105 IRE highlights on Bay Bridge shot',
-          ok: 'Drop ND Filter & Pull Exposure 1.5 Stops',
-          bad: ['Max ISO Gain to 12800', 'Unplug SDI Monitor'],
-        },
-      ];
-      const c = cues[randInt(0, cues.length - 1)];
-      const { options, correctIdx } = shuffleOptions(c.ok, c.bad);
-      tasks.push({ category: 'BROADCAST CONTROL', prompt: c.prompt, detail: c.detail, options, correctIdx });
-    } else {
-      // work_dispatch
-      const calls = [
-        {
-          prompt: '911 Call: Two-car collision blocking I-270 Southbound Lane 2',
-          detail: 'Minor injuries reported · Traffic backing up toward Shady Grove',
-          ok: 'Dispatch State Trooper + Tow',
-          bad: ['Dispatch Harbor Tugboat', 'Ignore Highway Call'],
-        },
-        {
-          prompt: 'Silent Alarm: Baltimore Federal Reserve Motion Sensor',
-          detail: 'Vault Zone 1 triggered after hours · Perimeter locked',
-          ok: 'Dispatch Priority Armed Units',
-          bad: ['Send Parking Meter Clerk', 'Cancel Alarm Without Check'],
-        },
-        {
-          prompt: 'Transit Alert: Signal Outage at Pratt St & Light St',
-          detail: 'Heavy downtown rush hour cross-traffic',
-          ok: 'Send Traffic Control & Tech Crew',
-          bad: ['Close All Bay Bridges', 'Deploy Coast Guard Cutter'],
-        },
-      ];
-      const c = calls[randInt(0, calls.length - 1)];
-      const { options, correctIdx } = shuffleOptions(c.ok, c.bad);
-      tasks.push({ category: 'DISPATCH CONSOLE', prompt: c.prompt, detail: c.detail, options, correctIdx });
     }
+  } else if (kind === 'work_kitchen') {
+    const orders: ScenarioItem[] = [
+      {
+        prompt: 'Table 6 Ticket: Jumbo Lump Maryland Crab Cakes (No Filler)',
+        detail: 'Finish with Old Bay aioli + charred lemon on warm plate',
+        ok: 'Sauté Golden & Plate w/ Old Bay',
+        bad: ['Boil 20 Mins in Plain Water', 'Serve Frozen Without Heat'],
+      },
+      {
+        prompt: 'Allergy Flag: Ticket #19 — Severe Shellfish Allergy',
+        detail: 'Guest ordered Grilled Rockfish · Sauté pan shared crab line',
+        ok: 'Use Clean Sanitized Pan & Gloves',
+        bad: ['Rinse Old Pan Quickly', 'Swap Sauce Only'],
+      },
+      {
+        prompt: 'Morning Barista Rush: Double Espresso Pull Running Too Fast (11s)',
+        detail: 'Shot tastes sour & watery at 6 bar pressure',
+        ok: 'Finely Grind & Tamp to 9 Bar',
+        bad: ['Add Cold Tap Water', 'Coarsen Grind Further'],
+      },
+      {
+        prompt: 'Pastry Oven: Brioche Dough Over-Proofed & Collapsing',
+        detail: 'Humid Baltimore kitchen accelerated yeast activity',
+        ok: 'Chill Tray & Adjust Proof Timer',
+        bad: ['Double Oven Temp to 550°F', 'Add Raw Flour Over Crust'],
+      },
+      {
+        prompt: 'Food Safety Line Check: Chicken Breast Internal Probe Reads 148°F',
+        detail: 'Expo waiting for pass on Chesapeake Herb Plate',
+        ok: 'Keep Cooking Until 165°F Safe Core',
+        bad: ['Plate Immediately & Mask w/ Sauce', 'Drop in Ice Water'],
+      },
+      {
+        prompt: 'Steamed Blue Crabs: Bushel Seasoning Prep Order',
+        detail: 'Classic Maryland waterfront steamer pot firing for Patio Table 4',
+        ok: 'Layer Heavy Vinegar, Beer & Crab Spice',
+        bad: ['Bake Dry at 200°F', 'Coat in Powdered Sugar'],
+      },
+    ];
+    choiceTasks.push(...buildFromScenarios('KITCHEN TICKET', orders, choiceCountNeeded));
+  } else if (kind === 'work_mechanic') {
+    const specs: ScenarioItem[] = [
+      {
+        prompt: 'Brake Service: Soft Spongy Pedal & Low Fluid Reservoir',
+        detail: 'Front calipers just replaced on Dodge Hellcat bay #2',
+        ok: 'Pressure-Bleed Brake Lines & Top DOT4',
+        bad: ['Grease Brake Rotors', 'Lower Tire Pressure to 14 PSI'],
+      },
+      {
+        prompt: 'Dyno Diagnostics: Knock Sensor Pulls Timing Above 5,500 RPM',
+        detail: 'Customer filled 87 octane on high-boost twin-turbo tune',
+        ok: 'Drain Tank & Flash 93 Octane Map',
+        bad: ['Advance Spark Timing +8°', 'Disconnect Knock Sensor'],
+      },
+      {
+        prompt: 'EV Pack Fault: Module #4 Reads 0.45V Higher Than Rest',
+        detail: 'BMS triggered charge current limiter at 72% SoC',
+        ok: 'Run Active Cell Balance Cycle',
+        bad: ['Jump Directly With 12V Alternator', 'Bypass Coolant Pump'],
+      },
+      {
+        prompt: 'Alignment Rack: Car Pulls Hard Right & Inside Front Tire Feathering',
+        detail: 'Customer clipped a pothole on I-95 southbound',
+        ok: 'Reset Toe & Camber to Track Spec',
+        bad: ['Deflate Left Tire to 18 PSI', 'Remove Front Sway Bar'],
+      },
+      {
+        prompt: 'Cooling System: Temp Gauge Climbing at Idle, Fans Not Spinning',
+        detail: 'Upper radiator hose hot; lower hose cool; fuse #14 intact',
+        ok: 'Test Fan Relay & Thermostat Opening',
+        bad: ['Drain Coolant & Drive Dry', 'Tighten Lug Nuts'],
+      },
+      {
+        prompt: 'Clutch & Diff Service: Rear LSD Chattering on Tight Low-Speed Turns',
+        detail: 'Track-pack limited-slip differential just rebuilt',
+        ok: 'Add LSD Friction Modifier & Spec Gear Oil',
+        bad: ['Fill With Windshield Washer Fluid', 'Weld Axle Bearings'],
+      },
+    ];
+    choiceTasks.push(...buildFromScenarios('GARAGE DIAGNOSTICS', specs, choiceCountNeeded));
+  } else if (kind === 'work_atc') {
+    const calls: ScenarioItem[] = [
+      {
+        prompt: 'BWI Final: Two jets converging at 2.1 NM separation on Runway 33L',
+        detail: 'Trailing heavy 767 closing 35 kts faster than regional turboprop',
+        ok: 'Instruct Trailing Jet: Go Around',
+        bad: ['Turn Off Runway Lights', 'Clear Both to Land Simultaneously'],
+      },
+      {
+        prompt: 'KGAI Tower: Crosswind 24 kts from 320° · Cessna Requesting Touchdown',
+        detail: 'Active runway options: RWY 14 vs RWY 32',
+        ok: 'Assign Headwind Runway 32',
+        bad: ['Assign Tailwind Runway 14', 'Close Airspace Indefinitely'],
+      },
+      {
+        prompt: 'Storm Cell Alert: Severe Microburst Crossing South Approach Corridor',
+        detail: 'Visibility dropping below 1/2 mile near Chesapeake Bay',
+        ok: 'Hold Departures & Divert Vectors East',
+        bad: ['Expedite Low-Altitude Takeoffs', 'Disable Radar Altimeter'],
+      },
+      {
+        prompt: 'Ground Radar: Tug Crossing Active Runway Hold-Short Line Without Clearance',
+        detail: 'Inbound regional jet at 1.5 miles final',
+        ok: 'Order Jet Immediate Go-Around & Halt Tug',
+        bad: ['Clear Jet to Land Anyway', 'Turn Off Ground Transponder'],
+      },
+      {
+        prompt: 'Squawk 7600: Inbound Baron Lost Two-Way Radio Over Annapolis',
+        detail: 'Aircraft rocking wings in clear VFR pattern',
+        ok: 'Signal Light Gun & Clear Traffic Pattern',
+        bad: ['Scramble Fighter Escort to Intercept', 'Cut Runway Lighting'],
+      },
+      {
+        prompt: 'Runway Braking Action: Freezing Rain Coating BWI RWY 28',
+        detail: 'Friction measurement dropped to "POOR"',
+        ok: 'Issue NOTAM & Dispatch De-Ice Sweepers',
+        bad: ['Authorize Max Tailwind Landings', 'Ignore Friction Report'],
+      },
+    ];
+    choiceTasks.push(...buildFromScenarios('ATC TRAFFIC VECTOR', calls, choiceCountNeeded));
+  } else if (kind === 'work_studio') {
+    const cues: ScenarioItem[] = [
+      {
+        prompt: 'Audio Feed Check: Harbor Field Reporter Mic Peaking at +3 dB Clipping',
+        detail: 'Harbor wind noise saturating live pre-amp input',
+        ok: 'Engage High-Pass Filter & Trim -6 dB',
+        bad: ['Boost Compressor Gain +12 dB', 'Mute Master Studio Out'],
+      },
+      {
+        prompt: 'Live Switcher: Satellite Feed #2 Dropping Frames 10s Before Package',
+        detail: 'Backup fiber link B from WTC roof is 100% locked',
+        ok: 'Cut to Backup Fiber Link B',
+        bad: ['Roll Dead Air Until Tomorrow', 'Cut Power to Control Room'],
+      },
+      {
+        prompt: 'Color Grade Check: Outdoor Waterfront Cam Overexposed in Sun Glare',
+        detail: 'Waveforms hitting 105 IRE highlights on Bay Bridge shot',
+        ok: 'Drop ND Filter & Pull Exposure 1.5 Stops',
+        bad: ['Max ISO Gain to 12800', 'Unplug SDI Monitor'],
+      },
+      {
+        prompt: 'Studio Lighting: Key Light Flickering at 120Hz Shutter Beat',
+        detail: 'Ballast dimmer set unevenly against 29.97fps broadcast shutter',
+        ok: 'Sync Shutter Angle & Swap Dimmer Curve',
+        bad: ['Turn Off All Studio Lights', 'Point Strobe Into Lens'],
+      },
+      {
+        prompt: 'Teleprompter Glitch: Anchor Script Scrolling 2x Speed During Breaking News',
+        detail: 'Producer desk has live manual scroll backup',
+        ok: 'Switch to Producer Manual Scroll Wheel',
+        bad: ['Cut Anchor Mic Mid-Sentence', 'Shut Down News Graphics'],
+      },
+      {
+        prompt: 'Audio Sync Drift: Live Helicopter Cam Audio 140ms Ahead of Video',
+        detail: 'RF encoder buffer offset detected on rack 4',
+        ok: 'Dial +140ms Audio Delay on Master Bus',
+        bad: ['Mute Helicopter Feed Permanently', 'Invert Stereo Phase'],
+      },
+    ];
+    choiceTasks.push(...buildFromScenarios('BROADCAST CONTROL', cues, choiceCountNeeded));
+  } else {
+    const calls: ScenarioItem[] = [
+      {
+        prompt: '911 Call: Two-car collision blocking I-270 Southbound Lane 2',
+        detail: 'Minor injuries reported · Traffic backing up toward Shady Grove',
+        ok: 'Dispatch State Trooper + Tow',
+        bad: ['Dispatch Harbor Tugboat', 'Ignore Highway Call'],
+      },
+      {
+        prompt: 'Silent Alarm: Baltimore Federal Reserve Motion Sensor',
+        detail: 'Vault Zone 1 triggered after hours · Perimeter locked',
+        ok: 'Dispatch Priority Armed Units',
+        bad: ['Send Parking Meter Clerk', 'Cancel Alarm Without Check'],
+      },
+      {
+        prompt: 'Transit Alert: Signal Outage at Pratt St & Light St',
+        detail: 'Heavy downtown rush hour cross-traffic',
+        ok: 'Send Traffic Control & Tech Crew',
+        bad: ['Close All Bay Bridges', 'Deploy Coast Guard Cutter'],
+      },
+      {
+        prompt: 'BOLO Alert: Stolen Armored Van Spotted Heading East on I-70',
+        detail: 'Confirmed license plate hit on overhead gantry camera',
+        ok: 'Broadcast County-Wide Interceptor BOLO',
+        bad: ['Clear All Pursuit Units', 'Route Units Away From I-70'],
+      },
+      {
+        prompt: 'Medical 911: Cardiac Distress Call at RIO Lakefront Boardwalk',
+        detail: 'Bystanders performing CPR near timber pier',
+        ok: 'Dispatch Closest ALS Medic & Park Ranger',
+        bad: ['Schedule Next-Week Clinic Visit', 'Send Snowplow Truck'],
+      },
+      {
+        prompt: 'Harbor Radio: Disabled Ferry Drifting Near Inner Harbor Channel',
+        detail: 'Low visibility fog rolling across Patapsco River',
+        ok: 'Alert Marine Rescue & Harbor Tug',
+        bad: ['Turn Off Channel Beacons', 'Send Highway Sweeper'],
+      },
+    ];
+    choiceTasks.push(...buildFromScenarios('DISPATCH CONSOLE', calls, choiceCountNeeded));
   }
-  return tasks;
+
+  // Combine interactive skill tasks + varied choice tasks and shuffle order cleanly
+  return shuffleArr([...skillTasks, ...choiceTasks.slice(0, choiceCountNeeded)]).slice(0, count);
 }
 
 const WorkplaceShiftMiniGame: React.FC<{
@@ -6543,7 +6825,7 @@ export const OutdoorFieldJobModal: React.FC<OutdoorFieldJobModalProps> = ({
   const [strikeBarPos, setStrikeBarPos] = useState(50);
   const strikeBarRef = useRef(50);
   const strikeDirRef = useRef(1);
-  const [strikeTargetCenter, setStrikeTargetCenter] = useState(52);
+  const [strikeTargetCenter, setStrikeTargetCenter] = useState(() => 24 + Math.floor(Math.random() * 54));
   const [strikeFeedback, setStrikeFeedback] = useState<string>('Press [SPACE] or Strike inside green zone!');
 
   useEffect(() => {
@@ -6595,12 +6877,26 @@ export const OutdoorFieldJobModal: React.FC<OutdoorFieldJobModalProps> = ({
   // ---------------- 3) WIRE GRID PUZZLE MECHANIC ----------------
   const [gridRound, setGridRound] = useState(0);
   const [gridSuccesses, setGridSuccesses] = useState(0);
-  const [gridSwitches, setGridSwitches] = useState<[boolean, boolean, boolean, boolean]>([true, false, true, false]);
-  const gridTargets = useRef<Array<{ weights: [number, number, number, number]; targetVolts: number }>>([
-    { weights: [120, 80, 40, 240], targetVolts: 320 },
-    { weights: [150, 90, 60, 180], targetVolts: 330 },
-    { weights: [220, 110, 55, 165], targetVolts: 385 },
-  ]).current;
+  const [gridSwitches, setGridSwitches] = useState<[boolean, boolean, boolean, boolean]>([false, false, false, false]);
+  const [gridTargets] = useState<Array<{ weights: [number, number, number, number]; targetVolts: number }>>(() =>
+    Array.from({ length: 3 }, () => {
+      const weights: [number, number, number, number] = [
+        (4 + Math.floor(Math.random() * 9)) * 15,
+        (3 + Math.floor(Math.random() * 8)) * 15,
+        (2 + Math.floor(Math.random() * 7)) * 15,
+        (5 + Math.floor(Math.random() * 10)) * 15,
+      ];
+      // Pick 2 or 3 distinct indices to sum so every round is guaranteed solvable and randomized
+      const indices = [0, 1, 2, 3];
+      for (let i = indices.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [indices[i], indices[j]] = [indices[j], indices[i]];
+      }
+      const pickCount = Math.random() < 0.5 ? 2 : 3;
+      const targetVolts = indices.slice(0, pickCount).reduce((sum, idx) => sum + weights[idx], 0);
+      return { weights, targetVolts };
+    })
+  );
 
   const currentGridSpec = gridTargets[gridRound % gridTargets.length];
   const currentGridSum = gridSwitches.reduce(
@@ -6629,7 +6925,10 @@ export const OutdoorFieldJobModal: React.FC<OutdoorFieldJobModalProps> = ({
   // ---------------- 4) SEQUENCE CALIBRATION MECHANIC ----------------
   const [calRound, setCalRound] = useState(0);
   const [calCorrectRounds, setCalCorrectRounds] = useState(0);
-  const [calTargetSeq, setCalTargetSeq] = useState<string[]>(() => ['UP', 'LEFT', 'RIGHT', 'DOWN']);
+  const [calTargetSeq, setCalTargetSeq] = useState<string[]>(() => {
+    const dirs = ['UP', 'DOWN', 'LEFT', 'RIGHT'];
+    return Array.from({ length: 4 }, () => dirs[Math.floor(Math.random() * 4)]);
+  });
   const [calInputSeq, setCalInputSeq] = useState<string[]>([]);
 
   const calSymbols: Record<string, string> = {

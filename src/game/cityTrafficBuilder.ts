@@ -201,6 +201,8 @@ export interface CivilianCarEntity {
   routeSegIdx?: number;
   routeSegProgress?: number;
   routeDir?: 1 | -1;
+  bodyPitch?: number;
+  bodyRoll?: number;
 }
 
 export interface PoliceCarEntity {
@@ -209,6 +211,12 @@ export interface PoliceCarEntity {
   pos: THREE.Vector3;
   heading: number;
   speedKmh: number;
+  velX?: number;
+  velZ?: number;
+  slipAngle?: number;
+  spinTimer?: number;
+  ramRecoveryTimer?: number;
+  knockbackCooldown?: number;
   patrolAxis: 'ns' | 'ew';
   patrolDir: 1 | -1;
   patrolLineCoord: number;

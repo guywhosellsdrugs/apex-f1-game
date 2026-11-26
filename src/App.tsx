@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   SeasonState,
   RaceResult,
@@ -44,6 +44,7 @@ import {
 } from './services/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { Trophy, ArrowRight, DollarSign, Award, CheckCircle2, Shield, Flame, Gauge, Zap, Cloud, Timer, Palette, Sun, Moon, FolderKanban } from 'lucide-react';
+import { flushSportsSeasonsStorage } from './game/sportsSeasons';
 import {
   AppThemeId,
   APP_THEMES,
@@ -399,21 +400,96 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // Debounced auto-sync Metro City multi-slot saves to Firebase whenever signed in
+  // Debounced + immediate-on-leave auto-sync for Metro City multi-slot saves & Career progress
+  const metroNeedsCloudFlushRef = useRef(false);
+  const careerNeedsCloudFlushRef = useRef(false);
+  const latestCareerSnapshotRef = useRef<{
+    season: SeasonState;
+    activeCareerSlotId: string;
+    careerSlots: CareerSaveSlot[];
+  } | null>(null);
+
+  useEffect(() => {
+    latestCareerSnapshotRef.current = { season, activeCareerSlotId, careerSlots };
+  }, [season, activeCareerSlotId, careerSlots]);
+
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null;
+    const flushNow = (forceCloud = false) => {
+      flushSportsSeasonsStorage();
+      const snap = latestCareerSnapshotRef.current;
+      if (snap) {
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(snap.season));
+          localStorage.setItem(CAREER_SLOTS_KEY, JSON.stringify(snap.careerSlots));
+          localStorage.setItem(ACTIVE_CAREER_SLOT_KEY, snap.activeCareerSlotId);
+        } catch {}
+        if (auth.currentUser && (forceCloud || careerNeedsCloudFlushRef.current)) {
+          careerNeedsCloudFlushRef.current = false;
+          saveCareerToCloud({
+            driverName: snap.season.career.driverName,
+            selectedTeamId: snap.season.selectedTeamId,
+            selectedDriverId: snap.season.selectedDriverId,
+            difficulty: snap.season.difficulty,
+            cashBalance: snap.season.career.careerEarnings,
+            wins: snap.season.career.wins,
+            podiums: snap.season.career.podiums,
+            racesEntered: snap.season.career.racesDriven,
+            championshipPoints: snap.season.career.championships,
+            customTeamName: snap.season.career.customTeam?.name || '',
+            fullSeason: snap.season,
+            activeCareerSlotId: snap.activeCareerSlotId,
+            careerSlots: snap.careerSlots.length > 0 ? snap.careerSlots : undefined,
+          }).catch(() => {});
+        }
+      }
+      if (auth.currentUser && (forceCloud || metroNeedsCloudFlushRef.current)) {
+        metroNeedsCloudFlushRef.current = false;
+        saveMetroCitySlotsToCloud(undefined, undefined, false).catch(() => {});
+      }
+    };
+
     const onMetroUpdate = () => {
+      metroNeedsCloudFlushRef.current = true;
       if (!auth.currentUser) return;
       if (Date.now() - lastMcCloudPullTsRef.current < 1500) return;
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => {
+        metroNeedsCloudFlushRef.current = false;
         saveMetroCitySlotsToCloud(undefined, undefined, false).catch(() => {});
       }, 2200);
     };
+
+    const onPageHideOrUnload = () => {
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      flushNow(true);
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        if (timer) {
+          clearTimeout(timer);
+          timer = null;
+        }
+        flushNow(true);
+      }
+    };
+
+    const periodicFlushTimer = window.setInterval(() => flushNow(false), 12000);
     window.addEventListener('metro-city-save-updated', onMetroUpdate);
+    window.addEventListener('pagehide', onPageHideOrUnload);
+    window.addEventListener('beforeunload', onPageHideOrUnload);
+    document.addEventListener('visibilitychange', onVisibilityChange);
     return () => {
       if (timer) clearTimeout(timer);
+      window.clearInterval(periodicFlushTimer);
       window.removeEventListener('metro-city-save-updated', onMetroUpdate);
+      window.removeEventListener('pagehide', onPageHideOrUnload);
+      window.removeEventListener('beforeunload', onPageHideOrUnload);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
     };
   }, []);
 
@@ -539,9 +615,11 @@ export default function App() {
       return nextSlots;
     });
 
-    // Debounced automatic cloud synchronization if user is authenticated
+    // Track pending cloud sync & debounce automatic cloud synchronization if user is authenticated
     if (auth.currentUser) {
+      careerNeedsCloudFlushRef.current = true;
       const timer = setTimeout(() => {
+        careerNeedsCloudFlushRef.current = false;
         saveCareerToCloud({
           driverName: season.career.driverName,
           selectedTeamId: season.selectedTeamId,

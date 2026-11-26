@@ -399,6 +399,8 @@ export class PhysicsEngine {
   public cityCivilianCars: CivilianCarEntity[] = [];
   public cityPoliceCars: PoliceCarEntity[] = [];
   public cityRoadblocks: PoliceRoadblockEntity[] = [];
+  private playerImpactVelX: number = 0;
+  private playerImpactVelZ: number = 0;
   private roadblockSpawnTimer: number = 4.0;
   private lastRedLightKey: string = '';
   private playerInsideIntersectionKey: string | null = null;
@@ -902,6 +904,7 @@ export class PhysicsEngine {
     );
   })();
   public weatherMode: WeatherMode = 'live_gaithersburg';
+  public residualRoadWetness: number = 0;
   private weatherRefreshTimer: number = 0;
   private policeDriveThroughCooldown: number = 0;
   private radarWarningBeepTimer: number = 0;
@@ -1117,17 +1120,21 @@ export class PhysicsEngine {
     if (!this.isCityMode) {
       return { active: false, type: 'none', intensity: 0, speedKmh: this.playerSpeedKmh };
     }
-    const isWet = this.currentWeather.isRaining || this.currentWeather.condition === 'drizzle' || this.currentWeather.condition === 'heavy_rain';
+    const isWet =
+      this.currentWeather.isRaining ||
+      this.currentWeather.condition === 'drizzle' ||
+      this.currentWeather.condition === 'heavy_rain';
     const isSnow = this.currentWeather.isSnowing;
-    if (!isWet && !isSnow) {
+    const dampResidual = !isWet && !isSnow ? this.residualRoadWetness : 0;
+    if (!isWet && !isSnow && dampResidual < 0.16) {
       return { active: false, type: 'none', intensity: 0, speedKmh: this.playerSpeedKmh };
     }
-    const speedThreshold = 14;
+    const speedThreshold = isWet || isSnow ? 14 : 26;
     const active = Math.abs(this.playerSpeedKmh) > speedThreshold;
     return {
       active,
       type: isSnow ? 'snow' : 'rain',
-      intensity: this.currentWeather.precipitationRate || 0.65,
+      intensity: isWet || isSnow ? this.currentWeather.precipitationRate || 0.65 : dampResidual * 0.45,
       speedKmh: Math.abs(this.playerSpeedKmh),
     };
   }
@@ -2349,7 +2356,13 @@ export class PhysicsEngine {
       const drivetrain = eff.drivetrain || 'RWD';
       const clearance = eff.groundClearance || 'low';
       const traction = calculateDrivetrainTractionModifier(drivetrain, clearance, this.currentWeather);
-      surfaceGrip *= traction.effectiveGrip;
+      // Lingering post-rain road dampness still slightly reduces grip until puddles evaporate
+      const weatherIsDry = !this.currentWeather.isRaining && !this.currentWeather.isSnowing;
+      const dampGripPenalty =
+        weatherIsDry && this.residualRoadWetness > 0.05
+          ? 1.0 - this.residualRoadWetness * (drivetrain === 'RWD' ? 0.16 : drivetrain === 'FWD' ? 0.10 : 0.04)
+          : 1.0;
+      surfaceGrip *= traction.effectiveGrip * dampGripPenalty;
 
       if (surface.offTrack) {
         const tallExtra = offRoadTerrain?.isTallGrass
@@ -2413,6 +2426,8 @@ export class PhysicsEngine {
               this.currentWeather.condition === 'heavy_rain' ||
               this.currentWeather.condition === 'thunderstorm'
             ? 1.32
+            : this.residualRoadWetness > 0.08
+            ? 1.0 + this.residualRoadWetness * 0.24
             : 1.0;
 
         let targetRoadSpinKmh = 0;
@@ -2995,8 +3010,13 @@ export class PhysicsEngine {
     if (this.isOpenFieldMode) {
       // Truly INFINITE 360° Full-Road Movement (Zero outer walls, zero radius clamps—drive forever in any direction!)
       const speedMs = this.playerSpeedKmh / 3.6;
-      this.playerPos.x += forwardVec.x * speedMs * dt;
-      this.playerPos.z += forwardVec.z * speedMs * dt;
+      this.playerPos.x += (forwardVec.x * speedMs + this.playerImpactVelX) * dt;
+      this.playerPos.z += (forwardVec.z * speedMs + this.playerImpactVelZ) * dt;
+      const impactDecay = Math.exp(-dt * 6.5);
+      this.playerImpactVelX *= impactDecay;
+      this.playerImpactVelZ *= impactDecay;
+      if (Math.abs(this.playerImpactVelX) < 0.02) this.playerImpactVelX = 0;
+      if (Math.abs(this.playerImpactVelZ) < 0.02) this.playerImpactVelZ = 0;
       this.playerPos.y = 0.33;
 
       // Independent 4-wheel suspension bounce over rocks, pebbles, and taller grass patches
@@ -7898,6 +7918,35 @@ export class PhysicsEngine {
     this.cityPursuitStats.nearestSignalColor = activePlayerSignal;
     this.cityPursuitStats.nearestSignalSecondsLeft = Number(activePhaseRem.toFixed(1));
 
+    // Update persistent road wetness (soaks quickly in rain, lingers & dries gradually after rain ends)
+    const wCond = this.currentWeather.condition;
+    const targetRoadWet =
+      wCond === 'heavy_rain' || wCond === 'thunderstorm'
+        ? 0.95
+        : wCond === 'rain'
+        ? 0.82
+        : wCond === 'drizzle'
+        ? 0.56
+        : wCond === 'snow' || wCond === 'heavy_snow'
+        ? 0.34
+        : wCond === 'fog'
+        ? 0.18
+        : 0.0;
+    if (targetRoadWet > this.residualRoadWetness) {
+      this.residualRoadWetness = Math.min(
+        targetRoadWet,
+        this.residualRoadWetness + dt * 0.32
+      );
+    } else if (this.residualRoadWetness > targetRoadWet) {
+      // Very gradual evaporation so asphalt remains damp/wet for ~1.5-3 minutes after rain stops
+      const isWarmSun = this.currentWeather.isDay && wCond === 'clear';
+      const dryRate = isWarmSun ? 0.0058 : wCond === 'partly_cloudy' ? 0.0044 : 0.0030;
+      this.residualRoadWetness = Math.max(
+        targetRoadWet,
+        this.residualRoadWetness - dt * dryRate
+      );
+    }
+
     // Keep Gaithersburg, MD Eastern Time clock and live weather synchronized
     this.weatherRefreshTimer += dt;
     if (this.weatherRefreshTimer >= 10) {
@@ -8272,6 +8321,11 @@ export class PhysicsEngine {
         }
       }
 
+      const prevCivSpeed = civ.speedKmh;
+      const prevCivHeading = civ.heading;
+      const playerSirenYieldActive =
+        this.cityPursuitStats.isPoliceOnDuty && this.cityPursuitStats.policeSirenActive && preDistSq < 62 * 62;
+
       if (civ.spinTimer > 0) {
         civ.spinTimer = Math.max(0, civ.spinTimer - civDt);
         civ.pos.x += civ.hitVelX * civDt;
@@ -8301,15 +8355,19 @@ export class PhysicsEngine {
           this.cityPursuitStats.activeAlertTimer = 6.0;
         } else {
           const targetHeading = Math.atan2(-(hx - civ.pos.x), -(hz - civ.pos.z));
-          civ.heading = targetHeading;
-          civ.speedKmh = 120;
+          let hDiff = targetHeading - civ.heading;
+          while (hDiff > Math.PI) hDiff -= Math.PI * 2;
+          while (hDiff < -Math.PI) hDiff += Math.PI * 2;
+          const maxTurn = 3.2 * civDt;
+          civ.heading += Math.max(-maxTurn, Math.min(maxTurn, hDiff * Math.min(1, civDt * 8.5)));
+          civ.speedKmh = Math.min(120, civ.speedKmh + 55 * civDt);
           const step = (civ.speedKmh / 3.6) * civDt;
           civ.pos.x += -Math.sin(civ.heading) * step;
           civ.pos.z += -Math.cos(civ.heading) * step;
           this.resolveBuildingCollision(civ.pos, 2.2);
         }
       } else if (civ.routePoints && civ.routePoints.length >= 2) {
-        // Polyline Road-Following AI for Real-World Angled/Curved Gaithersburg Roads
+        // Polyline Road-Following AI with Multi-Point Lookahead & Progressive Car-Following
         const pts = civ.routePoints;
         let segIdx = Math.max(0, Math.min(pts.length - 2, civ.routeSegIdx ?? 0));
         let routeDir: 1 | -1 = civ.routeDir ?? 1;
@@ -8321,7 +8379,7 @@ export class PhysicsEngine {
         let dirX = (segDx / segLen) * routeDir;
         let dirZ = (segDz / segLen) * routeDir;
 
-        let mustStopForLight = false;
+        let lightSpeedCap = Infinity;
         const ignoresLights =
           civ.isFleeingHitAndRun || civ.isFleeing || civ.crimeType === 'red_light' || civ.crimeType === 'bank_robber';
 
@@ -8330,16 +8388,17 @@ export class PhysicsEngine {
             const jct = MARYLAND_SIGNAL_JUNCTIONS[g];
             const dxJ = jct.x - civ.pos.x;
             const dzJ = jct.z - civ.pos.z;
-            if (Math.abs(dxJ) > 45 || Math.abs(dzJ) > 45) continue;
+            if (Math.abs(dxJ) > 52 || Math.abs(dzJ) > 52) continue;
             const fwdDist = dxJ * dirX + dzJ * dirZ;
             const latDist = Math.abs(-dxJ * dirZ + dzJ * dirX);
-            if (latDist < 14.0 && fwdDist > 12.0 && fwdDist < 38.0) {
+            if (latDist < 14.0 && fwdDist > 13.5 && fwdDist < 48.0) {
               const sigState = getIntersectionSignalState(jct.x, jct.z, this.raceTimer);
               const myLight = Math.abs(dirZ) >= Math.abs(dirX) ? sigState.ns : sigState.ew;
               if (!ignoresLights) {
-                if (myLight === 'RED' || (myLight === 'YELLOW' && fwdDist > 18.0)) {
-                  mustStopForLight = true;
-                  break;
+                if (myLight === 'RED' || (myLight === 'YELLOW' && fwdDist > 19.5)) {
+                  const stopGap = Math.max(0, fwdDist - 15.8);
+                  const cap = stopGap <= 1.2 ? 0 : Math.sqrt(stopGap * 8.2) * 3.6;
+                  if (cap < lightSpeedCap) lightSpeedCap = cap;
                 }
               } else if (civ.crimeType === 'red_light' && fwdDist < 20.0 && myLight === 'RED') {
                 if (preDistSq < 75 * 75) civ.redLightRunWitnessed = true;
@@ -8348,19 +8407,22 @@ export class PhysicsEngine {
           }
         }
 
-        let carAheadStopped = false;
+        let followSpeedCap = Infinity;
         if (!ignoresLights && preDistSq < 260 * 260) {
           for (let j = 0; j < this.cityCivilianCars.length; j++) {
             if (i === j) continue;
             const other = this.cityCivilianCars[j];
             const dxO = other.pos.x - civ.pos.x;
             const dzO = other.pos.z - civ.pos.z;
-            if (Math.abs(dxO) > 22 || Math.abs(dzO) > 22) continue;
+            if (Math.abs(dxO) > 30 || Math.abs(dzO) > 30) continue;
             const fwdGap = dxO * dirX + dzO * dirZ;
             const latGap = Math.abs(-dxO * dirZ + dzO * dirX);
-            if (fwdGap > 0 && fwdGap < 16.0 && latGap < 3.4) {
-              carAheadStopped = true;
-              break;
+            if (fwdGap > 0 && fwdGap < 28.0 && latGap < 3.4) {
+              const leadCap =
+                fwdGap < 7.4
+                  ? 0
+                  : Math.max(0, other.speedKmh + (fwdGap - 11.5) * 4.2);
+              if (leadCap < followSpeedCap) followSpeedCap = leadCap;
             }
           }
         }
@@ -8402,14 +8464,19 @@ export class PhysicsEngine {
           }
         } else {
           const effFwd = Math.min(forwardDistNow > -1.5 ? forwardDistNow : 999, forwardDistPred > -1.5 ? forwardDistPred : 999);
-          if (i % 3 === 0 && effFwd > 0 && effFwd < 18.0 && minLatClearance < 4.5) {
-            targetEvasiveOffset = (lateralSignedNow >= 0 ? -1 : 1) * 2.1;
+          if (i % 3 === 0 && effFwd > 0 && effFwd < 20.0 && minLatClearance < 4.5) {
+            targetEvasiveOffset = (lateralSignedNow >= 0 ? -1 : 1) * 2.2;
           }
         }
 
         const isFleeingSuspect = civ.isFleeing || civ.isFleeingHitAndRun || civ.pulloverRefused;
+        let sirenYieldSlowdown = 1.0;
+        if (!isFleeingSuspect && playerSirenYieldActive && targetEvasiveOffset === 0) {
+          targetEvasiveOffset = 2.15;
+          sirenYieldSlowdown = 0.58;
+        }
         if (isFleeingSuspect) {
-          civ.jukeTimer = (civ.jukeTimer !== undefined ? civ.jukeTimer : 1.0 + Math.random() * 1.5) - dt;
+          civ.jukeTimer = (civ.jukeTimer !== undefined ? civ.jukeTimer : 1.0 + Math.random() * 1.5) - civDt;
           if (civ.jukeTimer <= 0) {
             civ.jukeTimer = 0.9 + Math.random() * 1.5;
             civ.jukeOffset = (Math.random() < 0.5 ? -1 : 1) * (3.0 + Math.random() * 2.2);
@@ -8421,24 +8488,32 @@ export class PhysicsEngine {
 
         const prevEvasive = this.civEvasiveOffsets.get(civ.id) || 0;
         const nextEvasive =
-          prevEvasive + (targetEvasiveOffset - prevEvasive) * Math.min(1, dt * (targetEvasiveOffset !== 0 ? 7.2 : 3.2));
+          prevEvasive + (targetEvasiveOffset - prevEvasive) * Math.min(1, civDt * (targetEvasiveOffset !== 0 ? 4.8 : 2.6));
         this.civEvasiveOffsets.set(civ.id, nextEvasive);
 
+        const naturalPaceWave = Math.sin(this.raceTimer * 0.42 + i * 1.7) * 3.4;
         const desiredCruise =
           civ.isFleeingHitAndRun || civ.isFleeing
             ? 142
             : civ.crimeType === 'speeding'
             ? 118
-            : slowPassForStationaryPlayer
-            ? civ.cruiseSpeedKmh * 0.68
-            : civ.cruiseSpeedKmh;
-        const targetSpeed = mustStopForLight || carAheadStopped ? 0 : desiredCruise;
+            : (slowPassForStationaryPlayer ? civ.cruiseSpeedKmh * 0.68 : civ.cruiseSpeedKmh + naturalPaceWave) *
+              sirenYieldSlowdown;
+        const targetSpeed = Math.max(0, Math.min(desiredCruise, lightSpeedCap, followSpeedCap));
 
         if (civ.speedKmh > targetSpeed) {
-          civ.speedKmh = Math.max(targetSpeed, civ.speedKmh - 90 * civDt);
-          if (civ.built.root.visible) civ.built.setBraking(true);
+          const decelNeeded = Math.min(
+            civ.isFleeingHitAndRun || civ.isFleeing ? 88 : 58,
+            Math.max(10, (civ.speedKmh - targetSpeed) * 2.3)
+          );
+          civ.speedKmh = Math.max(targetSpeed, civ.speedKmh - decelNeeded * civDt);
+          if (civ.built.root.visible) {
+            civ.built.setBraking(civ.speedKmh - targetSpeed > 2.4 || (civ.speedKmh < 1.5 && targetSpeed < 1.5));
+          }
         } else {
-          civ.speedKmh = Math.min(targetSpeed, civ.speedKmh + (civ.isFleeingHitAndRun || civ.isFleeing ? 70 : 38) * civDt);
+          const accelBase = civ.isFleeingHitAndRun || civ.isFleeing ? 64 : 26;
+          const accelSmooth = accelBase * (0.45 + 0.55 * Math.min(1, (targetSpeed - civ.speedKmh) / 30));
+          civ.speedKmh = Math.min(targetSpeed, civ.speedKmh + accelSmooth * civDt);
           if (civ.built.root.visible) civ.built.setBraking(false);
         }
 
@@ -8478,21 +8553,62 @@ export class PhysicsEngine {
         dirX = (segDx / segLen) * routeDir;
         dirZ = (segDz / segLen) * routeDir;
 
+        // Multi-segment curve lookahead (9.5m ahead) so cars arc smoothly around polyline bends
+        let lookSegIdx = segIdx;
+        let lookT = nextT + (routeDir * 9.5) / segLen;
+        let lookDir = routeDir;
+        if (lookT > 1) {
+          if (lookSegIdx < pts.length - 2) {
+            const overM = (lookT - 1) * segLen;
+            lookSegIdx += 1;
+            const nLen = Math.hypot(pts[lookSegIdx + 1].x - pts[lookSegIdx].x, pts[lookSegIdx + 1].z - pts[lookSegIdx].z) || 1;
+            lookT = Math.min(1, overM / nLen);
+          } else {
+            lookT = 1;
+            lookDir = -1;
+          }
+        } else if (lookT < 0) {
+          if (lookSegIdx > 0) {
+            const overM = -lookT * segLen;
+            lookSegIdx -= 1;
+            const pLen = Math.hypot(pts[lookSegIdx + 1].x - pts[lookSegIdx].x, pts[lookSegIdx + 1].z - pts[lookSegIdx].z) || 1;
+            lookT = Math.max(0, 1 - overM / pLen);
+          } else {
+            lookT = 0;
+            lookDir = 1;
+          }
+        }
+        const lA = pts[lookSegIdx];
+        const lB = pts[lookSegIdx + 1];
+        const lDx = lB.x - lA.x;
+        const lDz = lB.z - lA.z;
+        const lLen = Math.hypot(lDx, lDz) || 1;
+        const lDirX = (lDx / lLen) * lookDir;
+        const lDirZ = (lDz / lLen) * lookDir;
+        const lookX = lA.x + lDx * lookT + -lDirZ * (civ.laneOffset + nextEvasive);
+        const lookZ = lA.z + lDz * lookT + lDirX * (civ.laneOffset + nextEvasive);
+
         const targetX = segA.x + segDx * nextT + -dirZ * (civ.laneOffset + nextEvasive);
         const targetZ = segA.z + segDz * nextT + dirX * (civ.laneOffset + nextEvasive);
-        civ.pos.x += (targetX - civ.pos.x) * Math.min(1, civDt * 8.5);
-        civ.pos.z += (targetZ - civ.pos.z) * Math.min(1, civDt * 8.5);
+        civ.pos.x += (targetX - civ.pos.x) * Math.min(1, civDt * 6.8);
+        civ.pos.z += (targetZ - civ.pos.z) * Math.min(1, civDt * 6.8);
 
-        const desiredHeading = Math.atan2(-dirX, -dirZ);
+        const aimDx = lookX - civ.pos.x;
+        const aimDz = lookZ - civ.pos.z;
+        const desiredHeading =
+          Math.hypot(aimDx, aimDz) > 1.8 && civ.speedKmh > 2.5
+            ? Math.atan2(-aimDx, -aimDz)
+            : Math.atan2(-dirX, -dirZ);
         let hDiff = desiredHeading - civ.heading;
         while (hDiff > Math.PI) hDiff -= Math.PI * 2;
         while (hDiff < -Math.PI) hDiff += Math.PI * 2;
-        civ.heading += hDiff * Math.min(1, civDt * 10);
+        const maxYawStep = 3.2 * civDt;
+        civ.heading += Math.max(-maxYawStep, Math.min(maxYawStep, hDiff * Math.min(1, civDt * 7.5)));
         if (preDistSq < 260 * 260 || civ.isFleeing || civ.isFleeingHitAndRun) {
           this.resolveBuildingCollision(civ.pos, 2.2);
         }
       } else {
-        let mustStopForLight = false;
+        let lightSpeedCap = Infinity;
         const stopLineOffset = 16.8;
 
         const ignoresLights = civ.isFleeingHitAndRun || civ.isFleeing || civ.crimeType === 'red_light' || civ.crimeType === 'bank_robber';
@@ -8506,12 +8622,12 @@ export class PhysicsEngine {
             const currentCoord = civ.axis === 'ns' ? civ.pos.z : civ.pos.x;
             const distToStop = (stopCoord - currentCoord) * civ.dir;
 
-            if (distToStop > -1.5 && distToStop < 32.0) {
+            if (distToStop > -1.0 && distToStop < 45.0) {
               const sigState = getIntersectionSignalState(jct.x, jct.z, this.raceTimer);
               const myLight = civ.axis === 'ns' ? sigState.ns : sigState.ew;
-              if (myLight === 'RED' || (myLight === 'YELLOW' && distToStop > 5.0)) {
-                mustStopForLight = true;
-                break;
+              if (myLight === 'RED' || (myLight === 'YELLOW' && distToStop > 5.5)) {
+                const cap = distToStop <= 1.1 ? 0 : Math.sqrt(Math.max(0, distToStop - 0.5) * 8.2) * 3.6;
+                if (cap < lightSpeedCap) lightSpeedCap = cap;
               }
             }
           }
@@ -8537,7 +8653,7 @@ export class PhysicsEngine {
           }
         }
 
-        let carAheadStopped = false;
+        let followSpeedCap = Infinity;
         if (!ignoresLights) {
           for (let j = 0; j < this.cityCivilianCars.length; j++) {
             if (i === j) continue;
@@ -8546,9 +8662,10 @@ export class PhysicsEngine {
               const myCoord = civ.axis === 'ns' ? civ.pos.z : civ.pos.x;
               const otherCoord = other.axis === 'ns' ? other.pos.z : other.pos.x;
               const gap = (otherCoord - myCoord) * civ.dir;
-              if (gap > 0 && gap < 16.0) {
-                carAheadStopped = true;
-                break;
+              if (gap > 0 && gap < 28.0) {
+                const leadCap =
+                  gap < 7.4 ? 0 : Math.max(0, other.speedKmh + (gap - 11.5) * 4.2);
+                if (leadCap < followSpeedCap) followSpeedCap = leadCap;
               }
             }
           }
@@ -8557,7 +8674,7 @@ export class PhysicsEngine {
         let slowPassForStationaryPlayer = false;
         let targetEvasiveOffset = 0;
 
-        const hornCd = Math.max(0, (this.civHornCooldowns.get(civ.id) || 0) - dt);
+        const hornCd = Math.max(0, (this.civHornCooldowns.get(civ.id) || 0) - civDt);
         this.civHornCooldowns.set(civ.id, hornCd);
 
         const predPlayerX = this.playerPos.x + playerFwd.x * (this.playerSpeedKmh / 3.6) * 0.35;
@@ -8606,16 +8723,22 @@ export class PhysicsEngine {
             forwardDistNow > -1.5 ? forwardDistNow : 999,
             forwardDistPred > -1.5 ? forwardDistPred : 999
           );
-          if (i % 3 === 0 && effectiveForwardDist > 0 && effectiveForwardDist < 18.0 && minLatClearance < 4.5) {
+          if (i % 3 === 0 && effectiveForwardDist > 0 && effectiveForwardDist < 20.0 && minLatClearance < 4.5) {
             const dodgeDir = lateralSignedNow >= 0 ? -1 : 1;
-            targetEvasiveOffset = dodgeDir * 2.1;
+            targetEvasiveOffset = dodgeDir * 2.2;
           }
         }
 
         const isFleeingSuspect = civ.isFleeing || civ.isFleeingHitAndRun || civ.pulloverRefused;
+        let sirenYieldSlowdown = 1.0;
+        if (!isFleeingSuspect && playerSirenYieldActive && targetEvasiveOffset === 0) {
+          targetEvasiveOffset =
+            civ.axis === 'ns' ? (civ.dir === -1 ? 2.15 : -2.15) : civ.dir === 1 ? 2.15 : -2.15;
+          sirenYieldSlowdown = 0.58;
+        }
         if (isFleeingSuspect) {
           // Suspect tactical evasion: sudden jukes into opposite lanes and high-speed zigzagging
-          civ.jukeTimer = (civ.jukeTimer !== undefined ? civ.jukeTimer : (1.0 + Math.random() * 1.5)) - dt;
+          civ.jukeTimer = (civ.jukeTimer !== undefined ? civ.jukeTimer : (1.0 + Math.random() * 1.5)) - civDt;
           if (civ.jukeTimer <= 0) {
             civ.jukeTimer = 0.9 + Math.random() * 1.5;
             const jukeSign = Math.random() < 0.5 ? -1 : 1;
@@ -8629,32 +8752,37 @@ export class PhysicsEngine {
 
         const prevEvasive = this.civEvasiveOffsets.get(civ.id) || 0;
         const nextEvasive =
-          prevEvasive + (targetEvasiveOffset - prevEvasive) * Math.min(1, dt * (targetEvasiveOffset !== 0 ? 7.2 : 3.2));
+          prevEvasive + (targetEvasiveOffset - prevEvasive) * Math.min(1, civDt * (targetEvasiveOffset !== 0 ? 4.8 : 2.6));
         this.civEvasiveOffsets.set(civ.id, nextEvasive);
 
+        const naturalPaceWave = Math.sin(this.raceTimer * 0.42 + i * 1.7) * 3.4;
         const desiredCruise = civ.isFleeingHitAndRun || civ.isFleeing
           ? 142
           : civ.crimeType === 'speeding'
           ? 118 // 73 mph in 35 zone!
-          : slowPassForStationaryPlayer
-          ? civ.cruiseSpeedKmh * 0.68
-          : civ.cruiseSpeedKmh;
-        const targetSpeed = mustStopForLight || carAheadStopped ? 0 : desiredCruise;
+          : (slowPassForStationaryPlayer ? civ.cruiseSpeedKmh * 0.68 : civ.cruiseSpeedKmh + naturalPaceWave) *
+            sirenYieldSlowdown;
+        const targetSpeed = Math.max(0, Math.min(desiredCruise, lightSpeedCap, followSpeedCap));
 
         if (civ.speedKmh > targetSpeed) {
-          const decelRate = 90;
-          civ.speedKmh = Math.max(targetSpeed, civ.speedKmh - decelRate * dt);
-          civ.built.setBraking(true);
+          const decelNeeded = Math.min(
+            civ.isFleeingHitAndRun || civ.isFleeing ? 88 : 58,
+            Math.max(10, (civ.speedKmh - targetSpeed) * 2.3)
+          );
+          civ.speedKmh = Math.max(targetSpeed, civ.speedKmh - decelNeeded * civDt);
+          civ.built.setBraking(civ.speedKmh - targetSpeed > 2.4 || (civ.speedKmh < 1.5 && targetSpeed < 1.5));
         } else {
-          civ.speedKmh = Math.min(targetSpeed, civ.speedKmh + (civ.isFleeingHitAndRun || civ.isFleeing ? 70 : 38) * dt);
+          const accelBase = civ.isFleeingHitAndRun || civ.isFleeing ? 64 : 26;
+          const accelSmooth = accelBase * (0.45 + 0.55 * Math.min(1, (targetSpeed - civ.speedKmh) / 30));
+          civ.speedKmh = Math.min(targetSpeed, civ.speedKmh + accelSmooth * civDt);
           civ.built.setBraking(false);
         }
 
         if (civ.turnCooldown && civ.turnCooldown > 0) {
-          civ.turnCooldown -= dt;
+          civ.turnCooldown -= civDt;
         }
 
-        // Fleeing suspect dynamic pathing: turns onto cross-streets at intersections & targets safehouse
+        // Fleeing suspect dynamic pathing: smooth corner turns at intersections & targets safehouse
         if ((civ.isFleeing || civ.isFleeingHitAndRun) && (!civ.turnCooldown || civ.turnCooldown <= 0)) {
           if (!civ.fleeingToHouse && this.track.suburbanHouses && this.track.suburbanHouses.length > 0) {
             civ.fleeingToHouse = this.track.suburbanHouses[(i * 3 + 1) % this.track.suburbanHouses.length];
@@ -8682,13 +8810,14 @@ export class PhysicsEngine {
             }
           }
 
-          // Check if near a signal junction to turn toward safehouse
+          // Smooth cornering transition when reaching a signal junction toward safehouse
           for (let g = 0; g < MARYLAND_SIGNAL_JUNCTIONS.length; g++) {
             const jct = MARYLAND_SIGNAL_JUNCTIONS[g];
-            if (Math.hypot(civ.pos.x - jct.x, civ.pos.z - jct.z) < 7.0) {
+            if (Math.hypot(civ.pos.x - jct.x, civ.pos.z - jct.z) < 9.5) {
               civ.axis = civ.axis === 'ns' ? 'ew' : 'ns';
               civ.lineCoord = civ.axis === 'ns' ? jct.x : jct.z;
               civ.turnCooldown = 5.0;
+              civ.speedKmh = Math.min(civ.speedKmh, 84); // natural apex braking into 90° corner
               if (civ.fleeingToHouse) {
                 civ.dir = civ.axis === 'ns'
                   ? (civ.fleeingToHouse.z >= civ.pos.z ? 1 : -1)
@@ -8696,35 +8825,43 @@ export class PhysicsEngine {
               } else {
                 civ.dir = Math.random() < 0.5 ? 1 : -1;
               }
-              if (civ.axis === 'ns') {
-                civ.pos.x = jct.x + (civ.dir === -1 ? CITY_LANE_OFFSET : -CITY_LANE_OFFSET);
-                civ.heading = civ.dir === -1 ? 0 : Math.PI;
-              } else {
-                civ.pos.z = jct.z + (civ.dir === 1 ? CITY_LANE_OFFSET : -CITY_LANE_OFFSET);
-                civ.heading = civ.dir === 1 ? -Math.PI / 2 : Math.PI / 2;
-              }
               break;
             }
           }
         }
 
-        const stepMeters = (civ.speedKmh / 3.6) * dt;
+        const stepMeters = (civ.speedKmh / 3.6) * civDt;
+        const activeLaneCoord =
+          civ.axis === 'ns'
+            ? civ.lineCoord + (civ.dir === -1 ? CITY_LANE_OFFSET : -CITY_LANE_OFFSET) + nextEvasive
+            : civ.lineCoord + (civ.dir === 1 ? CITY_LANE_OFFSET : -CITY_LANE_OFFSET) + nextEvasive;
+
         if (civ.axis === 'ns') {
-          const targetLaneX = baseLaneCoord + nextEvasive;
-          civ.pos.x += (targetLaneX - civ.pos.x) * Math.min(1, dt * 6.5);
+          const latDelta = activeLaneCoord - civ.pos.x;
+          civ.pos.x += latDelta * Math.min(1, civDt * 5.2);
           civ.pos.z += civ.dir * stepMeters;
           const baseHeading = civ.dir === -1 ? 0 : Math.PI;
-          const swerveYaw = ((targetLaneX - civ.pos.x) * -0.09) * civ.dir;
-          civ.heading = baseHeading + Math.max(-0.28, Math.min(0.28, swerveYaw));
+          const swerveYaw = (-latDelta * 0.085) * civ.dir;
+          const desiredHeading = baseHeading + Math.max(-0.42, Math.min(0.42, swerveYaw));
+          let hDiff = desiredHeading - civ.heading;
+          while (hDiff > Math.PI) hDiff -= Math.PI * 2;
+          while (hDiff < -Math.PI) hDiff += Math.PI * 2;
+          const maxYawStep = 3.5 * civDt;
+          civ.heading += Math.max(-maxYawStep, Math.min(maxYawStep, hDiff * Math.min(1, civDt * 6.8)));
           if (civ.pos.z > 2050) civ.dir = -1;
           if (civ.pos.z < -950) civ.dir = 1;
         } else {
-          const targetLaneZ = baseLaneCoord + nextEvasive;
-          civ.pos.z += (targetLaneZ - civ.pos.z) * Math.min(1, dt * 6.5);
+          const latDelta = activeLaneCoord - civ.pos.z;
+          civ.pos.z += latDelta * Math.min(1, civDt * 5.2);
           civ.pos.x += civ.dir * stepMeters;
           const baseHeading = civ.dir === 1 ? -Math.PI / 2 : Math.PI / 2;
-          const swerveYaw = ((targetLaneZ - civ.pos.z) * 0.09) * civ.dir;
-          civ.heading = baseHeading + Math.max(-0.28, Math.min(0.28, swerveYaw));
+          const swerveYaw = (latDelta * 0.085) * civ.dir;
+          const desiredHeading = baseHeading + Math.max(-0.42, Math.min(0.42, swerveYaw));
+          let hDiff = desiredHeading - civ.heading;
+          while (hDiff > Math.PI) hDiff -= Math.PI * 2;
+          while (hDiff < -Math.PI) hDiff += Math.PI * 2;
+          const maxYawStep = 3.5 * civDt;
+          civ.heading += Math.max(-maxYawStep, Math.min(maxYawStep, hDiff * Math.min(1, civDt * 6.8)));
           if (civ.pos.x > 2600) civ.dir = -1;
           if (civ.pos.x < -2550) civ.dir = 1;
         }
@@ -8732,8 +8869,22 @@ export class PhysicsEngine {
         this.resolveBuildingCollision(civ.pos, 2.2);
       }
 
+      // Subtle suspension weight transfer (acceleration squat / brake nose-dive & corner roll)
+      const speedDelta = civ.speedKmh - prevCivSpeed;
+      let yawDelta = civ.heading - prevCivHeading;
+      while (yawDelta > Math.PI) yawDelta -= Math.PI * 2;
+      while (yawDelta < -Math.PI) yawDelta += Math.PI * 2;
+      const safeCivDt = Math.max(0.008, civDt);
+      const targetPitch = Math.max(-0.042, Math.min(0.042, (-speedDelta / safeCivDt) * 0.00055));
+      const targetRoll = Math.max(
+        -0.065,
+        Math.min(0.065, (yawDelta / safeCivDt) * (civ.speedKmh / 65) * 0.026)
+      );
+      civ.bodyPitch = (civ.bodyPitch || 0) + (targetPitch - (civ.bodyPitch || 0)) * Math.min(1, civDt * 7.5);
+      civ.bodyRoll = (civ.bodyRoll || 0) + (targetRoll - (civ.bodyRoll || 0)) * Math.min(1, civDt * 7.5);
+
       civ.built.root.position.copy(civ.pos);
-      civ.built.root.rotation.y = civ.heading;
+      civ.built.root.rotation.set(civ.bodyPitch, civ.heading, civ.bodyRoll, 'YXZ');
 
       // Player-to-Civilian Car Distance & Near-Miss / Collision Check
       const dx = this.playerPos.x - civ.pos.x;
@@ -9015,9 +9166,137 @@ export class PhysicsEngine {
     let closestCopDist = 999;
     let anyChasingCopSeesPlayer = false;
 
+    // Weather & road wetness grip multiplier shared by Police Interceptors
+    const copWCond = this.currentWeather.condition;
+    const copInSnow = this.currentWeather.isSnowing || copWCond === 'heavy_snow';
+    const copInHeavyRain = copWCond === 'heavy_rain' || copWCond === 'thunderstorm';
+    const copInRain = this.currentWeather.isRaining || copWCond === 'drizzle' || copInHeavyRain;
+    const copWeatherGrip = copInSnow
+      ? 0.54
+      : copInHeavyRain
+      ? 0.64
+      : copInRain
+      ? 0.75
+      : this.residualRoadWetness > 0.05
+      ? Math.max(0.78, 1.0 - this.residualRoadWetness * 0.22)
+      : 1.0;
+
+    const pWorldVx = playerFwd.x * (this.playerSpeedKmh / 3.6) + this.playerImpactVelX;
+    const pWorldVz = playerFwd.z * (this.playerSpeedKmh / 3.6) + this.playerImpactVelZ;
+
+    // Helper: advance a police vehicle with genuine momentum, lateral grip, rain understeer & grass bogging/fishtailing
+    const stepPoliceWithTraction = (
+      cop: PoliceCarEntity,
+      pIdx: number,
+      desiredHeading: number,
+      angleDiff: number,
+      basePavedCap: number,
+      baseGrassCap: number,
+      baseAccel: number,
+      baseTurnRate: number
+    ) => {
+      if (cop.velX === undefined || cop.velZ === undefined) {
+        const initMs = cop.speedKmh / 3.6;
+        cop.velX = -Math.sin(cop.heading) * initMs;
+        cop.velZ = -Math.cos(cop.heading) * initMs;
+      }
+
+      const copOnPaved = isOnMarylandPavedSurface(cop.pos.x, cop.pos.z);
+      const offTerrain = copOnPaved ? null : sampleOffRoadTerrainAt(cop.pos.x, cop.pos.z);
+      const tallGrassPenalty = offTerrain?.isTallGrass
+        ? Math.max(0.62, 1.0 - (offTerrain.grassHeight - 0.45) * 0.55)
+        : 1.0;
+      const pebblePenalty = offTerrain ? 1.0 - offTerrain.pebbleFactor * 0.14 : 1.0;
+      const grassBaseGrip = 0.54 * tallGrassPenalty * pebblePenalty;
+      const copSurfaceGrip = copOnPaved
+        ? copWeatherGrip
+        : Math.max(0.25, grassBaseGrip * (copInRain || copInSnow ? 0.72 : 1.0 - this.residualRoadWetness * 0.16));
+
+      // Turning authority & speed caps drop in rain, snow, damp roads, and especially grass
+      const effectiveTurnRate = baseTurnRate * (0.50 + 0.50 * copSurfaceGrip) * ((cop.spinTimer || 0) > 0 ? 0.35 : 1.0) * dt;
+      let turnApplied = Math.max(-effectiveTurnRate, Math.min(effectiveTurnRate, angleDiff));
+
+      // Realistic rain / grass fishtail wobble when pushing hard on slippery ground
+      const curSpeedKmh = Math.hypot(cop.velX, cop.velZ) * 3.6;
+      let wheelSpinExtra = 0;
+      if (copSurfaceGrip < 0.86 && curSpeedKmh > 24 && (Math.abs(angleDiff) > 0.18 || !copOnPaved)) {
+        const slipSeverity = Math.min(1.0, (0.90 - copSurfaceGrip) / 0.58);
+        const fishtail = Math.sin(this.raceTimer * 5.8 + pIdx * 2.15) * 0.68 * slipSeverity * dt;
+        turnApplied += fishtail;
+        wheelSpinExtra = (copOnPaved ? 28 : 54) * slipSeverity;
+      }
+      if ((cop.spinTimer || 0) > 0) {
+        const spinSign = pIdx % 2 === 0 ? 1 : -1;
+        cop.heading += spinSign * 2.4 * dt;
+      } else {
+        cop.heading += turnApplied;
+      }
+      cop.built.setSteerAngle(-Math.max(-0.40, Math.min(0.40, angleDiff)));
+
+      const weatherSpeedScale = copInSnow
+        ? 0.72
+        : copInHeavyRain
+        ? 0.81
+        : copInRain
+        ? 0.89
+        : Math.max(0.90, 1.0 - this.residualRoadWetness * 0.09);
+      const grassSpeedScale = (copInRain || copInSnow ? 0.76 : 1.0 - this.residualRoadWetness * 0.10) * tallGrassPenalty * pebblePenalty;
+      let targetSpeedKmh = copOnPaved
+        ? basePavedCap * weatherSpeedScale
+        : Math.min(basePavedCap * weatherSpeedScale, baseGrassCap * grassSpeedScale);
+      if ((cop.ramRecoveryTimer || 0) > 0) {
+        targetSpeedKmh *= 0.62;
+      }
+
+      const accelRate = (copOnPaved ? baseAccel : baseAccel * 0.52) * (0.42 + 0.58 * copSurfaceGrip);
+      const decelRate = (copOnPaved ? 38 : 26) * (0.45 + 0.55 * copSurfaceGrip);
+      if (cop.speedKmh < targetSpeedKmh) {
+        cop.speedKmh = Math.min(targetSpeedKmh, cop.speedKmh + accelRate * dt);
+      } else {
+        cop.speedKmh = Math.max(targetSpeedKmh, cop.speedKmh - decelRate * dt);
+      }
+
+      // Blend world velocity toward heading direction scaled by tire lateral grip (creates authentic rain/grass understeer & drift!)
+      const fwdX = -Math.sin(cop.heading);
+      const fwdZ = -Math.cos(cop.heading);
+      const desiredVx = fwdX * (cop.speedKmh / 3.6);
+      const desiredVz = fwdZ * (cop.speedKmh / 3.6);
+      const latGripRate = (copOnPaved ? 7.6 : 3.9) * (copSurfaceGrip * copSurfaceGrip) * ((cop.spinTimer || 0) > 0 ? 0.25 : 1.0);
+      const velBlend = Math.min(1.0, latGripRate * dt);
+      cop.velX += (desiredVx - cop.velX) * velBlend;
+      cop.velZ += (desiredVz - cop.velZ) * velBlend;
+
+      // Scrub speed slightly when sliding sideways in mud, grass, or rain
+      const actualSpeedMs = Math.hypot(cop.velX, cop.velZ);
+      const fwdDot = actualSpeedMs > 0.5 ? (cop.velX * fwdX + cop.velZ * fwdZ) / actualSpeedMs : 1.0;
+      const sideSlipMag = Math.sqrt(Math.max(0, 1 - fwdDot * fwdDot));
+      if (sideSlipMag > 0.22 && actualSpeedMs > 6) {
+        const scrub = Math.max(0.84, 1.0 - sideSlipMag * (copOnPaved ? 0.45 : 0.95) * dt);
+        cop.velX *= scrub;
+        cop.velZ *= scrub;
+        wheelSpinExtra += sideSlipMag * 35;
+      }
+
+      // Compute subtle visual drift slip angle
+      const rightX = -fwdZ;
+      const rightZ = fwdX;
+      const latVel = cop.velX * rightX + cop.velZ * rightZ;
+      const targetSlip = actualSpeedMs > 4 ? Math.max(-0.34, Math.min(0.34, (latVel / Math.max(6, actualSpeedMs)) * 0.55)) : 0;
+      cop.slipAngle = (cop.slipAngle || 0) + (targetSlip - (cop.slipAngle || 0)) * Math.min(1, dt * 8);
+
+      cop.pos.x += cop.velX * dt;
+      cop.pos.z += cop.velZ * dt;
+      cop.speedKmh = Math.hypot(cop.velX, cop.velZ) * 3.6;
+
+      return { copOnPaved, wheelSpinExtra, desiredHeading };
+    };
+
     for (let pIdx = 0; pIdx < this.cityPoliceCars.length; pIdx++) {
       const cop = this.cityPoliceCars[pIdx];
       if (cop.hitCooldown > 0) cop.hitCooldown = Math.max(0, cop.hitCooldown - dt);
+      if ((cop.spinTimer || 0) > 0) cop.spinTimer = Math.max(0, (cop.spinTimer || 0) - dt);
+      if ((cop.ramRecoveryTimer || 0) > 0) cop.ramRecoveryTimer = Math.max(0, (cop.ramRecoveryTimer || 0) - dt);
+      if ((cop.knockbackCooldown || 0) > 0) cop.knockbackCooldown = Math.max(0, (cop.knockbackCooldown || 0) - dt);
 
       // If player is an on-duty police officer, cops NEVER chase or arrest player!
       const playerIsProtectedOfficer = this.cityPursuitStats.isPoliceOnDuty;
@@ -9026,6 +9305,7 @@ export class PhysicsEngine {
       const isBackupAssistingPlayer = !isChasing && Boolean(authorizedSuspect) && pIdx < 3;
 
       cop.built.setSirenActive(isChasing || isChasingFleeingCiv || isBackupAssistingPlayer, this.raceTimer + pIdx * 0.19);
+      let extraCopWheelSpin = 0;
 
       if (isChasing) {
         const dxToPlayer = this.playerPos.x - cop.pos.x;
@@ -9036,39 +9316,40 @@ export class PhysicsEngine {
           anyChasingCopSeesPlayer = true;
         }
 
-        const leadFactor = Math.min(10, distToPlayer * 0.14);
-        const flankOffset = (pIdx % 2 === 0 ? 1 : -1) * (pIdx > 1 ? 2.8 : 0);
-        const targetX = this.playerPos.x + playerFwd.x * leadFactor + flankOffset;
-        const targetZ = this.playerPos.z + playerFwd.z * leadFactor;
+        // During post-hit recovery (ramRecoveryTimer > 0), offset target beside player so cop peels off instead of gluing to player's bumper!
+        const recoveryActive = (cop.ramRecoveryTimer || 0) > 0;
+        const sideSign = pIdx % 2 === 0 ? 1 : -1;
+        const leadFactor = recoveryActive ? -4.5 : Math.min(10, distToPlayer * 0.14);
+        const flankBase = pIdx > 1 ? sideSign * 2.8 : 0;
+        const flankOffset = recoveryActive ? sideSign * 6.5 : flankBase;
+        const pRightX = -playerFwd.z;
+        const pRightZ = playerFwd.x;
+        const targetX = this.playerPos.x + playerFwd.x * leadFactor + pRightX * flankOffset;
+        const targetZ = this.playerPos.z + playerFwd.z * leadFactor + pRightZ * flankOffset;
 
         const desiredHeading = Math.atan2(-(targetX - cop.pos.x), -(targetZ - cop.pos.z));
         let angleDiff = desiredHeading - cop.heading;
         while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
         while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
 
-        const maxTurnRate = 2.35 * dt;
-        cop.heading += Math.max(-maxTurnRate, Math.min(maxTurnRate, angleDiff));
-        cop.built.setSteerAngle(-Math.max(-0.38, Math.min(0.38, angleDiff)));
-
-        const copOnPaved = isOnMarylandPavedSurface(cop.pos.x, cop.pos.z);
-        const pavedCopSpeed = 118 + wanted * 13;
-        const targetCopSpeed = copOnPaved ? pavedCopSpeed : Math.min(pavedCopSpeed, 94 + wanted * 4);
-
-        if (cop.speedKmh < targetCopSpeed) {
-          cop.speedKmh = Math.min(targetCopSpeed, cop.speedKmh + (copOnPaved ? 34 + wanted * 4 : 18) * dt);
-        } else {
-          const copDecelRate = copOnPaved ? 42 : 20;
-          cop.speedKmh = Math.max(targetCopSpeed, cop.speedKmh - copDecelRate * dt);
-        }
-
-        const copStep = (cop.speedKmh / 3.6) * dt;
-        cop.pos.x += -Math.sin(cop.heading) * copStep;
-        cop.pos.z += -Math.cos(cop.heading) * copStep;
+        const { wheelSpinExtra } = stepPoliceWithTraction(
+          cop,
+          pIdx,
+          desiredHeading,
+          angleDiff,
+          118 + wanted * 13,
+          76 + wanted * 3,
+          34 + wanted * 4,
+          2.35
+        );
+        extraCopWheelSpin = wheelSpinExtra;
 
         const copBuildingHit = this.resolveBuildingCollision(cop.pos, 2.1);
         if (copBuildingHit.hit) {
           cop.stuckTimer += dt;
           cop.speedKmh *= 0.65;
+          if (cop.velX !== undefined) cop.velX *= 0.45;
+          if (cop.velZ !== undefined) cop.velZ *= 0.45;
           if (Math.abs(copBuildingHit.normalX) > 0.5) {
             cop.heading = dzToPlayer < 0 ? 0 : Math.PI;
           } else {
@@ -9087,14 +9368,8 @@ export class PhysicsEngine {
         let angleDiff = desiredHeading - cop.heading;
         while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
         while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
-        const maxTurnRate = 2.6 * dt;
-        cop.heading += Math.max(-maxTurnRate, Math.min(maxTurnRate, angleDiff));
-        const copBackupOnPaved = isOnMarylandPavedSurface(cop.pos.x, cop.pos.z);
-        const backupCap = copBackupOnPaved ? 150 : 104;
-        cop.speedKmh = cop.speedKmh <= backupCap ? Math.min(backupCap, cop.speedKmh + 50 * dt) : Math.max(backupCap, cop.speedKmh - 20 * dt);
-        const copStep = (cop.speedKmh / 3.6) * dt;
-        cop.pos.x += -Math.sin(cop.heading) * copStep;
-        cop.pos.z += -Math.cos(cop.heading) * copStep;
+        const { wheelSpinExtra } = stepPoliceWithTraction(cop, pIdx, desiredHeading, angleDiff, 150, 82, 48, 2.6);
+        extraCopWheelSpin = wheelSpinExtra;
         this.resolveBuildingCollision(cop.pos, 2.1);
 
         if (distToSuspect < 6.5 && !authorizedSuspect.isStopped) {
@@ -9114,14 +9389,8 @@ export class PhysicsEngine {
         let angleDiff = desiredHeading - cop.heading;
         while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
         while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
-        const maxTurnRate = 2.6 * dt;
-        cop.heading += Math.max(-maxTurnRate, Math.min(maxTurnRate, angleDiff));
-        const copCivOnPaved = isOnMarylandPavedSurface(cop.pos.x, cop.pos.z);
-        const civCap = copCivOnPaved ? 155 : 104;
-        cop.speedKmh = cop.speedKmh <= civCap ? Math.min(civCap, cop.speedKmh + 55 * dt) : Math.max(civCap, cop.speedKmh - 20 * dt);
-        const copStep = (cop.speedKmh / 3.6) * dt;
-        cop.pos.x += -Math.sin(cop.heading) * copStep;
-        cop.pos.z += -Math.cos(cop.heading) * copStep;
+        const { wheelSpinExtra } = stepPoliceWithTraction(cop, pIdx, desiredHeading, angleDiff, 155, 84, 52, 2.6);
+        extraCopWheelSpin = wheelSpinExtra;
         this.resolveBuildingCollision(cop.pos, 2.1);
 
         if (distToCiv < 6.5) {
@@ -9140,9 +9409,12 @@ export class PhysicsEngine {
         }
       } else {
         // Peaceful Street Patrol when Wanted = 0 (following statewide Maryland road polylines)
-        const targetSpeed = 72;
+        const targetSpeed = copInSnow ? 54 : copInHeavyRain ? 62 : 72;
         cop.speedKmh += (targetSpeed - cop.speedKmh) * Math.min(1, dt * 3);
         const stepMeters = (cop.speedKmh / 3.6) * dt;
+        cop.velX = undefined;
+        cop.velZ = undefined;
+        cop.slipAngle = 0;
         if (cop.routePoints && cop.routePoints.length >= 2) {
           const pts = cop.routePoints;
           let segIdx = Math.max(0, Math.min(pts.length - 2, cop.routeSegIdx ?? 0));
@@ -9213,8 +9485,6 @@ export class PhysicsEngine {
         }
 
         // SPEEDING ACCOUNTABILITY & POLICE TRAFFIC STOP:
-        // "make it so police dont chase me when im an officer"
-        // "also make it so if a cop ctaches me and tells me to pull over i can pull over so he doesnt chase me if i slow down and pull to the side of the road that counts as pulling over and i have to press eneter to accept that im pulling over"
         const playerMph = Math.abs(this.playerSpeedKmh) * 0.621371;
         const zoneLimit = this.cityPursuitStats.currentSpeedLimitMph || 35;
         if (!this.cityPursuitStats.isPoliceOnDuty && playerMph > zoneLimit + 14 && cop.hitCooldown <= 0) {
@@ -9245,9 +9515,9 @@ export class PhysicsEngine {
         }
       }
 
-      cop.built.setWheelSpin(cop.speedKmh, dt);
+      cop.built.setWheelSpin(cop.speedKmh + extraCopWheelSpin, dt);
       cop.built.root.position.copy(cop.pos);
-      cop.built.root.rotation.y = cop.heading;
+      cop.built.root.rotation.y = cop.heading + (cop.slipAngle || 0);
 
       const distNow = Math.hypot(this.playerPos.x - cop.pos.x, this.playerPos.z - cop.pos.z);
       const copHeadlightsOn =
@@ -9263,21 +9533,62 @@ export class PhysicsEngine {
         closestCopDist = distNow;
       }
 
-      // Police-to-Player Collision
-      const minCopSep = 3.95;
+      // Police-to-Player Collision (with elastic rebound + clearance + post-hit recovery so cops never glue to the player!)
+      const minCopSep = 4.05;
       if (distNow < minCopSep) {
         const nx = distNow > 0.001 ? (this.playerPos.x - cop.pos.x) / distNow : 1;
         const nz = distNow > 0.001 ? (this.playerPos.z - cop.pos.z) / distNow : 0;
-        const overlap = minCopSep - distNow;
+        const overlap = minCopSep - distNow + 0.16;
 
-        this.playerPos.x += nx * overlap * 0.65;
-        this.playerPos.z += nz * overlap * 0.65;
-        cop.pos.x -= nx * overlap * 0.35;
-        cop.pos.z -= nz * overlap * 0.35;
+        this.playerPos.x += nx * overlap * 0.42;
+        this.playerPos.z += nz * overlap * 0.42;
+        cop.pos.x -= nx * overlap * 0.58;
+        cop.pos.z -= nz * overlap * 0.58;
+        this.resolveBuildingCollision(this.playerPos, 2.15);
+        this.resolveBuildingCollision(cop.pos, 2.1);
 
-        this.playerSpeedKmh *= 0.82;
-        this.collisionTrauma = Math.min(1.0, this.collisionTrauma + 0.4);
-        this.playerCar.updateSparks(120, true, dt);
+        const cVx = cop.velX !== undefined ? cop.velX : -Math.sin(cop.heading) * (cop.speedKmh / 3.6);
+        const cVz = cop.velZ !== undefined ? cop.velZ : -Math.cos(cop.heading) * (cop.speedKmh / 3.6);
+        const relVx = pWorldVx - cVx;
+        const relVz = pWorldVz - cVz;
+        const relVn = relVx * nx + relVz * nz;
+
+        if (relVn < 0) {
+          const closingSpeed = -relVn;
+          const restitution = 0.52;
+          const impulse = (1 + restitution) * closingSpeed * 0.55;
+          // Tangent glance deflection prevents cars locking head-to-door
+          const tx = -nz;
+          const tz = nx;
+          const relVt = relVx * tx + relVz * tz;
+          const glance = Math.max(-4.5, Math.min(4.5, relVt * 0.25));
+
+          cop.velX = cVx - nx * impulse + tx * glance;
+          cop.velZ = cVz - nz * impulse + tz * glance;
+          cop.speedKmh = Math.min(cop.speedKmh * 0.52, Math.hypot(cop.velX, cop.velZ) * 3.6);
+
+          this.playerImpactVelX = Math.max(-18, Math.min(18, this.playerImpactVelX + nx * impulse * 0.65));
+          this.playerImpactVelZ = Math.max(-18, Math.min(18, this.playerImpactVelZ + nz * impulse * 0.65));
+
+          if ((cop.knockbackCooldown || 0) <= 0) {
+            cop.knockbackCooldown = 0.45;
+            this.playerSpeedKmh *= closingSpeed > 12 ? 0.78 : 0.90;
+            this.collisionTrauma = Math.min(1.0, this.collisionTrauma + Math.min(0.55, 0.2 + closingSpeed * 0.025));
+            this.playerCar.updateSparks(Math.max(50, closingSpeed * 3.6), true, dt);
+          }
+          if (closingSpeed > 9.5) {
+            cop.spinTimer = Math.max(cop.spinTimer || 0, 0.42);
+          }
+        } else {
+          // Even if already separating, push cop velocity away along normal so it clears immediately
+          cop.velX = (cop.velX ?? cVx) - nx * 3.5;
+          cop.velZ = (cop.velZ ?? cVz) - nz * 3.5;
+          cop.speedKmh = Math.max(10, cop.speedKmh * 0.65);
+        }
+
+        // Trigger post-impact peel-off so cop briefly backs off/flanks instead of staying glued to player
+        cop.ramRecoveryTimer = Math.max(cop.ramRecoveryTimer || 0, 0.92);
+        cop.built.root.position.copy(cop.pos);
 
         if (cop.hitCooldown <= 0) {
           cop.hitCooldown = 2.4;
@@ -9293,6 +9604,30 @@ export class PhysicsEngine {
               8500
             );
           }
+        }
+      }
+    }
+
+    // Keep police cars from stacking inside each other during chases
+    for (let i = 0; i < this.cityPoliceCars.length; i++) {
+      for (let j = i + 1; j < this.cityPoliceCars.length; j++) {
+        const a = this.cityPoliceCars[i];
+        const b = this.cityPoliceCars[j];
+        const dx = b.pos.x - a.pos.x;
+        const dz = b.pos.z - a.pos.z;
+        const dSq = dx * dx + dz * dz;
+        const minCopPairSep = 3.85;
+        if (dSq > 0.0001 && dSq < minCopPairSep * minCopPairSep) {
+          const d = Math.sqrt(dSq);
+          const nx = dx / d;
+          const nz = dz / d;
+          const push = (minCopPairSep - d) * 0.5;
+          a.pos.x -= nx * push;
+          a.pos.z -= nz * push;
+          b.pos.x += nx * push;
+          b.pos.z += nz * push;
+          a.built.root.position.copy(a.pos);
+          b.built.root.position.copy(b.pos);
         }
       }
     }
@@ -10033,6 +10368,21 @@ export class PhysicsEngine {
       this.cityPursuitStats.minimapData.playerZ = this.playerPos.z;
       this.cityPursuitStats.minimapData.playerHeading = this.playerHeading;
     }
+  }
+
+  public saveActiveCityState() {
+    if (!this.isCityMode || !this.citySave) return;
+    this.citySave.streetCash = this.cityPursuitStats.streetCash;
+    this.citySave.streetRepLevel = this.cityPursuitStats.streetRepLevel;
+    this.citySave.completedMissions = this.cityPursuitStats.completedMissions;
+    this.citySave.totalJobsCompleted = this.cityPursuitStats.totalJobsCompleted || this.citySave.totalJobsCompleted || 0;
+    this.citySave.outdoorJobsCompleted = this.cityPursuitStats.outdoorJobsCompleted || this.citySave.outdoorJobsCompleted || 0;
+    this.citySave.jobSkillXp = this.cityPursuitStats.jobSkillXp || this.citySave.jobSkillXp || 0;
+    this.citySave.totalHeistsCompleted = this.cityPursuitStats.totalHeistsCompleted || this.citySave.totalHeistsCompleted || 0;
+    this.citySave.unpaidCrashTicketsTab = this.cityPursuitStats.unpaidCrashTicketsTab || 0;
+    this.citySave.bankRobberyBustCount = this.cityPursuitStats.bankRobberyBustCount || 0;
+    this.citySave.activeHomeId = this.cityPursuitStats.activeHomeId || null;
+    saveMetroCitySave(this.citySave);
   }
 
   public clearCityGpsTarget() {

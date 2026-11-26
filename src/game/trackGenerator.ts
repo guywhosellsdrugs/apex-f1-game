@@ -197,21 +197,22 @@ function attachCityRoadReflectionShader(
           float wetDarken = mix(0.90, 0.68, patchNoise);
           gl_FragColor.rgb *= mix(1.0, wetDarken, wet);
         }
-        if (uReflectionIntensity > 0.001) {
+        if (uReflectionIntensity > 0.001 && (wet > 0.02 || uReflectionIntensity > 0.03)) {
           vec2 reflUV = (vCityReflClipPos.xy / max(0.0001, vCityReflClipPos.w)) * 0.5 + 0.5;
           reflUV.x = 1.0 - reflUV.x;
-          float rippleAmp = mix(0.0006, 0.0022, wet);
-          vec2 microJitter = sin(vCityReflWorldPos.xz * 18.0) * rippleAmp;
+          float rippleAmp = mix(0.0005, 0.0018, wet);
+          vec2 microJitter = sin(vCityReflWorldPos.xz * 14.0) * rippleAmp;
           vec2 uvS = clamp(reflUV + microJitter, 0.004, 0.996);
-          vec2 bStep = mix(vec2(0.0038, 0.0044), vec2(0.0016, 0.0021), wet);
-          vec3 reflSample = texture2D(uPlanarReflectionMap, uvS).rgb * 0.44
-            + texture2D(uPlanarReflectionMap, clamp(uvS + vec2(bStep.x, 0.0), 0.004, 0.996)).rgb * 0.14
-            + texture2D(uPlanarReflectionMap, clamp(uvS - vec2(bStep.x, 0.0), 0.004, 0.996)).rgb * 0.14
-            + texture2D(uPlanarReflectionMap, clamp(uvS + vec2(0.0, bStep.y), 0.004, 0.996)).rgb * 0.14
-            + texture2D(uPlanarReflectionMap, clamp(uvS - vec2(0.0, bStep.y), 0.004, 0.996)).rgb * 0.14;
+          ${
+            isUltra
+              ? `vec2 bStep = mix(vec2(0.0032, 0.0036), vec2(0.0015, 0.0018), wet);
+          vec3 reflSample = texture2D(uPlanarReflectionMap, uvS).rgb * 0.64
+            + texture2D(uPlanarReflectionMap, clamp(uvS + bStep, 0.004, 0.996)).rgb * 0.18
+            + texture2D(uPlanarReflectionMap, clamp(uvS - bStep, 0.004, 0.996)).rgb * 0.18;`
+              : `vec3 reflSample = texture2D(uPlanarReflectionMap, uvS).rgb;`
+          }
           vec3 viewDir = normalize(cameraPosition - vCityReflWorldPos);
           float ndotv = clamp(abs(viewDir.y), 0.0, 1.0);
-          // Dry asphalt uses high Fresnel & minimal grazing sheen; wet/rainy asphalt reflects noticeably across lanes
           float dryFresnel = pow(1.0 - ndotv, ${isUltra ? '4.6' : '5.0'});
           float wetFresnel = pow(1.0 - ndotv, ${isUltra ? '1.85' : '2.3'});
           float dryFactor = ${isUltra ? '0.010 + 0.048 * dryFresnel' : '0.006 + 0.025 * dryFresnel'};
@@ -2680,7 +2681,7 @@ function generateCityDrivingTrack(circuit: CircuitInfo, quality?: GraphicsQualit
 
   const setReflectionChunkCull = (active: boolean, playerPos?: THREE.Vector3) => {
     if (active && playerPos) {
-      chunkManager.applyReflectionRange(playerPos, 240);
+      chunkManager.applyReflectionRange(playerPos, isUltra ? 135 : 110);
     } else {
       chunkManager.restoreAfterReflection();
     }

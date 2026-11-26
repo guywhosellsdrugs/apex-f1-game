@@ -58,6 +58,7 @@ import { BankHeistMinigame } from './BankHeistMinigame';
 import { LockpickMinigame } from './LockpickMinigame';
 import { SportsMinigame } from './SportsMinigame';
 import { OutdoorFieldJobModal } from './InteriorMiniGames';
+import { flushSportsSeasonsStorage } from '../game/sportsSeasons';
 import { MarylandGoogleMapModal } from './MarylandGoogleMapModal';
 import { multiplayerService, RoomPublicState } from '../services/multiplayerService';
 import { recordCircuitLapTime } from '../services/firebase';
@@ -897,10 +898,12 @@ export const RaceView: React.FC<RaceViewProps> = ({
     let currentRoadWetness = 0.0;
 
     if ((gfxPreset.id === 'ultra' || gfxPreset.id === 'high') && !isSoftwareGl) {
-      const reflScale = gfxPreset.id === 'ultra' ? 0.45 : 0.35;
+      const reflScale = gfxPreset.id === 'ultra' ? 0.24 : 0.18;
+      const maxReflW = gfxPreset.id === 'ultra' ? 448 : 320;
+      const maxReflH = gfxPreset.id === 'ultra' ? 252 : 180;
       planarReflectionRT = new THREE.WebGLRenderTarget(
-        Math.max(256, Math.floor(width * reflScale)),
-        Math.max(192, Math.floor(height * reflScale)),
+        Math.min(maxReflW, Math.max(192, Math.floor(width * reflScale))),
+        Math.min(maxReflH, Math.max(128, Math.floor(height * reflScale))),
         {
           minFilter: THREE.LinearFilter,
           magFilter: THREE.LinearFilter,
@@ -908,7 +911,12 @@ export const RaceView: React.FC<RaceViewProps> = ({
           type: gfxPreset.id === 'ultra' ? THREE.HalfFloatType : THREE.UnsignedByteType,
         }
       );
-      reflectionCamera = new THREE.PerspectiveCamera(camera.fov, width / height, 0.1, 1600);
+      reflectionCamera = new THREE.PerspectiveCamera(
+        camera.fov,
+        width / height,
+        0.5,
+        isCityDrivingMode ? (gfxPreset.id === 'ultra' ? 340 : 240) : 650
+      );
       track.setReflectionTexture(planarReflectionRT.texture, gfxPreset.id === 'ultra' ? 0.20 : 0.12);
       track.setRoadWetness?.(0.0);
     }
@@ -1703,19 +1711,7 @@ export const RaceView: React.FC<RaceViewProps> = ({
           gfxPreset.id === 'ultra'
         );
         const cond = physics.currentWeather.condition;
-        const targetWetness =
-          cond === 'heavy_rain' || cond === 'thunderstorm'
-            ? 0.95
-            : cond === 'rain'
-            ? 0.80
-            : cond === 'drizzle'
-            ? 0.55
-            : cond === 'snow' || cond === 'heavy_snow'
-            ? 0.30
-            : cond === 'fog'
-            ? 0.14
-            : 0.0;
-        currentRoadWetness += (targetWetness - currentRoadWetness) * Math.min(1, rawDelta * 0.8);
+        currentRoadWetness = physics.residualRoadWetness;
         track.setRoadWetness?.(currentRoadWetness);
         const curElevDeg =
           physics.currentWeather.sunElevationDeg ??
@@ -1725,13 +1721,14 @@ export const RaceView: React.FC<RaceViewProps> = ({
         track.setNightIntensity?.(nightFactor);
 
         if (planarReflectionRT) {
-          const baseDry = gfxPreset.id === 'ultra' ? 0.22 : 0.14;
-          const nightDry = gfxPreset.id === 'ultra' ? 0.07 : 0.05;
+          const baseDry = gfxPreset.id === 'ultra' ? 0.22 : 0.0;
+          const nightDry = gfxPreset.id === 'ultra' ? 0.07 : 0.0;
           const dryReflect = THREE.MathUtils.lerp(nightDry, baseDry, dayBlend);
-          const wetBoost = gfxPreset.id === 'ultra' ? 0.92 : 0.58;
+          const wetBoost = gfxPreset.id === 'ultra' ? 0.88 : 0.56;
+          const effIntensity = THREE.MathUtils.lerp(dryReflect, wetBoost, currentRoadWetness);
           track.setReflectionTexture(
-            planarReflectionRT.texture,
-            THREE.MathUtils.lerp(dryReflect, wetBoost, currentRoadWetness)
+            effIntensity > 0.01 ? planarReflectionRT.texture : null,
+            effIntensity
           );
         }
 
@@ -1760,16 +1757,10 @@ export const RaceView: React.FC<RaceViewProps> = ({
 
         const skipHeavyWeatherParticles =
           isConservativeDynamic && dynamicQualityFactor < 0.60 && frameCount % 2 !== 0;
+        const weatherParticleDt = isConservativeDynamic && dynamicQualityFactor < 0.60 ? rawDelta * 2 : rawDelta;
         if (!skipHeavyWeatherParticles) {
           const sprayState = physics.getTireSprayState();
-          const pDt = isConservativeDynamic && dynamicQualityFactor < 0.60 ? rawDelta * 2 : rawDelta;
-          tireSpraySys?.update(carPos, heading, speed, sprayState, pDt);
-          if (weatherAtmosphereSys) {
-            weatherAtmosphereSys.group.visible = !isConservativeDynamic || dynamicQualityFactor >= 0.35;
-            if (weatherAtmosphereSys.group.visible) {
-              weatherAtmosphereSys.update(carPos, physics.currentWeather, pDt);
-            }
-          }
+          tireSpraySys?.update(carPos, heading, speed, sprayState, weatherParticleDt);
         }
         const skyFarScale =
           isConservativeDynamic && camera.far < 700
@@ -1905,6 +1896,16 @@ export const RaceView: React.FC<RaceViewProps> = ({
       camera.lookAt(currentLookAt);
       camera.updateMatrixWorld();
 
+      if (isCityDrivingMode && weatherAtmosphereSys) {
+        const skipWeatherDropUpdate =
+          isConservativeDynamic && dynamicQualityFactor < 0.60 && frameCount % 2 !== 0;
+        weatherAtmosphereSys.group.visible = !isConservativeDynamic || dynamicQualityFactor >= 0.35;
+        if (weatherAtmosphereSys.group.visible && !skipWeatherDropUpdate) {
+          const dropDt = isConservativeDynamic && dynamicQualityFactor < 0.60 ? rawDelta * 2 : rawDelta;
+          weatherAtmosphereSys.update(carPos, physics.currentWeather, dropDt, camera.position, currentLookAt);
+        }
+      }
+
       // Maryland Open-World Spatial Chunk Streaming & Adaptive Struggle-Based Load Reduction
       if (isCityDrivingMode) {
         const effectiveChunkScale = isConservativeDynamic
@@ -2001,12 +2002,13 @@ export const RaceView: React.FC<RaceViewProps> = ({
         }
       }
 
-      // Real-time planar road reflection pass (every 2nd frame normally on Ultra/High, throttling further under struggle)
-      const reflStride = struggleChunkScale < 0.5 ? 4 : struggleChunkScale < 0.78 ? 3 : 2;
-      if (planarReflectionRT && reflectionCamera && (frameCount % reflStride === 0)) {
-        const trackPlaneY = carPos.y - 0.06;
+      // Real-time planar road reflection pass: update EVERY frame so reflections stay locked 1:1 with zero lag behind the car
+      const needPlanarReflPass = gfxPreset.id === 'ultra' || currentRoadWetness >= 0.03;
+      if (needPlanarReflPass && planarReflectionRT && reflectionCamera) {
+        const trackPlaneY = isCityDrivingMode ? 0.25 : carPos.y - 0.06;
         reflectionCamera.fov = camera.fov;
         reflectionCamera.aspect = camera.aspect;
+        reflectionCamera.far = isCityDrivingMode ? (gfxPreset.id === 'ultra' ? 280 : 210) : 650;
         reflectionCamera.updateProjectionMatrix();
 
         reflectionCamera.position.set(
@@ -2020,6 +2022,7 @@ export const RaceView: React.FC<RaceViewProps> = ({
           2 * trackPlaneY - currentLookAt.y,
           currentLookAt.z
         );
+        reflectionCamera.updateMatrixWorld();
 
         track.setReflectionPassMode(true);
         if (isCityDrivingMode) {
@@ -2028,6 +2031,33 @@ export const RaceView: React.FC<RaceViewProps> = ({
         const prevBg = scene.background;
         const prevFog = scene.fog;
         const prevSkyVis = skyDomeMesh ? skyDomeMesh.visible : false;
+        const prevWeatherVis = weatherAtmosphereSys ? weatherAtmosphereSys.group.visible : false;
+        const prevSprayVis = tireSpraySys ? tireSpraySys.group.visible : false;
+        const prevShadowAuto = renderer.shadowMap.autoUpdate;
+
+        // Temporarily hide distant traffic/police (>105m) during reflection pass to keep 60+ FPS every frame
+        const hiddenReflCars: THREE.Object3D[] = [];
+        if (isCityDrivingMode) {
+          const reflCarMaxDistSq = 105 * 105;
+          for (let i = 0; i < physics.cityCivilianCars.length; i++) {
+            const civRoot = physics.cityCivilianCars[i].built.root;
+            if (civRoot.visible && carPos.distanceToSquared(physics.cityCivilianCars[i].pos) > reflCarMaxDistSq) {
+              civRoot.visible = false;
+              hiddenReflCars.push(civRoot);
+            }
+          }
+          for (let i = 0; i < physics.cityPoliceCars.length; i++) {
+            const copRoot = physics.cityPoliceCars[i].built.root;
+            if (copRoot.visible && carPos.distanceToSquared(physics.cityPoliceCars[i].pos) > reflCarMaxDistSq) {
+              copRoot.visible = false;
+              hiddenReflCars.push(copRoot);
+            }
+          }
+        }
+
+        renderer.shadowMap.autoUpdate = false;
+        if (weatherAtmosphereSys) weatherAtmosphereSys.group.visible = false;
+        if (tireSpraySys) tireSpraySys.group.visible = false;
         if (!isCityDrivingMode) {
           scene.background = reflectionBgColor;
           scene.fog = null;
@@ -2040,6 +2070,12 @@ export const RaceView: React.FC<RaceViewProps> = ({
         renderer.render(scene, reflectionCamera);
         renderer.setRenderTarget(prevRenderTarget);
 
+        for (let i = 0; i < hiddenReflCars.length; i++) {
+          hiddenReflCars[i].visible = true;
+        }
+        renderer.shadowMap.autoUpdate = prevShadowAuto;
+        if (weatherAtmosphereSys) weatherAtmosphereSys.group.visible = prevWeatherVis;
+        if (tireSpraySys) tireSpraySys.group.visible = prevSprayVis;
         scene.background = prevBg;
         scene.fog = prevFog;
         if (skyDomeMesh) skyDomeMesh.visible = prevSkyVis;
@@ -2260,10 +2296,12 @@ export const RaceView: React.FC<RaceViewProps> = ({
         motionBlurPass.uniforms.uResolution.value.set(w, h);
       }
       if (planarReflectionRT) {
-        const reflScale = gfxPreset.id === 'ultra' ? 0.45 : 0.35;
+        const reflScale = gfxPreset.id === 'ultra' ? 0.24 : 0.18;
+        const maxReflW = gfxPreset.id === 'ultra' ? 448 : 320;
+        const maxReflH = gfxPreset.id === 'ultra' ? 252 : 180;
         planarReflectionRT.setSize(
-          Math.max(256, Math.floor(w * reflScale)),
-          Math.max(192, Math.floor(h * reflScale))
+          Math.min(maxReflW, Math.max(192, Math.floor(w * reflScale))),
+          Math.min(maxReflH, Math.max(128, Math.floor(h * reflScale)))
         );
       }
     };
@@ -2578,7 +2616,24 @@ export const RaceView: React.FC<RaceViewProps> = ({
     };
     window.addEventListener('keydown', handleKeyDown);
 
+    const flushCityOnLeave = () => {
+      physics.saveActiveCityState();
+      flushSportsSeasonsStorage();
+    };
+    const handleVisibilitySave = () => {
+      if (document.visibilityState === 'hidden') flushCityOnLeave();
+    };
+    const cityAutoSaveTimer = window.setInterval(flushCityOnLeave, 12000);
+    window.addEventListener('pagehide', flushCityOnLeave);
+    window.addEventListener('beforeunload', flushCityOnLeave);
+    document.addEventListener('visibilitychange', handleVisibilitySave);
+
     return () => {
+      flushCityOnLeave();
+      window.clearInterval(cityAutoSaveTimer);
+      window.removeEventListener('pagehide', flushCityOnLeave);
+      window.removeEventListener('beforeunload', flushCityOnLeave);
+      document.removeEventListener('visibilitychange', handleVisibilitySave);
       unsubTelemetry();
       cancelAnimationFrame(animFrameId);
       window.removeEventListener('resize', handleResize);
@@ -4087,7 +4142,13 @@ export const RaceView: React.FC<RaceViewProps> = ({
                   : currentWeatherState.condition === 'partly_cloudy' || currentWeatherState.condition === 'overcast'
                   ? '⛅'
                   : '☀️';
-              const safeGrip = Number.isFinite(tractionInfo.effectiveGrip) ? tractionInfo.effectiveGrip : 1;
+              const residualWet = physicsRef.current?.residualRoadWetness ?? 0;
+              const isPostRainDamp = !currentWeatherState.isRaining && !currentWeatherState.isSnowing && residualWet > 0.14;
+              const dtKind = carEff.drivetrain || 'RWD';
+              const dampPenaltyMult = isPostRainDamp
+                ? 1.0 - residualWet * (dtKind === 'RWD' ? 0.16 : dtKind === 'FWD' ? 0.10 : 0.04)
+                : 1.0;
+              const safeGrip = Number.isFinite(tractionInfo.effectiveGrip) ? tractionInfo.effectiveGrip * dampPenaltyMult : 1;
               const gripPct = Math.round(safeGrip * 100);
               const safeTempF = Number.isFinite(currentWeatherState.temperatureF) ? currentWeatherState.temperatureF : 53;
               const safeTempC = Number.isFinite(currentWeatherState.temperatureC) ? currentWeatherState.temperatureC : 11.5;
@@ -4147,11 +4208,15 @@ export const RaceView: React.FC<RaceViewProps> = ({
                     </span>
                   </div>
 
-                  {(currentWeatherState.isSnowing || currentWeatherState.isRaining) && (
+                  {(currentWeatherState.isSnowing || currentWeatherState.isRaining) ? (
                     <div className="mt-1 text-[9px] font-bold text-amber-300 leading-tight">
                       {tractionInfo.tractionSummary}
                     </div>
-                  )}
+                  ) : isPostRainDamp ? (
+                    <div className="mt-1 text-[9px] font-bold text-cyan-300 leading-tight">
+                      💧 Damp Roads ({Math.round(residualWet * 100)}% Wet) · Surface Drying Gradually
+                    </div>
+                  ) : null}
 
                   {/* Interactive Weather, Sunrise/Sunset & Time-of-Day Controls */}
                   {showWeatherSelector && (
@@ -6066,15 +6131,227 @@ export const RaceView: React.FC<RaceViewProps> = ({
                   </div>
                 )}
 
-                {/* TAB 2: CITY JOBS (OUTDOOR FIELD SKILLS + OFFICE & INDOOR WORKPLACES + DRIVING DISPATCH) */}
+                {/* TAB 2: CITY JOBS (SORTED BY CLOSEST TO PLAYER) */}
                 {cityTabletTab === 'jobs' && (() => {
                   const skillRank = getJobSkillRankInfo(cityPursuitStats.jobSkillXp || 0);
+                  const prox = physicsRef.current?.getNearestJobProximities();
+                  const formatJobDist = (m: number) =>
+                    m >= 1000 ? `${(m / 1000).toFixed(2)}km` : `${m}m`;
+
+                  const outdoorItems = CITY_OUTDOOR_JOBS_CATALOG.map((job) => {
+                    const p = prox?.outdoor[job.id];
+                    return {
+                      kind: 'outdoor' as const,
+                      job,
+                      distMeters: p?.distMeters ?? 99999,
+                      targetLabel: p?.targetLabel ?? job.sites[0]?.label ?? 'Field Site',
+                    };
+                  }).sort((a, b) => a.distMeters - b.distMeters);
+
+                  const indoorItems = CITY_INDOOR_JOBS_CATALOG.map((job) => {
+                    const p = prox?.indoor[job.id];
+                    return {
+                      kind: 'indoor' as const,
+                      job,
+                      distMeters: p?.distMeters ?? 99999,
+                      targetLabel: p?.targetLabel ?? job.workplaceTypeLabel,
+                    };
+                  }).sort((a, b) => a.distMeters - b.distMeters);
+
+                  const regularItems = CITY_REGULAR_JOBS_CATALOG.map((job) => {
+                    const p = prox?.regular[job.id];
+                    return {
+                      kind: 'regular' as const,
+                      job,
+                      distMeters: p?.distMeters ?? 99999,
+                      targetLabel: p?.targetLabel ?? job.routes[0]?.pickupLabel ?? 'Dispatch Pickup',
+                    };
+                  }).sort((a, b) => a.distMeters - b.distMeters);
+
+                  const unifiedClosestAll = [...outdoorItems, ...indoorItems, ...regularItems].sort(
+                    (a, b) => a.distMeters - b.distMeters
+                  );
+
+                  const renderOutdoorCard = (entry: (typeof outdoorItems)[number]) => {
+                    const { job, distMeters, targetLabel } = entry;
+                    const isDeployed = cityPursuitStats.activeOutdoorJob?.jobId === job.id;
+                    return (
+                      <div
+                        key={`out_${job.id}`}
+                        className={`p-4 rounded-2xl border flex flex-col justify-between gap-3 transition-all ${
+                          isDeployed
+                            ? 'bg-emerald-950/50 border-emerald-400 shadow-lg'
+                            : 'bg-zinc-900/90 border-emerald-400/25 hover:border-emerald-400/60'
+                        }`}
+                      >
+                        <div>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-sm font-black text-white">
+                              {job.icon} {job.title}
+                            </span>
+                            <span className="px-2 py-0.5 rounded bg-emerald-500/20 border border-emerald-400/40 text-emerald-300 font-black text-[10px] shrink-0">
+                              +${job.basePay.toLocaleString()} + ${job.maxSkillBonus.toLocaleString()}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1.5 flex-wrap mt-1">
+                            <span className="px-1.5 py-0.5 rounded bg-emerald-400/15 border border-emerald-400/35 text-emerald-300 font-black text-[9px] uppercase">
+                              📍 {formatJobDist(distMeters)} · {targetLabel}
+                            </span>
+                            <span className="px-1.5 py-0.5 rounded bg-cyan-500/15 border border-cyan-400/30 text-cyan-300 font-black text-[9px] uppercase">
+                              🎮 {job.mechanicLabel}
+                            </span>
+                          </div>
+                          <p className="text-xs text-zinc-400 mt-1.5 leading-relaxed">{job.description}</p>
+                        </div>
+
+                        <div className="pt-2 border-t border-white/10 flex items-center justify-between gap-2">
+                          <span className="text-[10px] text-amber-300 font-bold">
+                            🏕️ Outdoor · +{job.skillXpReward} Skill XP
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (isDeployed) {
+                                physicsRef.current?.stopOutdoorFieldJob();
+                              } else {
+                                physicsRef.current?.startOutdoorFieldJob(job.id);
+                              }
+                              if (physicsRef.current) {
+                                setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
+                              }
+                              setShowCityTabletModal(false);
+                              setShowCityGarageModal(false);
+                            }}
+                            className={`px-3 py-1.5 rounded-xl font-black text-[11px] uppercase cursor-pointer transition-colors shrink-0 ${
+                              isDeployed
+                                ? 'bg-rose-500 hover:bg-rose-400 text-white'
+                                : 'bg-emerald-400 hover:bg-emerald-300 text-black'
+                            }`}
+                          >
+                            {isDeployed ? 'End Contract' : 'Deploy / Route →'}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  };
+
+                  const renderIndoorCard = (entry: (typeof indoorItems)[number]) => {
+                    const { job, distMeters, targetLabel } = entry;
+                    return (
+                      <div
+                        key={`in_${job.id}`}
+                        className="p-4 rounded-2xl border border-sky-400/25 bg-zinc-900/90 hover:border-sky-400/60 flex flex-col justify-between gap-3 transition-all"
+                      >
+                        <div>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-sm font-black text-white">
+                              {job.icon} {job.title}
+                            </span>
+                            <span className="px-2 py-0.5 rounded bg-sky-500/20 border border-sky-400/40 text-sky-300 font-black text-[10px] shrink-0">
+                              +${job.baseShiftPay.toLocaleString()}+
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1.5 flex-wrap mt-1">
+                            <span className="px-1.5 py-0.5 rounded bg-sky-400/15 border border-sky-400/35 text-sky-300 font-black text-[9px] uppercase">
+                              📍 {formatJobDist(distMeters)} · {targetLabel}
+                            </span>
+                            {job.skillStyle && (
+                              <span className="px-1.5 py-0.5 rounded bg-indigo-500/15 border border-indigo-400/30 text-indigo-300 font-black text-[9px] uppercase">
+                                ⚡ {job.skillStyle}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-zinc-400 mt-1.5 leading-relaxed">{job.description}</p>
+                        </div>
+
+                        <div className="pt-2 border-t border-white/10 flex items-center justify-between gap-2">
+                          <span className="text-[10px] text-zinc-400 truncate">🏢 Indoor · {job.tasksSummary}</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              physicsRef.current?.routeToIndoorWorkplaceJob(job.id);
+                              if (physicsRef.current) setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
+                              setShowCityTabletModal(false);
+                              setShowCityGarageModal(false);
+                            }}
+                            className="px-3 py-1.5 rounded-xl bg-sky-400 hover:bg-sky-300 text-black font-black text-[11px] uppercase cursor-pointer transition-colors shrink-0"
+                          >
+                            📍 Route Inside →
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  };
+
+                  const renderRegularCard = (entry: (typeof regularItems)[number]) => {
+                    const { job, distMeters, targetLabel } = entry;
+                    const isClockedIn = cityPursuitStats.activeRegularJob?.jobId === job.id;
+                    return (
+                      <div
+                        key={`reg_${job.id}`}
+                        className={`p-4 rounded-2xl border flex flex-col justify-between gap-3 transition-all ${
+                          isClockedIn
+                            ? 'bg-yellow-950/50 border-yellow-400 shadow-lg'
+                            : 'bg-zinc-900 border-white/10 hover:border-white/20'
+                        }`}
+                      >
+                        <div>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-sm font-black text-white">
+                              {job.icon} {job.title}
+                            </span>
+                            <span className="px-2 py-0.5 rounded bg-yellow-400/20 border border-yellow-400/40 text-yellow-300 font-black text-[10px] shrink-0">
+                              +${job.basePay.toLocaleString()}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1.5 flex-wrap mt-1">
+                            <span className="px-1.5 py-0.5 rounded bg-yellow-400/15 border border-yellow-400/35 text-yellow-300 font-black text-[9px] uppercase">
+                              📍 {formatJobDist(distMeters)} · {targetLabel}
+                            </span>
+                            {job.skillBadgeLabel && (
+                              <span className="px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-400/30 text-amber-300 font-black text-[9px] uppercase">
+                                {job.skillBadgeLabel}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-zinc-400 mt-1.5 leading-relaxed">{job.description}</p>
+                        </div>
+
+                        <div className="pt-2 border-t border-white/10 flex items-center justify-between gap-2">
+                          <span className="text-[10px] text-zinc-400">
+                            🚗 {job.jobCategory} · ⏱️ {job.timeLimitSec}s · +${job.tipBonusMax} Tip
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (isClockedIn) {
+                                physicsRef.current?.stopCityRegularJob();
+                              } else {
+                                physicsRef.current?.startCityRegularJob(job.id);
+                              }
+                              if (physicsRef.current) setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
+                              setShowCityTabletModal(false);
+                              setShowCityGarageModal(false);
+                            }}
+                            className={`px-3.5 py-1.5 rounded-xl font-black text-xs uppercase cursor-pointer transition-colors ${
+                              isClockedIn
+                                ? 'bg-rose-500 hover:bg-rose-400 text-white'
+                                : 'bg-yellow-400 hover:bg-yellow-300 text-black'
+                            }`}
+                          >
+                            {isClockedIn ? 'Clock Out' : 'Start Job →'}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  };
+
                   return (
                     <div className="flex flex-col gap-3 overflow-y-auto pr-1">
                       <div className="text-xs text-zinc-300 bg-zinc-900/80 p-3.5 rounded-xl border border-white/10 flex flex-wrap items-center justify-between gap-3">
                         <div className="flex-1 min-w-[220px]">
                           <span>
-                            Work interactive <strong>Outdoor Field Sites [J]</strong>, clock into <strong>Office &amp; Indoor Workplaces [V]</strong>, or take <strong>Skill Driving Routes</strong> to level up your career multiplier!
+                            📍 <strong>Sorted Closest First</strong> — Work <strong>Outdoor Field Sites [J]</strong>, clock into <strong>Office &amp; Indoor Workplaces [V]</strong>, or take <strong>Driving Routes</strong>!
                           </span>
                         </div>
                         <div className="flex items-center gap-2.5 flex-wrap">
@@ -6106,10 +6383,10 @@ export const RaceView: React.FC<RaceViewProps> = ({
                           [
                             {
                               id: 'all',
-                              label: `All Jobs (${CITY_OUTDOOR_JOBS_CATALOG.length + CITY_INDOOR_JOBS_CATALOG.length + CITY_REGULAR_JOBS_CATALOG.length})`,
+                              label: `Closest To You (${unifiedClosestAll.length})`,
                             },
-                            { id: 'outdoor', label: `🏕️ Outdoor & Field (${CITY_OUTDOOR_JOBS_CATALOG.length})` },
-                            { id: 'indoor', label: `🏢 Office & Indoor (${CITY_INDOOR_JOBS_CATALOG.length})` },
+                            { id: 'outdoor', label: `🏕️ Outdoor & Field (${outdoorItems.length})` },
+                            { id: 'indoor', label: `🏢 Office & Indoor (${indoorItems.length})` },
                             { id: 'Delivery & Freight', label: '📦 Delivery & Freight' },
                             { id: 'Passenger & VIP', label: '🚕 Passenger & VIP' },
                             { id: 'Utility & Specialty', label: '🛡️ Utility & Specialty' },
@@ -6130,204 +6407,39 @@ export const RaceView: React.FC<RaceViewProps> = ({
                         ))}
                       </div>
 
-                      {/* Outdoor & Field Skill Contracts Section */}
-                      {(cityJobFilter === 'all' || cityJobFilter === 'outdoor') && (
-                        <div className="flex flex-col gap-2">
-                          <div className="text-[11px] font-black uppercase tracking-wider text-emerald-300 flex items-center gap-2">
-                            <span>🏕️ OUTDOOR FIELD SKILL JOBS (DRIVE TO SITE &amp; PRESS [J] FOR HANDS-ON WORK)</span>
-                          </div>
-                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                            {CITY_OUTDOOR_JOBS_CATALOG.map((job) => {
-                              const isDeployed = cityPursuitStats.activeOutdoorJob?.jobId === job.id;
-                              return (
-                                <div
-                                  key={job.id}
-                                  className={`p-4 rounded-2xl border flex flex-col justify-between gap-3 transition-all ${
-                                    isDeployed
-                                      ? 'bg-emerald-950/50 border-emerald-400 shadow-lg'
-                                      : 'bg-zinc-900/90 border-emerald-400/25 hover:border-emerald-400/60'
-                                  }`}
-                                >
-                                  <div>
-                                    <div className="flex items-center justify-between gap-2">
-                                      <span className="text-sm font-black text-white">
-                                        {job.icon} {job.title}
-                                      </span>
-                                      <span className="px-2 py-0.5 rounded bg-emerald-500/20 border border-emerald-400/40 text-emerald-300 font-black text-[10px] shrink-0">
-                                        +${job.basePay.toLocaleString()} + ${job.maxSkillBonus.toLocaleString()}
-                                      </span>
-                                    </div>
-                                    <div className="flex items-center gap-1.5 flex-wrap mt-1">
-                                      <span className="px-1.5 py-0.5 rounded bg-cyan-500/15 border border-cyan-400/30 text-cyan-300 font-black text-[9px] uppercase">
-                                        🎮 {job.mechanicLabel}
-                                      </span>
-                                      <span className="text-[10px] font-bold text-zinc-400">
-                                        · {job.sites.length} Sites
-                                      </span>
-                                    </div>
-                                    <p className="text-xs text-zinc-400 mt-1.5 leading-relaxed">{job.description}</p>
-                                  </div>
-
-                                  <div className="pt-2 border-t border-white/10 flex items-center justify-between gap-2">
-                                    <span className="text-[10px] text-amber-300 font-bold">
-                                      +{job.skillXpReward} Skill XP
-                                    </span>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        if (isDeployed) {
-                                          physicsRef.current?.stopOutdoorFieldJob();
-                                        } else {
-                                          physicsRef.current?.startOutdoorFieldJob(job.id);
-                                        }
-                                        if (physicsRef.current) {
-                                          setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
-                                        }
-                                        setShowCityTabletModal(false);
-                                        setShowCityGarageModal(false);
-                                      }}
-                                      className={`px-3 py-1.5 rounded-xl font-black text-[11px] uppercase cursor-pointer transition-colors shrink-0 ${
-                                        isDeployed
-                                          ? 'bg-rose-500 hover:bg-rose-400 text-white'
-                                          : 'bg-emerald-400 hover:bg-emerald-300 text-black'
-                                      }`}
-                                    >
-                                      {isDeployed ? 'End Contract' : 'Deploy / Route →'}
-                                    </button>
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
+                      {/* Unified Closest-First Grid when 'all' is selected */}
+                      {cityJobFilter === 'all' && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                          {unifiedClosestAll.map((entry) =>
+                            entry.kind === 'outdoor'
+                              ? renderOutdoorCard(entry)
+                              : entry.kind === 'indoor'
+                              ? renderIndoorCard(entry)
+                              : renderRegularCard(entry)
+                          )}
                         </div>
                       )}
 
-                      {/* Indoor & Office Building Jobs Section */}
-                      {(cityJobFilter === 'all' || cityJobFilter === 'indoor') && (
-                        <div className="flex flex-col gap-2">
-                          <div className="text-[11px] font-black uppercase tracking-wider text-sky-300 flex items-center gap-2">
-                            <span>🏢 OFFICE &amp; INDOOR WORKPLACE CAREERS (ENTER WITH [V])</span>
-                          </div>
-                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                            {CITY_INDOOR_JOBS_CATALOG.map((job) => (
-                              <div
-                                key={job.id}
-                                className="p-4 rounded-2xl border border-sky-400/25 bg-zinc-900/90 hover:border-sky-400/60 flex flex-col justify-between gap-3 transition-all"
-                              >
-                                <div>
-                                  <div className="flex items-center justify-between gap-2">
-                                    <span className="text-sm font-black text-white">
-                                      {job.icon} {job.title}
-                                    </span>
-                                    <span className="px-2 py-0.5 rounded bg-sky-500/20 border border-sky-400/40 text-sky-300 font-black text-[10px] shrink-0">
-                                      +${job.baseShiftPay.toLocaleString()}+
-                                    </span>
-                                  </div>
-                                  <div className="text-[10px] font-bold text-amber-300 mt-1">
-                                    📍 {job.workplaceTypeLabel}
-                                  </div>
-                                  {job.skillStyle && (
-                                    <div className="mt-1">
-                                      <span className="inline-block px-1.5 py-0.5 rounded bg-sky-500/15 border border-sky-400/30 text-sky-300 font-black text-[9px] uppercase">
-                                        ⚡ {job.skillStyle}
-                                      </span>
-                                    </div>
-                                  )}
-                                  <p className="text-xs text-zinc-400 mt-1.5 leading-relaxed">{job.description}</p>
-                                </div>
-
-                                <div className="pt-2 border-t border-white/10 flex items-center justify-between gap-2">
-                                  <span className="text-[10px] text-zinc-500 truncate">{job.tasksSummary}</span>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      physicsRef.current?.routeToIndoorWorkplaceJob(job.id);
-                                      if (physicsRef.current) setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
-                                      setShowCityTabletModal(false);
-                                      setShowCityGarageModal(false);
-                                    }}
-                                    className="px-3 py-1.5 rounded-xl bg-sky-400 hover:bg-sky-300 text-black font-black text-[11px] uppercase cursor-pointer transition-colors shrink-0"
-                                  >
-                                    📍 Route Inside →
-                                  </button>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
+                      {/* Outdoor & Field Skill Contracts Filtered & Sorted Closest First */}
+                      {cityJobFilter === 'outdoor' && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                          {outdoorItems.map(renderOutdoorCard)}
                         </div>
                       )}
 
-                      {/* Driving & Field Dispatch Jobs Section */}
-                      {cityJobFilter !== 'indoor' && cityJobFilter !== 'outdoor' && (
-                        <div className="flex flex-col gap-2">
-                          <div className="text-[11px] font-black uppercase tracking-wider text-yellow-300 flex items-center gap-2">
-                            <span>🚗 DRIVING, FREIGHT &amp; CHARTER DISPATCH</span>
-                          </div>
-                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                            {CITY_REGULAR_JOBS_CATALOG.filter(
-                              (job) => cityJobFilter === 'all' || job.jobCategory === cityJobFilter
-                            ).map((job) => {
-                              const isClockedIn = cityPursuitStats.activeRegularJob?.jobId === job.id;
-                              return (
-                                <div
-                                  key={job.id}
-                                  className={`p-4 rounded-2xl border flex flex-col justify-between gap-3 transition-all ${
-                                    isClockedIn
-                                      ? 'bg-yellow-950/50 border-yellow-400 shadow-lg'
-                                      : 'bg-zinc-900 border-white/10 hover:border-white/20'
-                                  }`}
-                                >
-                                  <div>
-                                    <div className="flex items-center justify-between gap-2">
-                                      <span className="text-sm font-black text-white">
-                                        {job.icon} {job.title}
-                                      </span>
-                                      <span className="px-2 py-0.5 rounded bg-yellow-400/20 border border-yellow-400/40 text-yellow-300 font-black text-[10px] shrink-0">
-                                        +${job.basePay.toLocaleString()}
-                                      </span>
-                                    </div>
-                                    <div className="text-[10px] font-bold text-zinc-400 mt-1">
-                                      {job.jobCategory} · {job.routes.length} Routes
-                                    </div>
-                                    {job.skillBadgeLabel && (
-                                      <div className="mt-1">
-                                        <span className="inline-block px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-400/30 text-amber-300 font-black text-[9px] uppercase">
-                                          {job.skillBadgeLabel}
-                                        </span>
-                                      </div>
-                                    )}
-                                    <p className="text-xs text-zinc-400 mt-1.5 leading-relaxed">{job.description}</p>
-                                  </div>
+                      {/* Indoor & Office Building Jobs Filtered & Sorted Closest First */}
+                      {cityJobFilter === 'indoor' && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                          {indoorItems.map(renderIndoorCard)}
+                        </div>
+                      )}
 
-                                  <div className="pt-2 border-t border-white/10 flex items-center justify-between gap-2">
-                                    <span className="text-[10px] text-zinc-500">
-                                      ⏱️ {job.timeLimitSec}s · +${job.tipBonusMax} Tip
-                                    </span>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        if (isClockedIn) {
-                                          physicsRef.current?.stopCityRegularJob();
-                                        } else {
-                                          physicsRef.current?.startCityRegularJob(job.id);
-                                        }
-                                        if (physicsRef.current) setCityPursuitStats({ ...physicsRef.current.cityPursuitStats });
-                                        setShowCityTabletModal(false);
-                                        setShowCityGarageModal(false);
-                                      }}
-                                      className={`px-3.5 py-1.5 rounded-xl font-black text-xs uppercase cursor-pointer transition-colors ${
-                                        isClockedIn
-                                          ? 'bg-rose-500 hover:bg-rose-400 text-white'
-                                          : 'bg-yellow-400 hover:bg-yellow-300 text-black'
-                                      }`}
-                                    >
-                                      {isClockedIn ? 'Clock Out' : 'Start Job →'}
-                                    </button>
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
+                      {/* Driving & Field Dispatch Jobs Filtered & Sorted Closest First */}
+                      {cityJobFilter !== 'all' && cityJobFilter !== 'indoor' && cityJobFilter !== 'outdoor' && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                          {regularItems
+                            .filter((entry) => entry.job.jobCategory === cityJobFilter)
+                            .map(renderRegularCard)}
                         </div>
                       )}
                     </div>
